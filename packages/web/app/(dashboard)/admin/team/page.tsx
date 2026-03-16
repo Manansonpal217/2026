@@ -3,14 +3,7 @@
 import { useState, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  UserPlus,
-  Search,
-  MoreHorizontal,
-  Users,
-  Mail,
-  CheckCircle2,
-} from 'lucide-react'
+import { UserPlus, Search, MoreHorizontal, Users, Mail, CheckCircle2 } from 'lucide-react'
 import { InviteModal } from './invite-modal'
 import { Avatar, AvatarFallback, getAvatarGradient } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -88,6 +81,20 @@ export default function TeamPage() {
     },
   })
 
+  const { data: streaksData } = useQuery<{ users: { id: string; streak: number }[] }>({
+    queryKey: ['admin-streaks'],
+    enabled: !!accessToken,
+    queryFn: async () => {
+      const res = await fetch(`${API_URL}/v1/admin/streaks`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+      if (!res.ok) throw new Error('Failed to fetch streaks')
+      return res.json()
+    },
+  })
+
+  const streakMap = new Map((streaksData?.users ?? []).map((u) => [u.id, u.streak]))
+
   const handleInviteSuccess = useCallback(() => {
     setShowInviteModal(false)
     setSuccessMessage('Invitation sent! Your colleague will receive an email shortly.')
@@ -99,7 +106,7 @@ export default function TeamPage() {
     (m) =>
       !search ||
       m.name?.toLowerCase().includes(search.toLowerCase()) ||
-      m.email.toLowerCase().includes(search.toLowerCase()),
+      m.email.toLowerCase().includes(search.toLowerCase())
   )
 
   return (
@@ -112,11 +119,7 @@ export default function TeamPage() {
             Manage members, roles, and access permissions
           </p>
         </div>
-        <Button
-          variant="gradient"
-          onClick={() => setShowInviteModal(true)}
-          className="shrink-0"
-        >
+        <Button variant="gradient" onClick={() => setShowInviteModal(true)} className="shrink-0">
           <UserPlus className="h-4 w-4" />
           Invite member
         </Button>
@@ -127,7 +130,7 @@ export default function TeamPage() {
         <div
           className={cn(
             'flex items-center gap-3 rounded-xl border border-success/30 bg-success/10 px-4 py-3',
-            'animate-fade-in-up',
+            'animate-fade-in-up'
           )}
         >
           <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
@@ -162,9 +165,15 @@ export default function TeamPage() {
         </div>
 
         {/* Column headers */}
-        <div className="hidden md:grid grid-cols-[1fr_auto_auto_auto] gap-4 px-6 py-2.5 border-b border-border/30 bg-surface/50">
+        <div className="hidden md:grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-6 py-2.5 border-b border-border/30 bg-surface/50">
           <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">
             Member
+          </span>
+          <span
+            className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider w-16 text-center"
+            title="Consecutive days the user opened TrackSync and tracked time. Each day with at least one completed session counts."
+          >
+            Streak
           </span>
           <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider w-24 text-center">
             Role
@@ -192,7 +201,7 @@ export default function TeamPage() {
                 className={cn(
                   'group flex items-center gap-4 px-6 py-4',
                   'hover:bg-white/[0.02] transition-colors duration-150',
-                  'animate-fade-in-up',
+                  'animate-fade-in-up'
                 )}
                 style={{ animationDelay: `${0.05 * idx}s` }}
               >
@@ -202,7 +211,7 @@ export default function TeamPage() {
                     <AvatarFallback
                       className={cn(
                         'text-xs font-semibold bg-gradient-to-br',
-                        getAvatarGradient(member.role),
+                        getAvatarGradient(member.role)
                       )}
                     >
                       {getInitials(member.name, member.email)}
@@ -210,15 +219,24 @@ export default function TeamPage() {
                   </Avatar>
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-foreground truncate">
-                      {member.name || (
-                        <span className="text-muted-foreground italic">No name</span>
-                      )}
+                      {member.name || <span className="text-muted-foreground italic">No name</span>}
                     </p>
                     <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
                       <Mail className="h-2.5 w-2.5 shrink-0" />
                       {member.email}
                     </p>
                   </div>
+                </div>
+
+                {/* Streak */}
+                <div
+                  className="hidden md:flex w-16 justify-center items-center gap-1"
+                  title={`${streakMap.get(member.id) ?? 0} day streak — consecutive days with tracked time`}
+                >
+                  <span>🔥</span>
+                  <span className="text-xs font-medium tabular-nums text-foreground">
+                    {streakMap.get(member.id) ?? 0}
+                  </span>
                 </div>
 
                 {/* Role badge */}
@@ -236,9 +254,7 @@ export default function TeamPage() {
                 {/* Status badge */}
                 <div className="w-20 flex justify-center">
                   <Badge
-                    variant={
-                      (member.status as 'active' | 'invited' | 'suspended') ?? 'active'
-                    }
+                    variant={(member.status as 'active' | 'invited' | 'suspended') ?? 'active'}
                     dot
                   >
                     {member.status}
@@ -258,7 +274,7 @@ export default function TeamPage() {
                     'p-1.5 rounded-md text-muted-foreground/40',
                     'hover:text-foreground hover:bg-white/5',
                     'opacity-0 group-hover:opacity-100',
-                    'transition-all duration-150',
+                    'transition-all duration-150'
                   )}
                 >
                   <MoreHorizontal className="h-4 w-4" />
@@ -280,11 +296,7 @@ export default function TeamPage() {
               </p>
             </div>
             {!search && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowInviteModal(true)}
-              >
+              <Button variant="outline" size="sm" onClick={() => setShowInviteModal(true)}>
                 <UserPlus className="h-3.5 w-3.5" />
                 Invite first member
               </Button>

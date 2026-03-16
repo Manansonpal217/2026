@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, systemPreferences } from 'electron'
+import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { authHandlers, ensureValidSession } from './auth/handlers.js'
 import { openDb, closeDb } from './db/index.js'
@@ -15,9 +16,15 @@ import { startSyncScheduler, stopSyncScheduler, triggerImmediateSync } from './s
 import { getPendingSyncCount } from './sync/sessionSync.js'
 import { startScreenshotScheduler, stopScreenshotScheduler } from './screenshot/scheduler.js'
 import { startWindowBuffer, stopWindowBuffer } from './activity/windowBuffer.js'
-import { startInputMonitor, stopInputMonitor, isInputMonitorAvailable } from './activity/inputMonitor.js'
-import { getActivityPercent, getActivityPercentForTrackedTime, pruneOldIntervals } from './activity/intervalTracker.js'
+import {
+  startInputMonitor,
+  stopInputMonitor,
+  isInputMonitorAvailable,
+} from './activity/inputMonitor.js'
+import { getActivityPercentForTrackedTime, pruneOldIntervals } from './activity/intervalTracker.js'
 import { startActiveWindowPolling, stopActiveWindowPolling } from './activity/activeWin.js'
+import { getDb } from './db/index.js'
+import { computeStreakFromLocalSessions } from './streak.js'
 
 const API_URL = process.env.VITE_API_URL || 'http://localhost:3001'
 
@@ -46,9 +53,7 @@ function createWindow(): void {
 
   const isDev = !app.isPackaged
   const devServerUrl =
-    process.env.VITE_DEV_SERVER_URL ||
-    process.env.ELECTRON_RENDERER_URL ||
-    'http://localhost:5173'
+    process.env.VITE_DEV_SERVER_URL || process.env.ELECTRON_RENDERER_URL || 'http://localhost:5173'
 
   if (isDev) {
     mainWindow.loadURL(devServerUrl)
@@ -79,7 +84,11 @@ app.whenReady().then(async () => {
   pruneOldIntervals()
 
   // Register auth IPC handlers
-  authHandlers(ipcMain, () => mainWindow, () => projectCache.clear())
+  authHandlers(
+    ipcMain,
+    () => mainWindow,
+    () => projectCache.clear()
+  )
 
   // Theme: sync window background with app theme (hides title bar seam in light mode)
   ipcMain.handle('theme:set-background', (_e, theme: 'light' | 'dark') => {
@@ -118,14 +127,17 @@ app.on('before-quit', () => {
 // ── Onboarding state (persisted in app userData) ──────────────────────────────
 
 function getOnboardingStore() {
-  const { join } = require('path') as typeof import('path')
-  const { existsSync, writeFileSync, readFileSync } = require('fs') as typeof import('fs')
   const storePath = join(app.getPath('userData'), 'onboarding.json')
   return {
     isDone: () => existsSync(storePath),
-    markDone: () => writeFileSync(storePath, JSON.stringify({ done: true, ts: Date.now() }), 'utf-8'),
+    markDone: () =>
+      writeFileSync(storePath, JSON.stringify({ done: true, ts: Date.now() }), 'utf-8'),
     read: () => {
-      try { return JSON.parse(readFileSync(storePath, 'utf-8')) } catch { return null }
+      try {
+        return JSON.parse(readFileSync(storePath, 'utf-8'))
+      } catch {
+        return null
+      }
     },
   }
 }
@@ -139,7 +151,11 @@ function registerTimerHandlers(): void {
     const token = await ensureValidSession(mainWindow ?? undefined).catch(() => null)
     if (!token) return { authenticated: false, user: null }
     try {
-      const payload = JSON.parse(atob(token.split('.')[1])) as { sub: string; org_id: string; role: string }
+      const payload = JSON.parse(atob(token.split('.')[1])) as {
+        sub: string
+        org_id: string
+        role: string
+      }
       const fallbackUser = {
         id: payload.sub,
         org_id: payload.org_id,
@@ -154,7 +170,9 @@ function registerTimerHandlers(): void {
         if (res.status === 401) return { authenticated: false, user: null }
         return { authenticated: true, user: fallbackUser }
       }
-      const data = (await res.json()) as { user?: { id: string; name: string; email: string; role: string; org_id: string } }
+      const data = (await res.json()) as {
+        user?: { id: string; name: string; email: string; role: string; org_id: string }
+      }
       const u = data.user
       if (!u) return { authenticated: true, user: fallbackUser }
       return {
@@ -169,10 +187,20 @@ function registerTimerHandlers(): void {
       }
     } catch {
       try {
-        const payload = JSON.parse(atob(token.split('.')[1])) as { sub: string; org_id: string; role: string }
+        const payload = JSON.parse(atob(token.split('.')[1])) as {
+          sub: string
+          org_id: string
+          role: string
+        }
         return {
           authenticated: true,
-          user: { id: payload.sub, org_id: payload.org_id, role: payload.role, email: '', name: '' },
+          user: {
+            id: payload.sub,
+            org_id: payload.org_id,
+            role: payload.role,
+            email: '',
+            name: '',
+          },
         }
       } catch {
         return { authenticated: false, user: null }
@@ -180,44 +208,50 @@ function registerTimerHandlers(): void {
     }
   })
 
-  ipcMain.handle('timer:start', async (_, args: {
-    projectId?: string | null
-    taskId?: string | null
-    notes?: string | null
-    screenshotIntervalSec?: number
-  }) => {
-    const token = await ensureValidSession(mainWindow ?? undefined)
-    if (!token) throw new Error('Not authenticated')
+  ipcMain.handle(
+    'timer:start',
+    async (
+      _,
+      args: {
+        projectId?: string | null
+        taskId?: string | null
+        notes?: string | null
+        screenshotIntervalSec?: number
+      }
+    ) => {
+      const token = await ensureValidSession(mainWindow ?? undefined)
+      if (!token) throw new Error('Not authenticated')
 
-    const payload = JSON.parse(atob(token.split('.')[1])) as {
-      sub: string
-      org_id: string
+      const payload = JSON.parse(atob(token.split('.')[1])) as {
+        sub: string
+        org_id: string
+      }
+
+      const deviceId = getDeviceId()
+      const deviceName = `${app.getName()} on ${process.platform}`
+
+      const result = startTimer({
+        userId: payload.sub,
+        orgId: payload.org_id,
+        deviceId,
+        deviceName,
+        projectId: args.projectId ?? null,
+        taskId: args.taskId ?? null,
+        notes: args.notes ?? null,
+      })
+
+      // Start activity monitoring + screenshot scheduler
+      const sessionId = (result as { session: { id: string } }).session?.id
+      if (sessionId) {
+        startScreenshotScheduler(sessionId, args.screenshotIntervalSec ?? 300)
+        startWindowBuffer(sessionId)
+        startInputMonitor()
+        startActiveWindowPolling()
+      }
+
+      return result
     }
-
-    const deviceId = getDeviceId()
-    const deviceName = `${app.getName()} on ${process.platform}`
-
-    const result = startTimer({
-      userId: payload.sub,
-      orgId: payload.org_id,
-      deviceId,
-      deviceName,
-      projectId: args.projectId ?? null,
-      taskId: args.taskId ?? null,
-      notes: args.notes ?? null,
-    })
-
-    // Start activity monitoring + screenshot scheduler
-    const sessionId = (result as { session: { id: string } }).session?.id
-    if (sessionId) {
-      startScreenshotScheduler(sessionId, args.screenshotIntervalSec ?? 300)
-      startWindowBuffer(sessionId)
-      startInputMonitor()
-      startActiveWindowPolling()
-    }
-
-    return result
-  })
+  )
 
   ipcMain.handle('timer:stop', async () => {
     // Stop activity monitoring
@@ -238,14 +272,20 @@ function registerTimerHandlers(): void {
     return { score, monitoring: true, inputAvailable }
   })
 
-  ipcMain.handle('timer:switch-task', async (_, args: {
-    projectId?: string | null
-    taskId?: string | null
-    notes?: string | null
-  }) => {
-    const result = switchTask(args)
-    return result
-  })
+  ipcMain.handle(
+    'timer:switch-task',
+    async (
+      _,
+      args: {
+        projectId?: string | null
+        taskId?: string | null
+        notes?: string | null
+      }
+    ) => {
+      const result = switchTask(args)
+      return result
+    }
+  )
 
   ipcMain.handle('timer:status', () => {
     return getTimerStatus()
@@ -267,6 +307,29 @@ function registerTimerHandlers(): void {
     return { pending: getPendingSyncCount() }
   })
 
+  ipcMain.handle('streak:get', async () => {
+    const token = await ensureValidSession(mainWindow ?? undefined).catch(() => null)
+    if (token) {
+      try {
+        const res = await fetch(`${API_URL}/v1/app/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok) {
+          const data = (await res.json()) as { user?: { streak?: number } }
+          if (typeof data.user?.streak === 'number') return data.user.streak
+        }
+      } catch {
+        // Fall through to local computation
+      }
+    }
+    try {
+      const db = getDb()
+      return computeStreakFromLocalSessions(db)
+    } catch {
+      return 0
+    }
+  })
+
   ipcMain.handle('sync:trigger', async () => {
     triggerImmediateSync()
     return { triggered: true }
@@ -277,10 +340,12 @@ function registerTimerHandlers(): void {
     try {
       const { getDb } = await import('./db/index.js')
       const db = getDb()
-      return db.prepare(
-        `SELECT id, session_id, file_path, taken_at, activity_score, file_size_bytes, synced, created_at
+      return db
+        .prepare(
+          `SELECT id, session_id, file_path, taken_at, activity_score, file_size_bytes, synced, created_at
          FROM local_screenshots ORDER BY taken_at DESC LIMIT 100`
-      ).all()
+        )
+        .all()
     } catch {
       return []
     }
@@ -325,10 +390,12 @@ function registerTimerHandlers(): void {
       const { getDb } = await import('./db/index.js')
       const db = getDb()
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-      return db.prepare(
-        `SELECT id, started_at, ended_at, duration_sec, project_id, task_id, notes, synced
+      return db
+        .prepare(
+          `SELECT id, started_at, ended_at, duration_sec, project_id, task_id, notes, synced
          FROM local_sessions WHERE user_id = ? AND started_at >= ? ORDER BY started_at DESC LIMIT 200`
-      ).all(payload.sub, thirtyDaysAgo)
+        )
+        .all(payload.sub, thirtyDaysAgo)
     } catch {
       return []
     }
@@ -343,12 +410,14 @@ function registerTimerHandlers(): void {
       const db = getDb()
       const todayStart = new Date()
       todayStart.setHours(0, 0, 0, 0)
-      return db.prepare(
-        `SELECT id, started_at, ended_at, duration_sec, project_id, task_id, notes, synced
+      return db
+        .prepare(
+          `SELECT id, started_at, ended_at, duration_sec, project_id, task_id, notes, synced
          FROM local_sessions
          WHERE user_id = ? AND ended_at IS NOT NULL AND ended_at < ?
          ORDER BY ended_at DESC LIMIT 10`
-      ).all(payload.sub, todayStart.toISOString())
+        )
+        .all(payload.sub, todayStart.toISOString())
     } catch {
       return []
     }
@@ -379,7 +448,9 @@ function registerProjectHandlers(): void {
     }
   }
 
-  ipcMain.handle('projects:list', async (_, forceRefresh?: boolean) => fetchProjects(!!forceRefresh))
+  ipcMain.handle('projects:list', async (_, forceRefresh?: boolean) =>
+    fetchProjects(!!forceRefresh)
+  )
 
   ipcMain.handle(
     'projects:search-tasks',
@@ -392,7 +463,7 @@ function registerProjectHandlers(): void {
         const encoded = encodeURIComponent(query.trim())
         const res = await fetch(
           `${API_URL}/v1/projects/tasks/search?q=${encoded}&assigneeFilter=${filter}`,
-          { headers: { Authorization: `Bearer ${token}` } },
+          { headers: { Authorization: `Bearer ${token}` } }
         )
         if (!res.ok) return []
         const data = (await res.json()) as { tasks: unknown[] }
@@ -400,31 +471,24 @@ function registerProjectHandlers(): void {
       } catch {
         return []
       }
-    },
+    }
   )
 
-  ipcMain.handle(
-    'projects:tasks',
-    async (
-      _,
-      projectId: string,
-      assigneeFilter?: 'me' | 'all',
-    ) => {
-      const token = await ensureValidSession(mainWindow ?? undefined).catch(() => null)
-      if (!token) return []
+  ipcMain.handle('projects:tasks', async (_, projectId: string, assigneeFilter?: 'me' | 'all') => {
+    const token = await ensureValidSession(mainWindow ?? undefined).catch(() => null)
+    if (!token) return []
 
-      try {
-        const filter = assigneeFilter === 'me' ? 'me' : 'all'
-        const res = await fetch(
-          `${API_URL}/v1/projects/${projectId}/tasks?status=open&assigneeFilter=${filter}`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        )
-        if (!res.ok) return []
-        const data = (await res.json()) as { tasks: unknown[] }
-        return data.tasks
-      } catch {
-        return []
-      }
-    },
-  )
+    try {
+      const filter = assigneeFilter === 'me' ? 'me' : 'all'
+      const res = await fetch(
+        `${API_URL}/v1/projects/${projectId}/tasks?status=open&assigneeFilter=${filter}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      if (!res.ok) return []
+      const data = (await res.json()) as { tasks: unknown[] }
+      return data.tasks
+    } catch {
+      return []
+    }
+  })
 }

@@ -36,6 +36,7 @@ import { exportReportRoutes } from './reports/export.js'
 import { adminUserRoutes } from './admin/users.js'
 import { adminSettingsRoutes } from './admin/settings.js'
 import { adminAuditLogRoutes } from './admin/audit-log.js'
+import { adminStreaksRoutes } from './admin/streaks.js'
 
 export async function v1Routes(fastify: FastifyInstance, opts: { config: Config }) {
   const { config } = opts
@@ -84,4 +85,5 @@ export async function v1Routes(fastify: FastifyInstance, opts: { config: Config 
   fastify.register(adminUserRoutes, { prefix: '/admin', config })
   fastify.register(adminSettingsRoutes, { prefix: '/admin', config })
   fastify.register(adminAuditLogRoutes, { prefix: '/admin', config })
+  fastify.register(adminStreaksRoutes, { prefix: '/admin', config })
 }

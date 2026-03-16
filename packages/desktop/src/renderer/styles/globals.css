@@ -36,6 +36,10 @@
     --theme-text: #f9fafb;
     --theme-text-muted: #9ca3af;
     --theme-border: rgba(255, 255, 255, 0.1);
+    --theme-accent: #6366f1;
+    --theme-accent-soft: rgba(99, 102, 241, 0.15);
+    --theme-accent-warm: #f59e0b;
+    --theme-accent-cyan: #06b6d4;
   }
 
   html[data-theme='dark'] body,
@@ -83,8 +87,16 @@
 
   /* Text selection */
   ::selection {
-    background: rgba(99, 102, 241, 0.4);
+    background: rgba(99, 102, 241, 0.35);
     color: #fff;
+  }
+
+  /* Accent gradient for headings */
+  .accent-gradient {
+    background: linear-gradient(135deg, #818cf8 0%, #a78bfa 50%, #c084fc 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
   }
 
   /* Remove number input arrows */

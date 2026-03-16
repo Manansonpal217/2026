@@ -13,6 +13,10 @@ const config: Config = {
         'primary-hover': '#4f46e5',
         'primary-dark': '#3730a3',
         violet: '#8b5cf6',
+        accent: '#818cf8',
+        'accent-warm': '#f59e0b',
+        'accent-cyan': '#06b6d4',
+        'accent-soft': 'rgba(99, 102, 241, 0.15)',
         foreground: '#f9fafb',
         'foreground-secondary': '#9ca3af',
         muted: '#6b7280',
@@ -26,8 +30,11 @@ const config: Config = {
       boxShadow: {
         'glow-indigo': '0 0 20px rgba(99, 102, 241, 0.3), 0 0 40px rgba(99, 102, 241, 0.1)',
         'glow-sm': '0 0 8px rgba(99, 102, 241, 0.4)',
+        'glow-accent': '0 0 24px rgba(129, 140, 248, 0.25), 0 0 48px rgba(139, 92, 246, 0.1)',
         card: '0 4px 24px rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.4)',
         'card-border': '0 0 0 1px rgba(255,255,255,0.08)',
+        'card-accent':
+          '0 0 0 1px rgba(129, 140, 248, 0.2), 0 8px 32px -8px rgba(99, 102, 241, 0.15)',
       },
       keyframes: {
         'fade-in': {

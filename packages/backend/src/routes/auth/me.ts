@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { prisma } from '../../db/prisma.js'
+import { computeUserStreak } from '../../lib/streak.js'
 import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
@@ -25,9 +26,10 @@ export async function meRoutes(fastify: FastifyInstance, opts: { config: Config 
         return reply.status(404).send({ code: 'USER_NOT_FOUND', message: 'User no longer exists' })
       }
 
-      const orgSettings = await prisma.orgSettings.findUnique({
-        where: { org_id: fullUser.org_id },
-      })
+      const [orgSettings, streak] = await Promise.all([
+        prisma.orgSettings.findUnique({ where: { org_id: fullUser.org_id } }),
+        computeUserStreak(fullUser.id, fullUser.timezone),
+      ])
 
       return {
         user: {
@@ -37,6 +39,7 @@ export async function meRoutes(fastify: FastifyInstance, opts: { config: Config 
           role: fullUser.role,
           org_id: fullUser.organization.id,
           org_name: fullUser.organization.name,
+          streak,
         },
         org: {
           id: fullUser.organization.id,

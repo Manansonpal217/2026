@@ -95,27 +95,46 @@ function formatDurationLong(sec: number) {
 }
 
 function DashboardShell({ user, onSignOut }: DashboardShellProps) {
-  const [syncStatus, setSyncStatus] = useState<{ pending: number } | null>(null)
+  const [, setSyncStatus] = useState<{ pending: number } | null>(null)
   const [summaryOpen, setSummaryOpen] = useState(false)
+  const [streak, setStreak] = useState<number>(0)
   const { theme, toggleTheme } = useTheme()
   const { todaySessions, currentSession, isRunning, elapsedSeconds } = useTimerStore()
   const todayTotalSec =
-    todaySessions
-      .filter((s) => s.ended_at)
-      .reduce((sum, s) => sum + s.duration_sec, 0) + (isRunning ? elapsedSeconds : 0)
+    todaySessions.filter((s) => s.ended_at).reduce((sum, s) => sum + s.duration_sec, 0) +
+    (isRunning ? elapsedSeconds : 0)
 
   useEffect(() => {
-    window.electron?.ipcRenderer.invoke('sync:status').then((s) => setSyncStatus(s as { pending: number }))
+    window.electron?.ipcRenderer
+      .invoke('sync:status')
+      .then((s) => setSyncStatus(s as { pending: number }))
     const id = setInterval(
-      () => window.electron?.ipcRenderer.invoke('sync:status').then((s) => setSyncStatus(s as { pending: number })),
-      10_000,
+      () =>
+        window.electron?.ipcRenderer
+          .invoke('sync:status')
+          .then((s) => setSyncStatus(s as { pending: number })),
+      10_000
     )
+    return () => clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    const fetchStreak = () => {
+      window.electron?.ipcRenderer.invoke('streak:get').then((s) => setStreak((s as number) ?? 0))
+    }
+    fetchStreak()
+    const id = setInterval(fetchStreak, 5 * 60 * 1000)
     return () => clearInterval(id)
   }, [])
 
   const initials =
     (user.name
-      ? user.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
+      ? user.name
+          .split(' ')
+          .map((n: string) => n[0])
+          .join('')
+          .toUpperCase()
+          .slice(0, 2)
       : user.email
         ? user.email.charAt(0).toUpperCase()
         : user.id
@@ -129,15 +148,27 @@ function DashboardShell({ user, onSignOut }: DashboardShellProps) {
         theme === 'dark' ? 'bg-[#050508]' : 'bg-slate-50'
       }`}
     >
-      {/* Header — soft, minimal */}
+      {/* Header — soft, minimal; gradient at top to soften title bar seam */}
       <header
         className={`flex items-center justify-between px-6 py-3 shrink-0 backdrop-blur-sm transition-colors duration-300 ${
           theme === 'dark' ? 'bg-[#050508]/80' : 'bg-white/80'
         }`}
+        style={
+          theme === 'dark'
+            ? {
+                background: 'linear-gradient(to bottom, rgba(5,5,8,0.4) 0%, rgba(5,5,8,0.85) 100%)',
+              }
+            : {
+                background:
+                  'linear-gradient(to bottom, rgba(248,250,252,0.5) 0%, rgba(255,255,255,0.95) 100%)',
+              }
+        }
       >
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/30 to-violet-500/30">
-            <Clock className={`h-4.5 w-4.5 ${theme === 'dark' ? 'text-indigo-300' : 'text-indigo-600'}`} />
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-slate-600/40 to-slate-500/30">
+            <Clock
+              className={`h-4.5 w-4.5 ${theme === 'dark' ? 'text-white/80' : 'text-slate-600'}`}
+            />
           </div>
           <div className="flex flex-col">
             <span
@@ -145,12 +176,23 @@ function DashboardShell({ user, onSignOut }: DashboardShellProps) {
             >
               TrackSync
             </span>
-            <span className={`text-[11px] leading-tight ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}>
+            <span
+              className={`text-[11px] leading-tight ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}
+            >
               v2.1.0
             </span>
           </div>
         </div>
         <div className="flex items-center gap-5">
+          <span
+            className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-lg ${
+              theme === 'dark' ? 'text-amber-400/90' : 'text-amber-600'
+            }`}
+            title="Streak: Consecutive days you've opened TrackSync and tracked time. If you tracked today, today counts; otherwise it counts backward from your last active day. A day counts when you have at least one completed time session."
+          >
+            <span>🔥</span>
+            <span className="tabular-nums font-medium">{streak}</span>
+          </span>
           <button
             type="button"
             onClick={() => setSummaryOpen((o) => !o)}
@@ -200,12 +242,16 @@ function DashboardShell({ user, onSignOut }: DashboardShellProps) {
           theme === 'dark' ? 'bg-[#050508]/60' : 'bg-white/60'
         }`}
       >
-        <div className={`flex items-center gap-6 text-[11px] ${theme === 'dark' ? 'text-white/70' : 'text-slate-600'}`}>
+        <div
+          className={`flex items-center gap-6 text-[11px] ${theme === 'dark' ? 'text-white/70' : 'text-slate-600'}`}
+        >
           <span className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-emerald-400/80 shrink-0 shadow-[0_0_8px_rgba(52,211,153,0.4)]" />
             <span>Online</span>
           </span>
-          <span className={`flex items-center gap-2 ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}>
+          <span
+            className={`flex items-center gap-2 ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}
+          >
             <Camera className="h-3 w-3" />
             <span>Never</span>
           </span>
@@ -217,7 +263,9 @@ function DashboardShell({ user, onSignOut }: DashboardShellProps) {
         <div className="flex items-center gap-5">
           <span
             className={`flex items-center gap-1.5 text-[11px] cursor-pointer transition-colors duration-300 ${
-              theme === 'dark' ? 'text-white/50 hover:text-white/80' : 'text-slate-500 hover:text-slate-700'
+              theme === 'dark'
+                ? 'text-white/50 hover:text-white/80'
+                : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             <ExternalLink className="h-3 w-3" />
@@ -225,12 +273,18 @@ function DashboardShell({ user, onSignOut }: DashboardShellProps) {
           </span>
           <div className="flex items-center gap-2">
             <AvatarBlock src={avatarSrc} initials={initials} name={user.name} theme={theme} />
-            <span className={`text-[11px] ${theme === 'dark' ? 'text-white/80' : 'text-slate-700'}`}>{user.name}</span>
+            <span
+              className={`text-[11px] ${theme === 'dark' ? 'text-white/80' : 'text-slate-700'}`}
+            >
+              {user.name}
+            </span>
           </div>
           <button
             onClick={onSignOut}
             className={`text-[11px] transition-colors duration-300 ${
-              theme === 'dark' ? 'text-white/50 hover:text-white/80' : 'text-slate-500 hover:text-slate-700'
+              theme === 'dark'
+                ? 'text-white/50 hover:text-white/80'
+                : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             Sign Out
