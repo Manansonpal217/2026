@@ -154,10 +154,10 @@ tracksync/
         POSTGRES_DB: tracksync_dev
         POSTGRES_USER: postgres
         POSTGRES_PASSWORD: postgres
-      ports: ["5432:5432"]
+      ports: ["5433:5432"]
     redis:
       image: redis:7-alpine
-      ports: ["6379:6379"]
+      ports: ["6380:6379"]
   ```
 
 - [ ] **ESLint + Prettier**

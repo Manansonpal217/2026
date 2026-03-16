@@ -24,7 +24,7 @@ async function main() {
     },
   })
 
-  await prisma.user.upsert({
+  const adminUser = await prisma.user.upsert({
     where: {
       email_org_id: { email: 'admin@demo.com', org_id: org.id },
     },
@@ -83,25 +83,63 @@ async function main() {
     },
   })
 
-  // Dummy tasks for each project
+  // Dummy tasks for each project (with external_id for ticket search e.g. PROJ-123)
   const taskData = [
-    { projectId: project1.id, tasks: ['Homepage layout', 'Navigation redesign', 'Footer component'] },
-    { projectId: project2.id, tasks: ['Login screen', 'Dashboard UI', 'Settings page'] },
-    { projectId: project3.id, tasks: ['Auth endpoints', 'User API', 'Webhooks'] },
-    { projectId: project4.id, tasks: ['API docs', 'README', 'Changelog'] },
+    {
+      projectId: project1.id,
+      tasks: [
+        { name: 'Homepage layout', externalId: 'SITE-101' },
+        { name: 'Navigation redesign', externalId: 'SITE-102' },
+        { name: 'Footer component', externalId: 'SITE-103' },
+        { name: 'Fix auth bug', externalId: 'SITE-104' },
+      ],
+    },
+    {
+      projectId: project2.id,
+      tasks: [
+        { name: 'Login screen', externalId: 'MOB-201' },
+        { name: 'Dashboard UI', externalId: 'MOB-202' },
+        { name: 'Settings page', externalId: 'MOB-203' },
+        { name: 'Working on integration xyz', externalId: 'MOB-204' },
+      ],
+    },
+    {
+      projectId: project3.id,
+      tasks: [
+        { name: 'Auth endpoints', externalId: 'API-301' },
+        { name: 'User API', externalId: 'API-302' },
+        { name: 'Webhooks', externalId: 'API-303' },
+        { name: 'Add rate limiting', externalId: 'API-304' },
+      ],
+    },
+    {
+      projectId: project4.id,
+      tasks: [
+        { name: 'API docs', externalId: 'DOC-401' },
+        { name: 'README', externalId: 'DOC-402' },
+        { name: 'Changelog', externalId: 'DOC-403' },
+      ],
+    },
   ]
 
   for (const { projectId, tasks } of taskData) {
     for (let i = 0; i < tasks.length; i++) {
+      const task = tasks[i]
       await prisma.task.upsert({
         where: { id: `demo-task-${projectId}-${i}` },
-        update: {},
+        update: {
+          name: task.name,
+          external_id: task.externalId,
+          assignee_user_id: adminUser.id,
+        },
         create: {
           id: `demo-task-${projectId}-${i}`,
           project_id: projectId,
           org_id: org.id,
-          name: tasks[i],
+          name: task.name,
           status: 'open',
+          external_id: task.externalId,
+          assignee_user_id: adminUser.id,
         },
       })
     }

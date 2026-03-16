@@ -465,7 +465,7 @@ DATABASE_URL=                    # via AWS Secrets Manager in prod
 DATABASE_READ_URL=               # RDS Read Replica (optional in dev)
 
 # Redis
-REDIS_URL=redis://localhost:6379
+REDIS_URL=redis://localhost:6380
 
 # AWS
 AWS_REGION=us-east-1

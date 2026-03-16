@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "postinstall": "electron-rebuild -f -w better-sqlite3-multiple-ciphers,iohook-macos",
+    "postinstall": "electron-rebuild -f -w better-sqlite3-multiple-ciphers,uiohook-napi",
     "export-db": "npx tsx scripts/export-db.ts"
   },
   "dependencies": {
@@ -20,7 +20,7 @@
     "better-sqlite3-multiple-ciphers": "^12.6.2",
     "electron": "^40.8.0",
     "get-windows": "^9.2.3",
-    "iohook-macos": "^1.2.1",
+    "uiohook-napi": "^1.5.4",
     "keytar": "^7.9.0",
     "lottie-react": "^2.4.1",
     "lucide-react": "^0.577.0",

@@ -163,8 +163,8 @@ CI/CD environments use GitHub Actions secrets, which are injected as environment
 
 ```bash
 # .env.local (gitignored)
-DATABASE_URL=postgresql://user:password@localhost:5432/tracksync_dev
+DATABASE_URL=postgresql://user:password@localhost:5433/tracksync_dev
 STRIPE_SECRET_KEY=sk_test_xxx
 JWT_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n..."
-REDIS_URL=redis://localhost:6379
+REDIS_URL=redis://localhost:6380
 ```

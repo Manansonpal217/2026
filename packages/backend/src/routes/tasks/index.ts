@@ -19,6 +19,37 @@ const updateTaskSchema = z.object({
 export async function taskRoutes(fastify: FastifyInstance, opts: { config: Config }) {
   const authenticate = createAuthenticateMiddleware(opts.config)
 
+  // GET /v1/projects/tasks/search — search tasks across all projects (must be before :projectId route)
+  fastify.get('/tasks/search', {
+    preHandler: [authenticate],
+    handler: async (request, reply) => {
+      const req = request as AuthenticatedRequest
+      const query = request.query as { q?: string; assigneeFilter?: string }
+      const q = (query.q ?? '').trim()
+      if (q.length < 2) {
+        return reply.status(400).send({ code: 'VALIDATION_ERROR', message: 'Query must be at least 2 characters' })
+      }
+      const assigneeFilter = query.assigneeFilter === 'me' ? 'me' : 'all'
+
+      const tasks = await prisma.task.findMany({
+        where: {
+          org_id: req.user!.org_id,
+          status: { in: ['open', 'in_progress'] },
+          ...(assigneeFilter === 'me' ? { assignee_user_id: req.user!.id } : {}),
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { external_id: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+        include: { project: { select: { id: true, name: true, color: true } } },
+        orderBy: [{ status: 'asc' }, { name: 'asc' }],
+        take: 15,
+      })
+
+      return { tasks }
+    },
+  })
+
   // POST /v1/projects/:projectId/tasks
   fastify.post('/:projectId/tasks', {
     preHandler: [authenticate],

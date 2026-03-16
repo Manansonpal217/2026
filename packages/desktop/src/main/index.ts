@@ -14,8 +14,9 @@ import {
 import { startSyncScheduler, stopSyncScheduler, triggerImmediateSync } from './sync/scheduler.js'
 import { getPendingSyncCount } from './sync/sessionSync.js'
 import { startScreenshotScheduler, stopScreenshotScheduler } from './screenshot/scheduler.js'
-import { startWindowBuffer, stopWindowBuffer, getCurrentActivityScore } from './activity/windowBuffer.js'
+import { startWindowBuffer, stopWindowBuffer } from './activity/windowBuffer.js'
 import { startInputMonitor, stopInputMonitor, isInputMonitorAvailable } from './activity/inputMonitor.js'
+import { getActivityPercent, getActivityPercentForTrackedTime, pruneOldIntervals } from './activity/intervalTracker.js'
 import { startActiveWindowPolling, stopActiveWindowPolling } from './activity/activeWin.js'
 
 const API_URL = process.env.VITE_API_URL || 'http://localhost:3001'
@@ -74,6 +75,9 @@ app.whenReady().then(async () => {
   // Open SQLite database (async — must await before registering handlers that use DB)
   await openDb()
 
+  // Prune old activity intervals (keep only today)
+  pruneOldIntervals()
+
   // Register auth IPC handlers
   authHandlers(ipcMain, () => mainWindow, () => projectCache.clear())
 
@@ -83,9 +87,10 @@ app.whenReady().then(async () => {
     mainWindow?.setBackgroundColor(color)
   })
 
-  // Register timer IPC handlers
+  // Register timer IPC handlers (must run before createWindow so handlers are ready)
   setTimerWindowRef(() => mainWindow)
   registerTimerHandlers()
+  registerProjectHandlers()
 
   createWindow()
 
@@ -228,9 +233,9 @@ function registerTimerHandlers(): void {
   })
 
   ipcMain.handle('activity:current-stats', () => {
-    const score = getCurrentActivityScore()
+    const score = getActivityPercentForTrackedTime()
     const inputAvailable = isInputMonitorAvailable()
-    return { score: score ?? 0, monitoring: score !== null, inputAvailable }
+    return { score, monitoring: true, inputAvailable }
   })
 
   ipcMain.handle('timer:switch-task', async (_, args: {
@@ -329,6 +334,30 @@ function registerTimerHandlers(): void {
     }
   })
 
+  ipcMain.handle('sessions:list-recent', async () => {
+    const token = await ensureValidSession(mainWindow ?? undefined).catch(() => null)
+    if (!token) return []
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1])) as { sub: string }
+      const { getDb } = await import('./db/index.js')
+      const db = getDb()
+      const todayStart = new Date()
+      todayStart.setHours(0, 0, 0, 0)
+      return db.prepare(
+        `SELECT id, started_at, ended_at, duration_sec, project_id, task_id, notes, synced
+         FROM local_sessions
+         WHERE user_id = ? AND ended_at IS NOT NULL AND ended_at < ?
+         ORDER BY ended_at DESC LIMIT 10`
+      ).all(payload.sub, todayStart.toISOString())
+    } catch {
+      return []
+    }
+  })
+}
+
+// ── Project IPC Handlers (separate so they register before window loads) ───────
+
+function registerProjectHandlers(): void {
   async function fetchProjects(forceRefresh = false): Promise<unknown[]> {
     const token = await ensureValidSession(mainWindow ?? undefined).catch(() => null)
     if (!token) return []
@@ -351,6 +380,28 @@ function registerTimerHandlers(): void {
   }
 
   ipcMain.handle('projects:list', async (_, forceRefresh?: boolean) => fetchProjects(!!forceRefresh))
+
+  ipcMain.handle(
+    'projects:search-tasks',
+    async (_, query: string, assigneeFilter?: 'me' | 'all') => {
+      const token = await ensureValidSession(mainWindow ?? undefined).catch(() => null)
+      if (!token) return []
+
+      try {
+        const filter = assigneeFilter === 'me' ? 'me' : 'all'
+        const encoded = encodeURIComponent(query.trim())
+        const res = await fetch(
+          `${API_URL}/v1/projects/tasks/search?q=${encoded}&assigneeFilter=${filter}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        )
+        if (!res.ok) return []
+        const data = (await res.json()) as { tasks: unknown[] }
+        return data.tasks
+      } catch {
+        return []
+      }
+    },
+  )
 
   ipcMain.handle(
     'projects:tasks',

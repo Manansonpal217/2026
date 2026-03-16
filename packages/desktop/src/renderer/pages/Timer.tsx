@@ -2,22 +2,10 @@ import { useEffect, useState, useCallback } from 'react'
 import { Play, Square, AlertCircle, Activity, Folder, Edit3 } from 'lucide-react'
 import { useTimerStore } from '../stores/timerStore'
 import { useTheme } from '../contexts/ThemeContext'
-import { ProjectPicker } from '../components/ProjectPicker'
+import { TaskSearchInput, type TaskWithProject } from '../components/TaskSearchInput'
+import type { Project } from '../components/ProjectPicker'
+import type { LocalSessionRow } from '../stores/timerStore'
 import { PageLoader, InlineLoader } from '../components/Loader'
-
-const ENTRY_MODE_KEY = 'timer-entry-mode'
-
-type EntryMode = 'project' | 'manual'
-
-function getStoredEntryMode(): EntryMode {
-  try {
-    const stored = localStorage.getItem(ENTRY_MODE_KEY)
-    if (stored === 'project' || stored === 'manual') return stored
-  } catch {
-    // ignore
-  }
-  return 'project'
-}
 
 export function Timer() {
   const { theme } = useTheme()
@@ -25,6 +13,7 @@ export function Timer() {
     isRunning,
     elapsedSeconds,
     todaySessions,
+    currentSession,
     isLoading,
     error,
     initialize,
@@ -36,12 +25,29 @@ export function Timer() {
   } = useTimerStore()
 
   const [isInitializing, setIsInitializing] = useState(true)
-  const [entryMode, setEntryMode] = useState<EntryMode>(getStoredEntryMode)
-  const [manualNotes, setManualNotes] = useState('')
+  const [inputValue, setInputValue] = useState('')
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
+  const [selectedTask, setSelectedTask] = useState<TaskWithProject | null>(null)
   const [activityScore, setActivityScore] = useState(0)
   const [inputMonitorAvailable, setInputMonitorAvailable] = useState(true)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [recentSessions, setRecentSessions] = useState<LocalSessionRow[]>([])
+
+  const fetchRecentSessions = useCallback(async () => {
+    const sessions = (await window.electron?.ipcRenderer.invoke('sessions:list-recent')) as LocalSessionRow[]
+    setRecentSessions(sessions ?? [])
+  }, [])
+
+  useEffect(() => {
+    window.electron?.ipcRenderer.invoke('projects:list').then((list) => {
+      setProjects((list as Project[]) ?? [])
+    })
+  }, [])
+
+  useEffect(() => {
+    fetchRecentSessions()
+  }, [fetchRecentSessions])
 
   useEffect(() => {
     initialize()
@@ -49,15 +55,15 @@ export function Timer() {
         const session = useTimerStore.getState().currentSession
         if (session) {
           if (session.notes && !session.projectId) {
-            setEntryMode('manual')
-            setManualNotes(session.notes)
+            setInputValue(session.notes)
             setSelectedProjectId(null)
             setSelectedTaskId(null)
+            setSelectedTask(null)
           } else {
-            setEntryMode('project')
-            setSelectedProjectId(session.projectId)
-            setSelectedTaskId(session.taskId)
-            setManualNotes('')
+            setInputValue('')
+            setSelectedProjectId(session.projectId ?? null)
+            setSelectedTaskId(session.taskId ?? null)
+            setSelectedTask(null)
           }
         }
       })
@@ -66,10 +72,12 @@ export function Timer() {
 
   useEffect(() => {
     const handleTick = (...args: unknown[]) => setElapsed(args[0] as number)
-    const handleStopped = () => {
+    const handleStopped = async () => {
       stop().catch(() => {})
       refreshTodaySessions().catch(() => {})
-      setActivityScore(0)
+      fetchRecentSessions().catch(() => {})
+      const res = (await window.electron?.ipcRenderer.invoke('activity:current-stats')) as { score?: number } | undefined
+      if (res?.score !== undefined) setActivityScore(res.score)
     }
     window.electron?.ipcRenderer.on('timer:tick', handleTick)
     window.electron?.ipcRenderer.on('timer:stopped', handleStopped)
@@ -77,9 +85,9 @@ export function Timer() {
       window.electron?.ipcRenderer.off('timer:tick', handleTick)
       window.electron?.ipcRenderer.off('timer:stopped', handleStopped)
     }
-  }, [setElapsed, stop, refreshTodaySessions])
+  }, [setElapsed, stop, refreshTodaySessions, fetchRecentSessions])
 
-  // Poll activity score when timer is running
+  // Poll activity score when timer is running (day-wide: active intervals / total intervals since midnight)
   useEffect(() => {
     if (!isRunning) return
     const poll = async () => {
@@ -91,66 +99,82 @@ export function Timer() {
       if (res?.inputAvailable !== undefined) setInputMonitorAvailable(res.inputAvailable)
     }
     poll()
-    const id = setInterval(poll, 2_000)
+    const id = setInterval(poll, 10_000)
     return () => clearInterval(id)
   }, [isRunning])
-
-  const handleModeChange = useCallback(
-    async (mode: EntryMode) => {
-      setEntryMode(mode)
-      try {
-        localStorage.setItem(ENTRY_MODE_KEY, mode)
-      } catch {
-        // ignore
-      }
-      if (mode === 'manual') {
-        setSelectedProjectId(null)
-        setSelectedTaskId(null)
-        if (isRunning) {
-          await switchTask({ projectId: null, taskId: null, notes: manualNotes.trim() || null })
-        }
-      } else {
-        setManualNotes('')
-        if (isRunning) {
-          await switchTask({ projectId: selectedProjectId, taskId: selectedTaskId })
-        }
-      }
-    },
-    [isRunning, manualNotes, selectedProjectId, selectedTaskId, switchTask],
-  )
 
   const handleToggle = useCallback(async () => {
     if (isRunning) {
       await stop()
-    } else if (entryMode === 'manual') {
-      await start({
-        projectId: null,
-        taskId: null,
-        notes: manualNotes.trim() || null,
-      })
-    } else {
+    } else if (selectedProjectId && selectedTaskId) {
       await start({
         projectId: selectedProjectId,
         taskId: selectedTaskId,
         notes: null,
       })
+      await Promise.all([refreshTodaySessions(), fetchRecentSessions()])
+    } else {
+      await start({
+        projectId: null,
+        taskId: null,
+        notes: inputValue.trim() || null,
+      })
+      await Promise.all([refreshTodaySessions(), fetchRecentSessions()])
     }
-  }, [isRunning, stop, start, entryMode, manualNotes, selectedProjectId, selectedTaskId])
+  }, [isRunning, stop, start, selectedProjectId, selectedTaskId, inputValue, refreshTodaySessions, fetchRecentSessions])
 
-  const handleProjectChange = useCallback(
-    async (projectId: string | null, taskId: string | null) => {
+  const handleSelect = useCallback(
+    async (
+      projectId: string | null,
+      taskId: string | null,
+      task?: TaskWithProject,
+      manualNotes?: string,
+    ) => {
       setSelectedProjectId(projectId)
       setSelectedTaskId(taskId)
+      setSelectedTask(task ?? null)
+      if (manualNotes !== undefined) setInputValue(manualNotes)
       if (isRunning) {
-        await switchTask({ projectId, taskId })
+        await switchTask({
+          projectId,
+          taskId,
+          notes: projectId && taskId ? null : (manualNotes ?? inputValue).trim() || null,
+        })
       }
     },
-    [isRunning, switchTask],
+    [isRunning, switchTask, inputValue],
   )
 
-  const handleManualNotesChange = useCallback((value: string) => {
-    setManualNotes(value)
-  }, [])
+  const handleSummaryClick = useCallback(
+    async (session: LocalSessionRow) => {
+      if (session.project_id && session.task_id) {
+        try {
+          const tasks = (await window.electron?.ipcRenderer.invoke(
+            'projects:tasks',
+            session.project_id,
+            'all',
+          )) as Array<{ id: string; name: string; external_id?: string | null; project_id?: string }>
+          const task = tasks?.find((t) => t.id === session.task_id)
+          const project = projects.find((p) => p.id === session.project_id)
+          if (task && project) {
+            const taskWithProject: TaskWithProject = {
+              id: task.id,
+              name: task.name,
+              external_id: task.external_id,
+              project_id: project.id,
+              project: { id: project.id, name: project.name, color: project.color },
+            }
+            await handleSelect(project.id, task.id, taskWithProject)
+          }
+        } catch {
+          // ignore
+        }
+      } else {
+        await handleSelect(null, null, undefined, session.notes ?? '')
+      }
+    },
+    [handleSelect, projects],
+  )
 
   const todayTotalSec =
     todaySessions
@@ -165,6 +189,82 @@ export function Timer() {
     if (m > 0) return `${m}m ${s}s`
     return `${s}s`
   }
+
+  const formatTime = (iso: string) => {
+    return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  }
+
+  const formatDateShort = (iso: string) => {
+    const d = new Date(iso)
+    const today = new Date()
+    if (d.toDateString() === today.toDateString()) return ''
+    const yesterday = new Date(today)
+    yesterday.setDate(yesterday.getDate() - 1)
+    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday '
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' '
+  }
+
+  const formatDurationShort = (sec: number) => {
+    const h = Math.floor(sec / 3600)
+    const m = Math.floor((sec % 3600) / 60)
+    const s = Math.floor(sec % 60)
+    if (h > 0) return `${h}h ${m}m`
+    if (m > 0) return `${m}m ${s}s`
+    return `${s}s`
+  }
+
+  const projectMap = new Map(projects.map((p) => [p.id, p]))
+  const todayCompleted = todaySessions.filter((s) => s.ended_at)
+
+  // Merge sessions for the same task into one entry
+  function mergeSessions(sessions: LocalSessionRow[]) {
+    const groups = new Map<
+      string,
+      { sessions: LocalSessionRow[]; totalSec: number; firstStarted: string; lastEnded: string }
+    >()
+    for (const s of sessions) {
+      const key =
+        s.project_id != null && s.task_id != null
+          ? `${s.project_id}|${s.task_id}`
+          : `manual|${String(s.notes ?? '')}`
+      const existing = groups.get(key)
+      if (existing) {
+        existing.sessions.push(s)
+        existing.totalSec += s.duration_sec
+        if (s.started_at < existing.firstStarted) existing.firstStarted = s.started_at
+        if (s.ended_at && s.ended_at > existing.lastEnded) existing.lastEnded = s.ended_at
+      } else {
+        groups.set(key, {
+          sessions: [s],
+          totalSec: s.duration_sec,
+          firstStarted: s.started_at,
+          lastEnded: s.ended_at ?? s.started_at,
+        })
+      }
+    }
+    return Array.from(groups.entries()).map(([key, g]) => ({
+      key,
+      ...g,
+      firstSession: g.sessions[0],
+    }))
+  }
+
+  // Single unified list: today + recent, merged by task, sorted by most recent first
+  const allCompleted = [...todayCompleted, ...recentSessions]
+  const mergedAll = mergeSessions(allCompleted).sort(
+    (a, b) => new Date(b.lastEnded).getTime() - new Date(a.lastEnded).getTime()
+  )
+
+  // Running session key to merge with completed (from today or recent)
+  const runningKey =
+    isRunning && currentSession
+      ? currentSession.projectId != null && currentSession.taskId != null
+        ? `${currentSession.projectId}|${currentSession.taskId}`
+        : `manual|${String(currentSession.notes ?? '')}`
+      : null
+
+  const matchedAll = runningKey ? mergedAll.find((m) => m.key === runningKey) : null
+  const restWithoutRunning = matchedAll ? mergedAll.filter((m) => m.key !== runningKey) : mergedAll
 
   if (isInitializing) {
     return <PageLoader />
@@ -224,90 +324,208 @@ export function Timer() {
               >
                 What are you working on?
               </h2>
-              {/* Segmented control */}
-              <div
-                className={[
-                  'flex shrink-0 rounded-2xl p-1 mb-4',
-                  theme === 'dark' ? 'bg-white/[0.04]' : 'bg-slate-100',
-                ].join(' ')}
-              >
-                <button
-                  type="button"
-                  onClick={() => handleModeChange('project')}
-                  className={[
-                    'flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-sm font-medium transition-all duration-200',
-                    entryMode === 'project'
-                      ? theme === 'dark'
-                        ? 'bg-white/10 text-white shadow-sm'
-                        : 'bg-white text-slate-800 shadow-sm'
-                      : theme === 'dark'
-                        ? 'text-white/50 hover:text-white/70'
-                        : 'text-slate-600 hover:text-slate-800',
-                  ].join(' ')}
-                >
-                  <Folder className="h-3.5 w-3.5" />
-                  Project & Task
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleModeChange('manual')}
-                  className={[
-                    'flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-sm font-medium transition-all duration-200',
-                    entryMode === 'manual'
-                      ? theme === 'dark'
-                        ? 'bg-white/10 text-white shadow-sm'
-                        : 'bg-white text-slate-800 shadow-sm'
-                      : theme === 'dark'
-                        ? 'text-white/50 hover:text-white/70'
-                        : 'text-slate-600 hover:text-slate-800',
-                  ].join(' ')}
-                >
-                  <Edit3 className="h-3.5 w-3.5" />
-                  Manual entry
-                </button>
-              </div>
-              <div className="flex-1 min-h-0 flex flex-col">
-                {entryMode === 'project' ? (
-                  <ProjectPicker
-                    selectedProjectId={selectedProjectId}
-                    selectedTaskId={selectedTaskId}
-                    onProjectChange={handleProjectChange}
-                    disabled={false}
-                    expanded
-                    theme={theme}
-                  />
-                ) : (
-                  <div className="flex flex-col flex-1 min-h-0">
-                    <label
-                      className={`block text-[10px] font-medium uppercase tracking-widest mb-2 ${
-                        theme === 'dark' ? 'text-white/40' : 'text-slate-500'
-                      }`}
-                    >
-                      Description
-                    </label>
-                    <input
-                      type="text"
-                      value={manualNotes}
-                      onChange={(e) => handleManualNotesChange(e.target.value.slice(0, 200))}
-                      placeholder="e.g. Code review, Meeting prep, Research..."
-                      maxLength={200}
-                      className={[
-                        'w-full h-10 px-4 rounded-2xl text-sm transition-all duration-300 ease-out',
-                        'placeholder:opacity-60',
-                        theme === 'dark'
-                          ? 'bg-white/[0.04] text-white placeholder:text-white/40 hover:bg-white/[0.07] focus:bg-white/[0.07] border border-transparent focus:border-white/20'
-                          : 'bg-slate-100 text-slate-800 placeholder:text-slate-500 hover:bg-slate-200 focus:bg-slate-200 border border-transparent focus:border-slate-300',
-                      ].join(' ')}
-                    />
-                    <p
-                      className={`mt-2 text-[10px] ${
-                        theme === 'dark' ? 'text-white/30' : 'text-slate-400'
-                      }`}
-                    >
-                      {manualNotes.length}/200
-                    </p>
+              <div className="flex flex-col flex-1 min-h-0 gap-4">
+                <TaskSearchInput
+                  value={inputValue}
+                  onChange={setInputValue}
+                  selectedProjectId={selectedProjectId}
+                  selectedTaskId={selectedTaskId}
+                  selectedTask={selectedTask}
+                  onSelect={handleSelect}
+                  disabled={false}
+                  theme={theme}
+                />
+                {/* Summary below input */}
+                <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+                  <p
+                    className={`text-[10px] font-medium uppercase tracking-widest mb-2 shrink-0 ${
+                      theme === 'dark' ? 'text-white/40' : 'text-slate-500'
+                    }`}
+                  >
+                    Recent
+                  </p>
+                  <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide space-y-1.5">
+                    {mergedAll.length === 0 && !isRunning ? (
+                      <p
+                        className={`text-xs py-4 ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}
+                      >
+                        No sessions yet
+                      </p>
+                    ) : (
+                      <>
+                        {(isRunning && currentSession) || matchedAll ? (
+                          (() => {
+                            const isCombined = matchedAll != null
+                            const cs = currentSession
+                            const m = matchedAll
+                            const project = cs?.projectId
+                              ? projectMap.get(cs.projectId)
+                              : m
+                                ? projectMap.get(m.firstSession.project_id ?? '')
+                                : null
+                            const isManual = cs
+                              ? cs.projectId == null
+                              : m
+                                ? m.firstSession.project_id == null
+                                : false
+                            const displayLabel = isManual
+                              ? (cs?.notes || m?.firstSession.notes || 'Uncategorized')
+                              : (project?.name || 'No project')
+                            const totalSec = isCombined ? (m!.totalSec + elapsedSeconds) : elapsedSeconds
+                            const firstStarted = isCombined && m && cs
+                              ? (m.firstStarted < cs.startedAt ? m.firstStarted : cs.startedAt)
+                              : cs?.startedAt ?? ''
+                            return (
+                              <button
+                                type="button"
+                                key={isCombined ? `combined-${runningKey}` : 'running'}
+                                onClick={() => {
+                                  if (cs) {
+                                    if (cs.projectId && cs.taskId) {
+                                      handleSummaryClick({
+                                        id: cs.id,
+                                        started_at: cs.startedAt,
+                                        ended_at: null,
+                                        duration_sec: elapsedSeconds,
+                                        project_id: cs.projectId,
+                                        task_id: cs.taskId,
+                                        notes: cs.notes,
+                                        synced: 0,
+                                      })
+                                    } else {
+                                      handleSelect(null, null, undefined, cs.notes ?? '')
+                                    }
+                                  } else if (m) {
+                                    handleSummaryClick(m.firstSession)
+                                  }
+                                }}
+                                className={[
+                                  'w-full flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors',
+                                  isRunning
+                                    ? theme === 'dark'
+                                      ? 'bg-indigo-500/10 border border-indigo-500/20 text-[#d1d5db]'
+                                      : 'bg-indigo-50 border border-indigo-200 text-slate-700'
+                                    : theme === 'dark'
+                                      ? 'hover:bg-white/[0.06] text-[#d1d5db]'
+                                      : 'hover:bg-slate-100 text-slate-700',
+                                ].join(' ')}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                                    style={{
+                                      backgroundColor: project?.color
+                                        ? `${project.color}30`
+                                        : theme === 'dark'
+                                          ? 'rgba(99,102,241,0.2)'
+                                          : 'rgba(99,102,241,0.15)',
+                                    }}
+                                  >
+                                    {isManual ? (
+                                      <Edit3
+                                        className={`h-3.5 w-3.5 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-600'}`}
+                                      />
+                                    ) : (
+                                      <Folder
+                                        className={`h-3.5 w-3.5 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-600'}`}
+                                      />
+                                    )}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div
+                                      className={`text-sm font-medium truncate ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}
+                                    >
+                                      {displayLabel}
+                                    </div>
+                                    <div
+                                      className={`text-[10px] ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}
+                                    >
+                                      {isRunning
+                                        ? `Started ${formatTime(firstStarted)}`
+                                        : m
+                                          ? `${formatTime(m.firstStarted)}${m.lastEnded ? ` – ${formatTime(m.lastEnded)}` : ''}`
+                                          : ''}
+                                    </div>
+                                  </div>
+                                </div>
+                                <span
+                                  className={`tabular-nums text-xs font-medium shrink-0 ${
+                                    theme === 'dark' ? 'text-indigo-300' : 'text-indigo-600'
+                                  }`}
+                                >
+                                  {formatDurationShort(totalSec)}
+                                </span>
+                              </button>
+                            )
+                          })()
+                        ) : null}
+                        {restWithoutRunning.map((m) => {
+                        const s = m.firstSession
+                        const project = s.project_id ? projectMap.get(s.project_id) : null
+                        const isManual = s.project_id == null
+                        const displayLabel = isManual ? (s.notes || 'Uncategorized') : (project?.name || 'No project')
+                        return (
+                          <button
+                            key={m.key}
+                            type="button"
+                            onClick={() => handleSummaryClick(s)}
+                            className={[
+                              'w-full flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors',
+                              theme === 'dark'
+                                ? 'hover:bg-white/[0.06] text-[#d1d5db]'
+                                : 'hover:bg-slate-100 text-slate-700',
+                            ].join(' ')}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div
+                                className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                                style={{
+                                  backgroundColor: project?.color
+                                    ? `${project.color}30`
+                                    : theme === 'dark'
+                                      ? 'rgba(99,102,241,0.2)'
+                                      : 'rgba(99,102,241,0.15)',
+                                }}
+                              >
+                                {isManual ? (
+                                  <Edit3
+                                    className={`h-3.5 w-3.5 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-600'}`}
+                                  />
+                                ) : (
+                                  <Folder
+                                    className={`h-3.5 w-3.5 ${theme === 'dark' ? 'text-indigo-400' : 'text-indigo-600'}`}
+                                  />
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <div
+                                  className={`text-sm font-medium truncate ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}
+                                >
+                                  {displayLabel}
+                                </div>
+                                <div
+                                  className={`text-[10px] ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}
+                                >
+                                  {formatDateShort(m.firstStarted)}
+                                  {formatTime(m.firstStarted)}
+                                  {m.lastEnded && ` – ${formatTime(m.lastEnded)}`}
+                                </div>
+                              </div>
+                            </div>
+                            <span
+                              className={`tabular-nums text-xs font-medium shrink-0 ${
+                                theme === 'dark' ? 'text-indigo-300' : 'text-indigo-600'
+                              }`}
+                            >
+                              {formatDurationShort(m.totalSec)}
+                            </span>
+                          </button>
+                        )
+                      })}
+                      </>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
             </div>
           </section>

@@ -66,6 +66,11 @@ const EMBEDDED_MIGRATIONS: Record<string, string> = {
     CREATE INDEX IF NOT EXISTS idx_local_activity_session ON local_activity_logs (session_id);
     CREATE INDEX IF NOT EXISTS idx_local_activity_synced  ON local_activity_logs (synced, window_start);
   `,
+  '003_active_intervals.sql': `
+    CREATE TABLE IF NOT EXISTS active_intervals (
+      interval_index INTEGER PRIMARY KEY
+    );
+  `,
 }
 
 /** Open the local SQLite database and run all pending migrations. */

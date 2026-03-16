@@ -31,7 +31,7 @@ interface TimerState {
   initialize: () => Promise<void>
   start: (args: { projectId?: string | null; taskId?: string | null; notes?: string | null }) => Promise<void>
   stop: () => Promise<void>
-  switchTask: (args: { projectId?: string | null; taskId?: string | null }) => Promise<void>
+  switchTask: (args: { projectId?: string | null; taskId?: string | null; notes?: string | null }) => Promise<void>
   refreshTodaySessions: () => Promise<void>
   setElapsed: (seconds: number) => void
   setError: (error: string | null) => void
@@ -79,6 +79,7 @@ export const useTimerStore = create<TimerState>((set, get) => ({
         elapsedSeconds: status.elapsed,
         currentSession: status.session,
       })
+      await get().refreshTodaySessions()
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Failed to start timer' })
     } finally {
@@ -90,8 +91,13 @@ export const useTimerStore = create<TimerState>((set, get) => ({
     set({ isLoading: true, error: null })
     try {
       await window.electron?.ipcRenderer.invoke('timer:stop')
-      set({ isRunning: false, elapsedSeconds: 0, currentSession: null })
-      await get().refreshTodaySessions()
+      const sessions = (await window.electron?.ipcRenderer.invoke('sessions:list-local')) as LocalSessionRow[]
+      set({
+        isRunning: false,
+        elapsedSeconds: 0,
+        currentSession: null,
+        todaySessions: sessions ?? [],
+      })
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Failed to stop timer' })
     } finally {
@@ -99,12 +105,13 @@ export const useTimerStore = create<TimerState>((set, get) => ({
     }
   },
 
-  switchTask: async ({ projectId, taskId }) => {
+  switchTask: async ({ projectId, taskId, notes }) => {
     set({ isLoading: true, error: null })
     try {
       const status = await window.electron?.ipcRenderer.invoke('timer:switch-task', {
         projectId: projectId ?? null,
         taskId: taskId ?? null,
+        notes: notes ?? null,
       }) as { running: boolean; elapsed: number; session: TimerSession | null }
       set({
         isRunning: status.running,
