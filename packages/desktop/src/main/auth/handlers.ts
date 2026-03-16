@@ -24,8 +24,9 @@ export async function ensureValidSession(win?: BrowserWindow): Promise<string | 
       body: JSON.stringify({ refresh_token: tokens.refreshToken }),
     })
   } catch (err) {
-    // Network error — keep tokens so user stays logged in when backend is back
-    throw new Error('Unable to reach server. Please check your connection and try again.')
+    // Network error (e.g. backend not ready yet on dev restart) — keep tokens, return null
+    // Caller can retry; tokens remain in keychain for next attempt
+    return null
   }
 
   if (!res.ok) {
@@ -46,11 +47,14 @@ export async function ensureValidSession(win?: BrowserWindow): Promise<string | 
 export function authHandlers(
   ipcMain: IpcMain,
   getMainWindow: () => BrowserWindow | null,
-  onLogout?: () => void,
+  onLogout?: () => void
 ) {
   ipcMain.handle(
     'auth:login',
-    async (_, { email, password, org_slug }: { email: string; password: string; org_slug?: string }) => {
+    async (
+      _,
+      { email, password, org_slug }: { email: string; password: string; org_slug?: string }
+    ) => {
       const res = await fetch(`${API_URL}/v1/app/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { prisma } from '../../db/prisma.js'
-import { hashRefreshToken, hashPassword } from '../../lib/password.js'
+import { hashRefreshToken } from '../../lib/password.js'
 import { issueAccessToken, createRefreshToken } from '../../lib/jwt.js'
 import type { Config } from '../../config.js'
 
@@ -14,7 +14,7 @@ const refreshSchema = {
   },
 }
 
-export async function refreshRoutes(fastify: FastifyInstance, opts: { config: Config }) {
+export async function refreshRoutes(fastify: FastifyInstance, _opts: { config: Config }) {
   fastify.post<{ Body: { refresh_token: string } }>(
     '/refresh',
     {

@@ -33,16 +33,16 @@ export function computeStreakFromLocalSessions(db: Database.Database): number {
 
   const rows = db
     .prepare(
-      `SELECT started_at FROM local_sessions
+      `SELECT ended_at FROM local_sessions
        WHERE ended_at IS NOT NULL AND duration_sec > 0
        AND started_at >= ?
        ORDER BY started_at DESC`
     )
-    .all(cutoffIso) as { started_at: string }[]
+    .all(cutoffIso) as { ended_at: string }[]
 
   const activeDates = new Set<string>()
   for (const r of rows) {
-    activeDates.add(toDateStringInTz(r.started_at, tz))
+    activeDates.add(toDateStringInTz(r.ended_at, tz))
   }
 
   if (activeDates.size === 0) return 0

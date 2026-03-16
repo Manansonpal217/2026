@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../../db/prisma.js'
-import { createAuthenticateMiddleware, requireRole } from '../../middleware/authenticate.js'
+import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
 
@@ -27,7 +27,9 @@ export async function taskRoutes(fastify: FastifyInstance, opts: { config: Confi
       const query = request.query as { q?: string; assigneeFilter?: string }
       const q = (query.q ?? '').trim()
       if (q.length < 2) {
-        return reply.status(400).send({ code: 'VALIDATION_ERROR', message: 'Query must be at least 2 characters' })
+        return reply
+          .status(400)
+          .send({ code: 'VALIDATION_ERROR', message: 'Query must be at least 2 characters' })
       }
       const assigneeFilter = query.assigneeFilter === 'me' ? 'me' : 'all'
 
@@ -139,7 +141,9 @@ export async function taskRoutes(fastify: FastifyInstance, opts: { config: Confi
       if (body.data.status === 'closed') {
         const role = req.user!.role
         if (!['admin', 'super_admin', 'manager'].includes(role)) {
-          return reply.status(403).send({ code: 'FORBIDDEN', message: 'Only managers+ can close tasks' })
+          return reply
+            .status(403)
+            .send({ code: 'FORBIDDEN', message: 'Only managers+ can close tasks' })
         }
       }
 

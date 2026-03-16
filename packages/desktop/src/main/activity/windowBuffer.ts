@@ -21,7 +21,7 @@ let flushTimer: ReturnType<typeof setInterval> | null = null
 export function startWindowBuffer(
   sessionId: string,
   weights?: ActivityWeights,
-  baseline?: ActivityBaseline,
+  baseline?: ActivityBaseline
 ): void {
   accumulator = {
     sessionId,
@@ -44,6 +44,7 @@ export function stopWindowBuffer(weights?: ActivityWeights, baseline?: ActivityB
   if (accumulator) {
     flushWindow(weights, baseline)
   }
+  accumulator = null
 }
 
 export function addKeyboardEvent(): void {
@@ -68,7 +69,7 @@ export function setActiveApp(appName: string): void {
 /** Returns current activity score (0–100) from accumulated inputs, or null if not monitoring. */
 export function getCurrentActivityScore(
   weights?: ActivityWeights,
-  baseline?: ActivityBaseline,
+  baseline?: ActivityBaseline
 ): number | null {
   if (!accumulator) return null
   const now = new Date()
@@ -82,7 +83,7 @@ export function getCurrentActivityScore(
     },
     durationMin,
     baseline,
-    weights,
+    weights
   )
 }
 
@@ -114,17 +115,19 @@ function flushWindow(weights?: ActivityWeights, baseline?: ActivityBaseline): vo
     },
     durationMin,
     baseline,
-    weights,
+    weights
   )
 
   const mostUsedApp = getMostUsedApp(accumulator)
 
-  db.prepare(`
+  db.prepare(
+    `
     INSERT OR IGNORE INTO local_activity_logs
       (id, session_id, window_start, window_end, keyboard_events, mouse_clicks,
        mouse_distance_px, active_app, activity_score, synced, sync_attempts, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
-  `).run(
+  `
+  ).run(
     uuidv4(),
     accumulator.sessionId,
     accumulator.windowStart.toISOString(),
@@ -134,7 +137,7 @@ function flushWindow(weights?: ActivityWeights, baseline?: ActivityBaseline): vo
     accumulator.mouseDistancePx,
     mostUsedApp,
     score,
-    new Date().toISOString(),
+    new Date().toISOString()
   )
 
   // Reset for next window

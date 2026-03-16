@@ -42,12 +42,14 @@ export function startTimer(args: StartTimerArgs): TimerStatus {
   const id = uuidv4()
   const startedAt = new Date()
 
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO local_sessions
       (id, user_id, org_id, project_id, task_id, device_id, device_name,
        started_at, ended_at, duration_sec, is_manual, notes, synced, sync_attempts, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 0, ?, 0, 0, ?)
-  `).run(
+  `
+  ).run(
     id,
     args.userId,
     args.orgId,
@@ -57,7 +59,7 @@ export function startTimer(args: StartTimerArgs): TimerStatus {
     args.deviceName,
     startedAt.toISOString(),
     args.notes ?? null,
-    startedAt.toISOString(),
+    startedAt.toISOString()
   )
 
   const intervalId = setInterval(() => {
@@ -95,11 +97,13 @@ export function stopTimer(): { session: Record<string, unknown> } | null {
   const durationSec = Math.floor((endedAt.getTime() - session.startedAt.getTime()) / 1000)
 
   const db = getDb()
-  db.prepare(`
+  db.prepare(
+    `
     UPDATE local_sessions
     SET ended_at = ?, duration_sec = ?, notes = ?, synced = 0
     WHERE id = ?
-  `).run(endedAt.toISOString(), durationSec, session.notes, session.id)
+  `
+  ).run(endedAt.toISOString(), durationSec, session.notes, session.id)
 
   const row = db.prepare('SELECT * FROM local_sessions WHERE id = ?').get(session.id)
 
@@ -112,7 +116,9 @@ export function stopTimer(): { session: Record<string, unknown> } | null {
   return { session: row as Record<string, unknown> }
 }
 
-export function switchTask(args: Omit<StartTimerArgs, 'userId' | 'orgId' | 'deviceId' | 'deviceName'>): TimerStatus {
+export function switchTask(
+  args: Omit<StartTimerArgs, 'userId' | 'orgId' | 'deviceId' | 'deviceName'>
+): TimerStatus {
   const current = getActiveSession()
   if (!current) {
     throw new Error('No active timer to switch')
@@ -130,6 +136,22 @@ export function switchTask(args: Omit<StartTimerArgs, 'userId' | 'orgId' | 'devi
     taskId: args.taskId ?? null,
     notes: args.notes ?? null,
   })
+}
+
+export interface SessionContext {
+  projectId: string | null
+  taskId: string | null
+  notes: string | null
+}
+
+export function getActiveSessionContext(): SessionContext | null {
+  const session = getActiveSession()
+  if (!session) return null
+  return {
+    projectId: session.projectId,
+    taskId: session.taskId,
+    notes: session.notes,
+  }
 }
 
 export function getTimerStatus(): TimerStatus {
@@ -158,7 +180,7 @@ export function getTodaySessions(userId: string): unknown[] {
     .prepare(
       `SELECT * FROM local_sessions
        WHERE user_id = ? AND started_at >= ?
-       ORDER BY started_at DESC`,
+       ORDER BY started_at DESC`
     )
     .all(userId, todayStart.toISOString())
 }
@@ -177,7 +199,7 @@ export function getDeviceId(): string {
       db.exec(`CREATE TABLE IF NOT EXISTS __config (key TEXT PRIMARY KEY, value TEXT)`)
       db.prepare('INSERT OR IGNORE INTO __config (key, value) VALUES (?, ?)').run(
         'device_id',
-        newId,
+        newId
       )
       row = { value: newId }
     }

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 
 // ── Unit tests for screenshot validation logic ────────────────────────────────
 
@@ -42,7 +42,10 @@ describe('validateUploadUrlRequest', () => {
   })
 
   it('rejects missing session_id', () => {
-    const err = validateUploadUrlRequest({ taken_at: new Date().toISOString(), file_size_bytes: 100 })
+    const err = validateUploadUrlRequest({
+      taken_at: new Date().toISOString(),
+      file_size_bytes: 100,
+    })
     expect(err).toContain('session_id')
   })
 

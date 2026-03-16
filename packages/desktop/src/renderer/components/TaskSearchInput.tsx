@@ -53,7 +53,7 @@ export function TaskSearchInput({
       const list = (await window.electron?.ipcRenderer.invoke(
         'projects:search-tasks',
         query,
-        'me',
+        'me'
       )) as TaskWithProject[]
       setResults(list ?? [])
     } catch {
@@ -104,22 +104,22 @@ export function TaskSearchInput({
     onSelect(null, null)
   }
 
-  const inputBase = theme === 'dark'
-    ? 'bg-white/[0.04] text-white placeholder:text-white/40 hover:bg-white/[0.07] focus:bg-white/[0.07] border border-transparent focus:border-white/20'
-    : 'bg-slate-100 text-slate-800 placeholder:text-slate-500 hover:bg-slate-200 focus:bg-slate-200 border border-transparent focus:border-slate-300'
-  const listBase = theme === 'dark'
-    ? 'bg-white/[0.04] border-white/[0.06]'
-    : 'bg-slate-100 border-slate-200'
-  const rowBase = theme === 'dark'
-    ? 'text-[#d1d5db] hover:bg-[rgba(255,255,255,0.04)]'
-    : 'text-slate-700 hover:bg-slate-200'
+  const inputBase =
+    theme === 'dark'
+      ? 'bg-white/[0.04] text-white placeholder:text-white/40 hover:bg-white/[0.07] focus:bg-white/[0.07] border border-transparent focus:border-white/20'
+      : 'bg-slate-100 text-slate-800 placeholder:text-slate-500 hover:bg-slate-200 focus:bg-slate-200 border border-transparent focus:border-slate-300'
+  const rowBase =
+    theme === 'dark'
+      ? 'text-[#d1d5db] hover:bg-[rgba(255,255,255,0.04)]'
+      : 'text-slate-700 hover:bg-slate-200'
   const muted = theme === 'dark' ? 'text-white/40' : 'text-slate-500'
 
   // Selected state: show task + project with clear button
   if (selectedTask && selectedProjectId && selectedTaskId) {
-    const selectedInputBase = theme === 'dark'
-      ? 'bg-white/[0.04] border border-transparent'
-      : 'bg-slate-100 border border-transparent'
+    const selectedInputBase =
+      theme === 'dark'
+        ? 'bg-white/[0.04] border border-transparent'
+        : 'bg-slate-100 border border-transparent'
     return (
       <div ref={containerRef} className="flex flex-col gap-2">
         <div
@@ -194,25 +194,25 @@ export function TaskSearchInput({
         >
           <div className="max-h-[200px] overflow-y-auto">
             {results.map((task) => (
-                <button
-                  key={task.id}
-                  type="button"
-                  onClick={() => handleSelect(task)}
-                  className={[
-                    'w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-left transition-colors',
-                    rowBase,
-                  ].join(' ')}
-                >
-                  <span
-                    className="h-2.5 w-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: task.project.color }}
-                  />
-                  {task.external_id && (
-                    <span className={`text-xs ${muted} shrink-0`}>{task.external_id}</span>
-                  )}
-                  <span className="flex-1 truncate">{task.name}</span>
-                  <span className={`text-xs ${muted} shrink-0`}>({task.project.name})</span>
-                </button>
+              <button
+                key={task.id}
+                type="button"
+                onClick={() => handleSelect(task)}
+                className={[
+                  'w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-left transition-colors',
+                  rowBase,
+                ].join(' ')}
+              >
+                <span
+                  className="h-2.5 w-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: task.project.color }}
+                />
+                {task.external_id && (
+                  <span className={`text-xs ${muted} shrink-0`}>{task.external_id}</span>
+                )}
+                <span className="flex-1 truncate">{task.name}</span>
+                <span className={`text-xs ${muted} shrink-0`}>({task.project.name})</span>
+              </button>
             ))}
           </div>
         </div>

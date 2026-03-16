@@ -7,13 +7,19 @@ import type { Config } from '../../config.js'
 
 const createProjectSchema = z.object({
   name: z.string().min(1).max(100),
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .optional(),
   budget_hours: z.number().positive().optional(),
 })
 
 const updateProjectSchema = z.object({
   name: z.string().min(1).max(100).optional(),
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .optional(),
   archived: z.boolean().optional(),
   budget_hours: z.number().positive().nullable().optional(),
 })
@@ -47,7 +53,7 @@ export async function projectRoutes(fastify: FastifyInstance, opts: { config: Co
   // GET /v1/projects — list projects
   fastify.get('/', {
     preHandler: [authenticate],
-    handler: async (request, reply) => {
+    handler: async (request) => {
       const req = request as AuthenticatedRequest
       const query = request.query as { page?: string; limit?: string; archived?: string }
       const page = Math.max(1, parseInt(query.page ?? '1'))

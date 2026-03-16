@@ -16,7 +16,7 @@ const loginSchema = {
   },
 }
 
-export async function loginRoutes(fastify: FastifyInstance, opts: { config: Config }) {
+export async function loginRoutes(fastify: FastifyInstance, _opts: { config: Config }) {
   fastify.post<{
     Body: { email: string; password: string; org_slug?: string }
   }>(
@@ -108,6 +108,9 @@ export async function loginRoutes(fastify: FastifyInstance, opts: { config: Conf
               screenshot_retention_days: orgSettings.screenshot_retention_days,
               blur_screenshots: orgSettings.blur_screenshots,
               time_approval_required: orgSettings.time_approval_required,
+              idle_detection_enabled: orgSettings.idle_detection_enabled,
+              idle_timeout_minutes: orgSettings.idle_timeout_minutes,
+              idle_timeout_intervals: orgSettings.idle_timeout_intervals,
             }
           : null,
       })

@@ -25,15 +25,13 @@ export function screenshotWorker(config: Config): Worker {
 
       // Dynamic S3 import to avoid circular deps at module load time
       const { getS3Client } = await import('../../lib/s3.js')
-      const { S3Client, GetObjectCommand, PutObjectCommand } = await import('@aws-sdk/client-s3')
+      const { GetObjectCommand, PutObjectCommand } = await import('@aws-sdk/client-s3')
 
       const s3 = getS3Client(config)
       const bucket = config.S3_SCREENSHOT_BUCKET
 
       // Download from S3
-      const getResult = await s3.send(
-        new GetObjectCommand({ Bucket: bucket, Key: s3Key }),
-      )
+      const getResult = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: s3Key }))
 
       if (!getResult.Body) {
         throw new Error(`No body returned from S3 for key: ${s3Key}`)
@@ -57,7 +55,7 @@ export function screenshotWorker(config: Config): Worker {
           ContentType: getResult.ContentType ?? 'image/webp',
           ServerSideEncryption: 'aws:kms',
           ...(config.KMS_SCREENSHOT_KEY_ID && { SSEKMSKeyId: config.KMS_SCREENSHOT_KEY_ID }),
-        }),
+        })
       )
 
       // Mark as blurred in DB
@@ -71,6 +69,6 @@ export function screenshotWorker(config: Config): Worker {
     {
       connection: { url: config.REDIS_URL },
       concurrency: 3,
-    },
+    }
   )
 }

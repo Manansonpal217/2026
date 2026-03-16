@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import Image from 'next/image'
 import { X, ZoomIn } from 'lucide-react'
 
 interface Screenshot {
@@ -68,7 +67,9 @@ export function ScreenshotGallery({ screenshots, showBlur = false, className }: 
                 {/* Blur overlay */}
                 {ss.is_blurred && showBlur && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                    <span className="text-[10px] text-white/70 border border-white/30 rounded px-2 py-1">Blurred</span>
+                    <span className="text-[10px] text-white/70 border border-white/30 rounded px-2 py-1">
+                      Blurred
+                    </span>
                   </div>
                 )}
                 {/* Zoom icon on hover */}
@@ -80,7 +81,10 @@ export function ScreenshotGallery({ screenshots, showBlur = false, className }: 
               {/* Meta row */}
               <div className="px-2 py-1.5 flex items-center justify-between">
                 <span className="text-[10px] text-muted-foreground">
-                  {new Date(ss.taken_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {new Date(ss.taken_at).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
                 </span>
                 <ActivityScoreBadge score={Math.round(ss.activity_score)} />
               </div>
@@ -95,7 +99,10 @@ export function ScreenshotGallery({ screenshots, showBlur = false, className }: 
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
           onClick={() => setLightboxUrl(null)}
         >
-          <div className="relative max-w-5xl max-h-[90vh] w-full mx-4" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="relative max-w-5xl max-h-[90vh] w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
             <img
               src={lightboxUrl}
               alt="Screenshot"

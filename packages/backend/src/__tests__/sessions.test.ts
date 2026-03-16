@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 
 // ── Unit tests for sessions batch validation logic ────────────────────────────
 // These test the pure validation functions extracted from create.ts in isolation,
@@ -99,7 +99,10 @@ describe('Session batch validation', () => {
 
 describe('Batch size limits', () => {
   it('rejects empty batch', () => {
-    expect(validateBatch([])).toMatchObject({ valid: false, error: expect.stringContaining('empty') })
+    expect(validateBatch([])).toMatchObject({
+      valid: false,
+      error: expect.stringContaining('empty'),
+    })
   })
 
   it('rejects batch over 100 sessions', () => {
@@ -110,7 +113,10 @@ describe('Batch size limits', () => {
       started_at: new Date().toISOString(),
       duration_sec: 60,
     }))
-    expect(validateBatch(sessions)).toMatchObject({ valid: false, error: expect.stringContaining('100') })
+    expect(validateBatch(sessions)).toMatchObject({
+      valid: false,
+      error: expect.stringContaining('100'),
+    })
   })
 
   it('accepts a batch of exactly 100 sessions', () => {

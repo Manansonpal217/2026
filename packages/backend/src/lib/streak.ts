@@ -36,13 +36,13 @@ export async function computeUserStreak(userId: string, timezone: string): Promi
       duration_sec: { gt: 0 },
       started_at: { gte: cutoff },
     },
-    select: { started_at: true },
+    select: { ended_at: true },
     orderBy: { started_at: 'desc' },
   })
 
   const activeDates = new Set<string>()
   for (const s of sessions) {
-    activeDates.add(toDateStringInTz(s.started_at, tz))
+    activeDates.add(toDateStringInTz(s.ended_at!, tz))
   }
 
   if (activeDates.size === 0) return 0

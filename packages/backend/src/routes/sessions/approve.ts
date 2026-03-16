@@ -93,15 +93,13 @@ export async function sessionApproveRoutes(fastify: FastifyInstance, opts: { con
       })
 
       // Enqueue time log push to integration
-      const { getIntegrationQueue } = await import('../../queues/index.js')
-      const queue = getIntegrationQueue()
       // Use a separate time-log-push queue
       const { Queue } = await import('bullmq')
       const pushQueue = new Queue('time-log-push', { connection: { url: opts.config.REDIS_URL } })
       await pushQueue.add(
         'push',
         { sessionId: id, orgId: user.org_id },
-        { jobId: `tlp-${id}`, attempts: 3 },
+        { jobId: `tlp-${id}`, attempts: 3 }
       )
 
       return { session: updated }

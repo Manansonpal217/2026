@@ -68,6 +68,12 @@ export function Timer() {
             setSelectedTask(null)
           }
         }
+        // Fetch activity on load so we show today's activity even when timer is stopped
+        window.electron?.ipcRenderer.invoke('activity:current-stats').then((res) => {
+          const r = res as { score?: number; inputAvailable?: boolean } | undefined
+          if (r?.score !== undefined) setActivityScore(r.score)
+          if (r?.inputAvailable !== undefined) setInputMonitorAvailable(r.inputAvailable)
+        })
       })
       .finally(() => setIsInitializing(false))
   }, [initialize])
@@ -75,7 +81,8 @@ export function Timer() {
   useEffect(() => {
     const handleTick = (...args: unknown[]) => setElapsed(args[0] as number)
     const handleStopped = async () => {
-      stop().catch(() => {})
+      // Sync state only — do NOT call stop() or we'd invoke timer:stop and kill auto-restart poll
+      initialize().catch(() => {})
       refreshTodaySessions().catch(() => {})
       fetchRecentSessions().catch(() => {})
       const res = (await window.electron?.ipcRenderer.invoke('activity:current-stats')) as
@@ -83,17 +90,28 @@ export function Timer() {
         | undefined
       if (res?.score !== undefined) setActivityScore(res.score)
     }
+    const handleStarted = async () => {
+      initialize().catch(() => {})
+      refreshTodaySessions().catch(() => {})
+      fetchRecentSessions().catch(() => {})
+      const res = (await window.electron?.ipcRenderer.invoke('activity:current-stats')) as
+        | { score?: number; inputAvailable?: boolean }
+        | undefined
+      if (res?.score !== undefined) setActivityScore(res.score)
+      if (res?.inputAvailable !== undefined) setInputMonitorAvailable(res.inputAvailable)
+    }
     window.electron?.ipcRenderer.on('timer:tick', handleTick)
     window.electron?.ipcRenderer.on('timer:stopped', handleStopped)
+    window.electron?.ipcRenderer.on('timer:started', handleStarted)
     return () => {
       window.electron?.ipcRenderer.off('timer:tick', handleTick)
       window.electron?.ipcRenderer.off('timer:stopped', handleStopped)
+      window.electron?.ipcRenderer.off('timer:started', handleStarted)
     }
-  }, [setElapsed, stop, refreshTodaySessions, fetchRecentSessions])
+  }, [setElapsed, initialize, refreshTodaySessions, fetchRecentSessions])
 
-  // Poll activity score when timer is running (day-wide: active intervals / total intervals since midnight)
+  // Poll activity score when timer is running; also poll when stopped so we show today's activity after restart
   useEffect(() => {
-    if (!isRunning) return
     const poll = async () => {
       const res = (await window.electron?.ipcRenderer.invoke('activity:current-stats')) as
         | {
@@ -105,7 +123,7 @@ export function Timer() {
       if (res?.inputAvailable !== undefined) setInputMonitorAvailable(res.inputAvailable)
     }
     poll()
-    const id = setInterval(poll, 10_000)
+    const id = setInterval(poll, isRunning ? 10_000 : 30_000)
     return () => clearInterval(id)
   }, [isRunning])
 
@@ -268,11 +286,17 @@ export function Timer() {
     }))
   }
 
-  // Single unified list: today + recent, merged by task, sorted by most recent first
-  const allCompleted = [...todayCompleted, ...recentSessions]
-  const mergedAll = mergeSessions(allCompleted).sort(
-    (a, b) => new Date(b.lastEnded).getTime() - new Date(a.lastEnded).getTime()
-  )
+  // Last 10 unique entries regardless of day: combine today + recent, dedupe by id, merge by task, sort by most recent
+  const allCompletedRaw = [...todayCompleted, ...recentSessions]
+  const seenIds = new Set<string>()
+  const allCompleted = allCompletedRaw.filter((s) => {
+    if (seenIds.has(s.id)) return false
+    seenIds.add(s.id)
+    return true
+  })
+  const mergedAll = mergeSessions(allCompleted)
+    .sort((a, b) => new Date(b.lastEnded).getTime() - new Date(a.lastEnded).getTime())
+    .slice(0, 10)
 
   // Running session key to merge with completed (from today or recent)
   const runningKey =

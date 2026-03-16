@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   computeActivityScore,
-  DEFAULT_WEIGHTS,
   DEFAULT_BASELINE,
   type ActivityInputs,
 } from '../main/activity/scorer.js'
@@ -13,7 +12,9 @@ describe('computeActivityScore', () => {
   })
 
   it('returns 0 for zero inputs', () => {
-    expect(computeActivityScore({ keyboardEvents: 0, mouseClicks: 0, mouseDistancePx: 0 }, 1)).toBe(0)
+    expect(computeActivityScore({ keyboardEvents: 0, mouseClicks: 0, mouseDistancePx: 0 }, 1)).toBe(
+      0
+    )
   })
 
   it('returns 100 for inputs at exact baseline', () => {

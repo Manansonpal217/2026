@@ -23,8 +23,11 @@ const settingsSchema = z
     mfa_required_for_managers: z.boolean(),
   })
   .refine(
-    (d) => Math.abs(d.activity_weight_keyboard + d.activity_weight_mouse + d.activity_weight_movement - 1) <= 0.01,
-    { message: 'Activity weights must sum to 1.0', path: ['activity_weight_keyboard'] },
+    (d) =>
+      Math.abs(
+        d.activity_weight_keyboard + d.activity_weight_mouse + d.activity_weight_movement - 1
+      ) <= 0.01,
+    { message: 'Activity weights must sum to 1.0', path: ['activity_weight_keyboard'] }
   )
 
 type SettingsForm = z.infer<typeof settingsSchema>
@@ -39,7 +42,7 @@ export default function SettingsPage() {
   const form = useForm<SettingsForm>({
     resolver: zodResolver(settingsSchema),
     defaultValues: {
-      screenshot_interval_seconds: 300,
+      screenshot_interval_seconds: 60,
       screenshot_retention_days: 30,
       blur_screenshots: false,
       activity_weight_keyboard: 0.5,
@@ -87,13 +90,17 @@ export default function SettingsPage() {
     )
   }
 
-  const { register, handleSubmit, watch, setValue, formState: { errors, isSubmitting } } = form
+  const {
+    register,
+    handleSubmit,
+    watch,
+    formState: { errors, isSubmitting },
+  } = form
 
-  const totalWeight = (
+  const totalWeight =
     (watch('activity_weight_keyboard') || 0) +
     (watch('activity_weight_mouse') || 0) +
     (watch('activity_weight_movement') || 0)
-  )
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
@@ -123,7 +130,8 @@ export default function SettingsPage() {
               className="w-full accent-indigo-500"
             />
             <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
-              <span>1 min</span><span>1 hour</span>
+              <span>1 min</span>
+              <span>1 hour</span>
             </div>
           </div>
 
@@ -140,12 +148,17 @@ export default function SettingsPage() {
               className="w-full accent-indigo-500"
             />
             <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
-              <span>7 days</span><span>1 year</span>
+              <span>7 days</span>
+              <span>1 year</span>
             </div>
           </div>
 
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" {...register('blur_screenshots')} className="rounded accent-indigo-500" />
+            <input
+              type="checkbox"
+              {...register('blur_screenshots')}
+              className="rounded accent-indigo-500"
+            />
             <span className="text-sm">Blur all screenshots</span>
           </label>
         </section>
@@ -154,7 +167,9 @@ export default function SettingsPage() {
         <section className="p-4 rounded-xl border border-border/50 bg-surface/50 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-sm">Activity Score Weights</h2>
-            <span className={`text-xs font-mono ${Math.abs(totalWeight - 1) > 0.01 ? 'text-red-400' : 'text-emerald-400'}`}>
+            <span
+              className={`text-xs font-mono ${Math.abs(totalWeight - 1) > 0.01 ? 'text-red-400' : 'text-emerald-400'}`}
+            >
               Sum: {totalWeight.toFixed(2)}
             </span>
           </div>
@@ -189,7 +204,10 @@ export default function SettingsPage() {
         <section className="p-4 rounded-xl border border-border/50 bg-surface/50 space-y-3">
           <h2 className="font-semibold text-sm">Workflow</h2>
           {[
-            { key: 'time_approval_required' as const, label: 'Require manager approval for time sessions' },
+            {
+              key: 'time_approval_required' as const,
+              label: 'Require manager approval for time sessions',
+            },
             { key: 'mfa_required_for_admins' as const, label: 'Require MFA for admins' },
             { key: 'mfa_required_for_managers' as const, label: 'Require MFA for managers' },
           ].map(({ key, label }) => (
@@ -202,12 +220,14 @@ export default function SettingsPage() {
 
         <div className="flex items-center gap-3">
           <Button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+            {isSubmitting ? (
+              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+            ) : (
+              <Save className="h-3.5 w-3.5 mr-1.5" />
+            )}
             Save Settings
           </Button>
-          {saved && (
-            <span className="text-sm text-emerald-400">Settings saved successfully!</span>
-          )}
+          {saved && <span className="text-sm text-emerald-400">Settings saved successfully!</span>}
         </div>
       </form>
     </div>

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import Database from 'better-sqlite3-multiple-ciphers'
 
 // Test the window buffer's flush logic by simulating it in isolation
@@ -31,15 +31,17 @@ function makeFlushFn(db: Database.Database) {
     mouseClicks: number,
     mouseDistancePx: number,
     activeApp: string | null,
-    activityScore: number,
+    activityScore: number
   ) {
     const id = `test-${Math.random().toString(36).slice(2)}`
-    db.prepare(`
+    db.prepare(
+      `
       INSERT OR IGNORE INTO local_activity_logs
         (id, session_id, window_start, window_end, keyboard_events, mouse_clicks,
          mouse_distance_px, active_app, activity_score, synced, sync_attempts, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
-    `).run(
+    `
+    ).run(
       id,
       sessionId,
       windowStart.toISOString(),
@@ -49,7 +51,7 @@ function makeFlushFn(db: Database.Database) {
       mouseDistancePx,
       activeApp,
       activityScore,
-      new Date().toISOString(),
+      new Date().toISOString()
     )
     return id
   }

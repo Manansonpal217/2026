@@ -53,6 +53,9 @@ export async function meRoutes(fastify: FastifyInstance, opts: { config: Config 
               screenshot_retention_days: orgSettings.screenshot_retention_days,
               blur_screenshots: orgSettings.blur_screenshots,
               time_approval_required: orgSettings.time_approval_required,
+              idle_detection_enabled: orgSettings.idle_detection_enabled,
+              idle_timeout_minutes: orgSettings.idle_timeout_minutes,
+              idle_timeout_intervals: orgSettings.idle_timeout_intervals,
             }
           : null,
       }

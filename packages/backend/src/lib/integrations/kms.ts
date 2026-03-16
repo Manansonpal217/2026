@@ -12,22 +12,20 @@ import type { Config } from '../../config.js'
  *   [4 bytes: encryptedDataKeyLen][encryptedDataKey][12 bytes: iv][16 bytes: authTag][ciphertext]
  */
 
-const LOCAL_KEY_LEN = 32 // 256-bit
-
 const DEV_FALLBACK_KEY_HEX = '0000000000000000000000000000000000000000000000000000000000000001'
 
-async function getLocalKey(config: Config): Promise<Buffer> {
+async function getLocalKey(_config: Config): Promise<Buffer> {
   // In dev without KMS, derive a 32-byte key from a hex env var
   const keyHex = process.env.DB_ENCRYPTION_KEY ?? DEV_FALLBACK_KEY_HEX
   // Ensure exactly 64 hex chars (32 bytes)
-  const normalised = keyHex.replace(/[^0-9a-fA-F]/g, '0').padEnd(64, '0').slice(0, 64)
+  const normalised = keyHex
+    .replace(/[^0-9a-fA-F]/g, '0')
+    .padEnd(64, '0')
+    .slice(0, 64)
   return Buffer.from(normalised, 'hex')
 }
 
-export async function encryptAuthData(
-  data: object,
-  config: Config,
-): Promise<Buffer> {
+export async function encryptAuthData(data: object, config: Config): Promise<Buffer> {
   const plaintext = Buffer.from(JSON.stringify(data), 'utf-8')
 
   if (config.KMS_INTEGRATIONS_KEY_ID) {
@@ -38,7 +36,7 @@ export async function encryptAuthData(
       new GenerateDataKeyCommand({
         KeyId: config.KMS_INTEGRATIONS_KEY_ID,
         KeySpec: 'AES_256',
-      }),
+      })
     )
 
     const dataKey = Buffer.from(Plaintext!)
@@ -67,10 +65,7 @@ export async function encryptAuthData(
 
 import type { AuthTokens } from './adapter.js'
 
-export async function decryptAuthData(
-  blob: Buffer,
-  config: Config,
-): Promise<AuthTokens> {
+export async function decryptAuthData(blob: Buffer, config: Config): Promise<AuthTokens> {
   const encryptedKeyLen = blob.readUInt32BE(0)
   let offset = 4
 

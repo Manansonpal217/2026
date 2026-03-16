@@ -4,7 +4,9 @@ import { markIntervalActive } from './intervalTracker.js'
 let prevMouseX = 0
 let prevMouseY = 0
 
-let monitor: typeof import('uiohook-napi')['uIOhook'] | null = null
+let onActivityCallback: (() => void) | null = null
+
+let monitor: (typeof import('uiohook-napi'))['uIOhook'] | null = null
 
 /**
  * Load cross-platform input monitor (uiohook-napi).
@@ -22,6 +24,10 @@ export function isInputMonitorAvailable(): boolean {
   return monitor !== null
 }
 
+export function setOnActivityCallback(cb: (() => void) | null): void {
+  onActivityCallback = cb
+}
+
 export function startInputMonitor(): void {
   if (!monitor) return
 
@@ -29,12 +35,14 @@ export function startInputMonitor(): void {
   monitor.on('keydown', () => {
     markIntervalActive()
     addKeyboardEvent()
+    onActivityCallback?.()
   })
 
   // Mouse: clicks (mousedown fires for left, right, middle)
   monitor.on('mousedown', () => {
     markIntervalActive()
     addMouseClick()
+    onActivityCallback?.()
   })
 
   // Mouse: movement (with distance threshold to filter jitter)
@@ -51,6 +59,7 @@ export function startInputMonitor(): void {
     }
     prevMouseX = x
     prevMouseY = y
+    onActivityCallback?.()
   })
 
   monitor.start()
@@ -61,4 +70,5 @@ export function stopInputMonitor(): void {
   monitor.stop()
   prevMouseX = 0
   prevMouseY = 0
+  onActivityCallback = null
 }

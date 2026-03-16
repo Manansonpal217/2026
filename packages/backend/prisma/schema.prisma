@@ -30,7 +30,7 @@ model Organization {
 model OrgSettings {
   id                          String  @id @default(uuid())
   org_id                      String  @unique
-  screenshot_interval_seconds Int     @default(300)
+  screenshot_interval_seconds Int     @default(60)
   screenshot_retention_days   Int     @default(30)
   blur_screenshots            Boolean @default(false)
   activity_weight_keyboard    Float   @default(0.5)
@@ -39,6 +39,9 @@ model OrgSettings {
   time_approval_required      Boolean @default(false)
   mfa_required_for_admins     Boolean @default(false)
   mfa_required_for_managers   Boolean @default(false)
+  idle_detection_enabled      Boolean @default(true)
+  idle_timeout_minutes        Int     @default(5)
+  idle_timeout_intervals      Int     @default(3)
 
   organization Organization @relation(fields: [org_id], references: [id])
 }

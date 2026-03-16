@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 
 // ── Approval workflow logic tests ─────────────────────────────────────────────
 // These test the pure logic for session approval/rejection without a live DB.
@@ -31,7 +31,7 @@ interface EmailNotification {
 // Simulated approve logic
 function approveSession(
   session: Session,
-  actorId: string,
+  actorId: string
 ): { updatedSession: Session; auditEntry: AuditEntry } {
   if (session.status !== 'pending') {
     throw new Error(`Cannot approve a session with status: ${session.status}`)
@@ -52,7 +52,7 @@ function approveSession(
 function rejectSession(
   session: Session,
   actorId: string,
-  reason: string,
+  reason: string
 ): { updatedSession: Session; auditEntry: AuditEntry; notification: EmailNotification } {
   if (session.status !== 'pending') {
     throw new Error(`Cannot reject a session with status: ${session.status}`)
@@ -78,7 +78,7 @@ function rejectSession(
 function adminEditSession(
   session: Session,
   actorId: string,
-  changes: Partial<Pick<Session, 'duration_sec' | 'notes'>>,
+  changes: Partial<Pick<Session, 'duration_sec' | 'notes'>>
 ): { updatedSession: Session; auditEntry: AuditEntry } {
   const updatedSession: Session = { ...session, ...changes }
   const auditEntry: AuditEntry = {
@@ -115,7 +115,9 @@ describe('approveSession', () => {
 
   it('throws when approving a non-pending session', () => {
     const approved: Session = { ...PENDING_SESSION, status: 'approved' }
-    expect(() => approveSession(approved, 'manager-1')).toThrow('Cannot approve a session with status: approved')
+    expect(() => approveSession(approved, 'manager-1')).toThrow(
+      'Cannot approve a session with status: approved'
+    )
   })
 
   it('throws when approving a rejected session', () => {
@@ -164,7 +166,9 @@ describe('adminEditSession', () => {
   })
 
   it('applies notes change', () => {
-    const { updatedSession } = adminEditSession(PENDING_SESSION, 'admin-1', { notes: 'Corrected overtime' })
+    const { updatedSession } = adminEditSession(PENDING_SESSION, 'admin-1', {
+      notes: 'Corrected overtime',
+    })
     expect(updatedSession.notes).toBe('Corrected overtime')
   })
 })

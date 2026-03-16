@@ -21,8 +21,12 @@ async function encryptBuffer(plaintext: Buffer, keyHex: string): Promise<Buffer>
   return Buffer.concat([iv, authTag, encrypted])
 }
 
-export async function captureAndStore(sessionId: string, activityScore = 0): Promise<string | null> {
+export async function captureAndStore(
+  sessionId: string,
+  activityScore = 0
+): Promise<string | null> {
   try {
+    console.log('[screenshot] Capturing...')
     // Capture screenshot as PNG
     const imgBuffer: Buffer = await screenshotDesktop({ format: 'png' })
 
@@ -47,18 +51,20 @@ export async function captureAndStore(sessionId: string, activityScore = 0): Pro
 
     // Persist to local SQLite
     const db = getDb()
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO local_screenshots
         (id, session_id, local_path, taken_at, activity_score, file_size_bytes, synced, sync_attempts, created_at)
       VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)
-    `).run(
+    `
+    ).run(
       id,
       sessionId,
       localPath,
       new Date().toISOString(),
       activityScore,
       encrypted.length,
-      new Date().toISOString(),
+      new Date().toISOString()
     )
 
     // OS notification (silent — no sound)
@@ -71,6 +77,7 @@ export async function captureAndStore(sessionId: string, activityScore = 0): Pro
       notif.show()
     }
 
+    console.log('[screenshot] Captured successfully, id:', id)
     return id
   } catch (err) {
     console.error('[captureAndStore] Failed:', err)

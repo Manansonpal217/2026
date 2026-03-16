@@ -2,9 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
-import { Plug, RefreshCw, Trash2, CheckCircle, AlertTriangle, Loader2, ExternalLink } from 'lucide-react'
+import { Plug, RefreshCw, Trash2, CheckCircle, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import {
   Dialog,
   DialogContent,
@@ -36,10 +35,14 @@ const PROVIDER_DESCRIPTIONS: Record<string, string> = {
 
 function statusColor(status: string) {
   switch (status) {
-    case 'active': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
-    case 'syncing': return 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
-    case 'error': return 'bg-red-500/20 text-red-400 border-red-500/30'
-    default: return 'bg-white/10 text-muted-foreground border-border/30'
+    case 'active':
+      return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+    case 'syncing':
+      return 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
+    case 'error':
+      return 'bg-red-500/20 text-red-400 border-red-500/30'
+    default:
+      return 'bg-white/10 text-muted-foreground border-border/30'
   }
 }
 
@@ -67,7 +70,6 @@ export function IntegrationsClient() {
 
   useEffect(() => {
     fetchIntegrations()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token])
 
   async function connectProvider(provider: string) {
@@ -136,9 +138,15 @@ export function IntegrationsClient() {
                 variant={connectedTypes.has(provider) ? 'ghost' : 'default'}
               >
                 {connectedTypes.has(provider) ? (
-                  <><CheckCircle className="h-3.5 w-3.5 mr-1.5" />Connected</>
+                  <>
+                    <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
+                    Connected
+                  </>
                 ) : (
-                  <><Plug className="h-3.5 w-3.5 mr-1.5" />Connect</>
+                  <>
+                    <Plug className="h-3.5 w-3.5 mr-1.5" />
+                    Connect
+                  </>
                 )}
               </Button>
             </div>
@@ -168,7 +176,9 @@ export function IntegrationsClient() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="font-medium">{integration.name}</p>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium capitalize ${statusColor(integration.status)}`}>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded border font-medium capitalize ${statusColor(integration.status)}`}
+                      >
                         {integration.status}
                       </span>
                     </div>
@@ -186,7 +196,9 @@ export function IntegrationsClient() {
                       onClick={() => syncIntegration(integration.id)}
                       title="Sync now"
                     >
-                      <RefreshCw className={`h-3.5 w-3.5 ${busy[integration.id] ? 'animate-spin' : ''}`} />
+                      <RefreshCw
+                        className={`h-3.5 w-3.5 ${busy[integration.id] ? 'animate-spin' : ''}`}
+                      />
                     </Button>
                     <Button
                       size="sm"
@@ -206,7 +218,12 @@ export function IntegrationsClient() {
       )}
 
       {/* Disconnect confirm dialog */}
-      <Dialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null) }}>
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => {
+          if (!o) setDeleteTarget(null)
+        }}
+      >
         <DialogContent className="bg-surface border-border/50">
           <DialogHeader>
             <DialogTitle>Disconnect {deleteTarget?.name}?</DialogTitle>
@@ -216,7 +233,9 @@ export function IntegrationsClient() {
             Synced projects and tasks will remain but will no longer update.
           </p>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
             <Button
               className="bg-red-600 hover:bg-red-700"
               onClick={() => deleteTarget && disconnectIntegration(deleteTarget.id)}

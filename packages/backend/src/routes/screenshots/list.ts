@@ -4,7 +4,7 @@ import { prisma } from '../../db/prisma.js'
 import { createAuthenticateMiddleware, requireRole } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
-import { generateSignedUrl, deleteFromS3 } from '../../lib/s3.js'
+import { generateSignedUrl } from '../../lib/s3.js'
 
 const querySchema = z.object({
   session_id: z.string().uuid().optional(),
@@ -68,7 +68,7 @@ export async function screenshotListRoutes(fastify: FastifyInstance, opts: { con
           is_blurred: s.is_blurred,
           file_size_bytes: s.file_size_bytes,
           signed_url: await generateSignedUrl(opts.config, s.s3_key, 900),
-        })),
+        }))
       )
 
       return { screenshots: results, total, page: query.page, limit: query.limit }

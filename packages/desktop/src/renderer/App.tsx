@@ -94,15 +94,43 @@ function formatDurationLong(sec: number) {
   return `${s}s`
 }
 
+function formatLastCaptured(isoString: string): string {
+  const diffSec = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000)
+  if (diffSec < 60) return `${diffSec}s ago`
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`
+  return `${Math.floor(diffSec / 86400)}d ago`
+}
+
 function DashboardShell({ user, onSignOut }: DashboardShellProps) {
   const [, setSyncStatus] = useState<{ pending: number } | null>(null)
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [streak, setStreak] = useState<number>(0)
+  const [lastScreenshotAt, setLastScreenshotAt] = useState<string | null>(null)
   const { theme, toggleTheme } = useTheme()
   const { todaySessions, currentSession, isRunning, elapsedSeconds } = useTimerStore()
   const todayTotalSec =
     todaySessions.filter((s) => s.ended_at).reduce((sum, s) => sum + s.duration_sec, 0) +
     (isRunning ? elapsedSeconds : 0)
+
+  const fetchLastScreenshot = () => {
+    window.electron?.ipcRenderer
+      .invoke('screenshots:last-captured')
+      .then((t) => setLastScreenshotAt((t as string | null) ?? null))
+  }
+
+  useEffect(() => {
+    fetchLastScreenshot()
+    const onCaptured = (_: unknown, payload: { taken_at: string }) => {
+      setLastScreenshotAt(payload.taken_at)
+    }
+    window.electron?.ipcRenderer?.on('screenshot:captured', onCaptured)
+    const id = setInterval(fetchLastScreenshot, 30_000)
+    return () => {
+      window.electron?.ipcRenderer?.off('screenshot:captured', onCaptured)
+      clearInterval(id)
+    }
+  }, [])
 
   useEffect(() => {
     window.electron?.ipcRenderer
@@ -124,7 +152,11 @@ function DashboardShell({ user, onSignOut }: DashboardShellProps) {
     }
     fetchStreak()
     const id = setInterval(fetchStreak, 5 * 60 * 1000)
-    return () => clearInterval(id)
+    window.electron?.ipcRenderer?.on('timer:stopped', fetchStreak)
+    return () => {
+      clearInterval(id)
+      window.electron?.ipcRenderer?.off('timer:stopped', fetchStreak)
+    }
   }, [])
 
   const initials =
@@ -253,7 +285,9 @@ function DashboardShell({ user, onSignOut }: DashboardShellProps) {
             className={`flex items-center gap-2 ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}
           >
             <Camera className="h-3 w-3" />
-            <span>Never</span>
+            <span className="tabular-nums">
+              {lastScreenshotAt ? formatLastCaptured(lastScreenshotAt) : 'Never'}
+            </span>
           </span>
           <span className="flex items-center gap-2">
             <Clock className={`h-3 w-3 ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`} />
@@ -307,8 +341,24 @@ export default function App() {
       setOnboardingDone(true)
       return
     }
+
+    const AUTH_RETRIES = 3
+    const AUTH_RETRY_DELAY_MS = 1500
+
+    async function checkAuthWithRetry(): Promise<{ authenticated: boolean; user?: User }> {
+      for (let i = 0; i < AUTH_RETRIES; i++) {
+        const res = await ipc
+          .invoke('auth:check')
+          .catch(() => ({ authenticated: false, user: null }))
+        const auth = res as { authenticated: boolean; user?: User }
+        if (auth.authenticated) return auth
+        if (i < AUTH_RETRIES - 1) await new Promise((r) => setTimeout(r, AUTH_RETRY_DELAY_MS))
+      }
+      return { authenticated: false, user: null }
+    }
+
     Promise.all([
-      ipc.invoke('auth:check').catch(() => ({ authenticated: false, user: null })),
+      checkAuthWithRetry(),
       ipc.invoke('onboarding:status').catch(() => ({ done: true })),
     ]).then(([authRes, onboardingRes]) => {
       const auth = authRes as { authenticated: boolean; user?: User }

@@ -37,7 +37,9 @@ describe('validateOutboundUrl - SSRF protection', () => {
   })
 
   it('blocks AWS metadata endpoint 169.254.x.x', () => {
-    expect(() => validateOutboundUrl('http://169.254.169.254/latest/meta-data')).toThrow(ForbiddenHostError)
+    expect(() => validateOutboundUrl('http://169.254.169.254/latest/meta-data')).toThrow(
+      ForbiddenHostError
+    )
   })
 
   it('blocks 0.0.0.0', () => {
@@ -194,9 +196,7 @@ describe('getBreaker', () => {
   })
 
   it('opens the circuit after repeated failures', async () => {
-    let callCount = 0
     const failingFn = async () => {
-      callCount++
       throw new Error('Service unavailable')
     }
 
