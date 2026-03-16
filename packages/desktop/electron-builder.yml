@@ -1,0 +1,23 @@
+appId: io.tracksync.app
+productName: TrackSync
+directories:
+  output: release
+files:
+  - dist/**/*
+  - package.json
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.productivity
+  hardenedRuntime: true
+  gatekeeperAssess: false
+win:
+  target:
+    - nsis
+    - portable
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Utility

@@ -1,0 +1,99 @@
+/**
+ * BullMQ queue definitions + worker startup.
+ */
+import { Queue, Worker } from 'bullmq'
+import type { Config } from '../config.js'
+
+let config: Config | null = null
+let emailQueue: Queue | null = null
+let syncQueue: Queue | null = null
+let screenshotQueue: Queue | null = null
+let integrationQueue: Queue | null = null
+let budgetAlertQueue: Queue | null = null
+let retentionQueue: Queue | null = null
+
+export function initQueues(cfg: Config): void {
+  config = cfg
+}
+
+function getConfig(): Config {
+  if (!config) throw new Error('Queues not initialized — call initQueues(config) first')
+  return config
+}
+
+export function getEmailQueue(): Queue {
+  if (!emailQueue) {
+    emailQueue = new Queue('email', {
+      connection: { url: getConfig().REDIS_URL },
+      defaultJobOptions: { attempts: 3, backoff: { type: 'exponential', delay: 1000 } },
+    })
+  }
+  return emailQueue
+}
+
+export function getSyncQueue(): Queue {
+  if (!syncQueue) {
+    syncQueue = new Queue('sync', {
+      connection: { url: getConfig().REDIS_URL },
+      defaultJobOptions: { attempts: 5, backoff: { type: 'exponential', delay: 2000 } },
+    })
+  }
+  return syncQueue
+}
+
+export function getScreenshotQueue(): Queue {
+  if (!screenshotQueue) {
+    screenshotQueue = new Queue('screenshot-processing', {
+      connection: { url: getConfig().REDIS_URL },
+      defaultJobOptions: { attempts: 3, backoff: { type: 'exponential', delay: 2000 } },
+    })
+  }
+  return screenshotQueue
+}
+
+export function getIntegrationQueue(): Queue {
+  if (!integrationQueue) {
+    integrationQueue = new Queue('integration-sync', {
+      connection: { url: getConfig().REDIS_URL },
+      defaultJobOptions: { attempts: 5, backoff: { type: 'exponential', delay: 5000 } },
+    })
+  }
+  return integrationQueue
+}
+
+export function getBudgetAlertQueue(): Queue {
+  if (!budgetAlertQueue) {
+    budgetAlertQueue = new Queue('budget-alert', {
+      connection: { url: getConfig().REDIS_URL },
+      defaultJobOptions: { attempts: 2 },
+    })
+  }
+  return budgetAlertQueue
+}
+
+export function getRetentionQueue(): Queue {
+  if (!retentionQueue) {
+    retentionQueue = new Queue('retention', {
+      connection: { url: getConfig().REDIS_URL },
+      defaultJobOptions: { attempts: 2 },
+    })
+  }
+  return retentionQueue
+}
+
+/** Start all BullMQ workers. Call once during app startup. */
+export async function startWorkers(cfg: Config): Promise<Worker[]> {
+  const { screenshotWorker } = await import('./workers/screenshotWorker.js')
+  const { retentionWorker } = await import('./workers/retentionWorker.js')
+  const { integrationSyncWorker } = await import('./workers/integrationSync.js')
+  const { timeLogPushWorker } = await import('./workers/timeLogPush.js')
+  const { budgetAlertWorker } = await import('./workers/budgetAlert.js')
+
+  return [
+    screenshotWorker(cfg),
+    retentionWorker(cfg),
+    integrationSyncWorker(cfg),
+    timeLogPushWorker(cfg),
+    budgetAlertWorker(cfg),
+  ]
+}

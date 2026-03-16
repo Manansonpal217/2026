@@ -1,9 +1,9 @@
 # TrackSync Phase-Wise Execution Plan
 
 Source documents analyzed:
-- `Docs/main.md`
-- `Docs/DEVELOPMENT_PLAN.md`
-- `Docs/phases/phase-00-setup.md`
+- `docs/main.md`
+- `docs/DEVELOPMENT_PLAN.md`
+- `docs/phases/phase-00-setup.md`
 
 ## Phase Summary
 

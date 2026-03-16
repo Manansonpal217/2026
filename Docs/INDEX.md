@@ -8,7 +8,7 @@
 ## Structure
 
 ```
-Docs/
+docs/
   main.md                          ← Full product plan (source of truth)
   INDEX.md                         ← This file
   DEVELOPMENT_PLAN.md              ← Phase-wise build plan (Phase 0–9, all three layers)
