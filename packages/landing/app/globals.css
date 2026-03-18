@@ -13,3 +13,21 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  .animate-initial {
+    opacity: 0;
+  }
+}
+
+/* Subtle gradient accent - soft, refined glow */
+.gradient-mesh {
+  background: radial-gradient(ellipse 70% 40% at 50% 0%, rgba(99, 102, 241, 0.12), transparent 70%),
+    radial-gradient(ellipse 50% 30% at 80% 20%, rgba(139, 92, 246, 0.06), transparent 60%);
+}
+
+/* Very subtle dot pattern for depth */
+.bg-grid-pattern {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+}

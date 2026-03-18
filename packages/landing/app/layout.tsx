@@ -1,10 +1,18 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { Inter, Outfit } from 'next/font/google'
 import './globals.css'
+import { Navbar } from '../components/Navbar'
+import { Footer } from '../components/Footer'
 
 const inter = Inter({
   subsets: ['latin'],
   variable: '--font-geist-sans',
+  display: 'swap',
+})
+
+const outfit = Outfit({
+  subsets: ['latin'],
+  variable: '--font-outfit',
   display: 'swap',
 })
 
@@ -16,7 +24,20 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark">
-      <body className={`${inter.variable} font-sans antialiased`}>{children}</body>
+      <body
+        className={`${inter.variable} ${outfit.variable} relative min-h-screen font-sans antialiased`}
+      >
+        {/* Consistent background across all pages */}
+        <div className="fixed inset-0 -z-10 bg-background" aria-hidden />
+        <div className="fixed inset-0 -z-10 bg-grid-pattern opacity-80" aria-hidden />
+        <div
+          className="fixed inset-0 -z-10 bg-gradient-to-b from-primary/[0.06] via-transparent to-transparent"
+          aria-hidden
+        />
+        <Navbar />
+        {children}
+        <Footer />
+      </body>
     </html>
   )
 }
