@@ -14,8 +14,8 @@ export default function ContactPage() {
   if (submitted) {
     return (
       <main className="min-h-screen">
-        <section className="flex min-h-[60vh] flex-col items-center justify-center px-6 pt-32">
-          <div className="mx-auto max-w-md rounded-2xl border border-white/10 bg-white/[0.03] p-12 text-center backdrop-blur-sm">
+        <section className="flex min-h-[60vh] flex-col items-center justify-center px-4 pt-24 sm:px-6 sm:pt-32">
+          <div className="mx-auto max-w-md rounded-2xl border border-white/10 bg-white/[0.03] p-8 text-center backdrop-blur-sm sm:p-12">
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/20">
               <Send className="h-8 w-8 text-primary" />
             </div>
@@ -31,15 +31,17 @@ export default function ContactPage() {
 
   return (
     <main className="min-h-screen">
-      <section className="pt-32 pb-28">
-        <div className="mx-auto max-w-xl px-6">
-          <h1 className="font-display text-4xl font-bold text-white sm:text-5xl">Get in touch</h1>
+      <section className="px-4 pt-24 pb-16 sm:px-6 sm:pt-32 sm:pb-28">
+        <div className="mx-auto max-w-xl">
+          <h1 className="font-display text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
+            Get in touch
+          </h1>
           <p className="mt-4 text-muted">
             Have questions? Want a demo? We&apos;d love to hear from you.
           </p>
           <form
             onSubmit={handleSubmit}
-            className="mt-12 rounded-2xl border border-white/10 bg-white/[0.03] p-8 backdrop-blur-sm"
+            className="mt-10 rounded-2xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur-sm sm:mt-12 sm:p-8"
           >
             <div className="space-y-6">
               <div>

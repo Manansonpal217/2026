@@ -35,13 +35,13 @@ export default function FAQPage() {
 
   return (
     <main className="min-h-screen">
-      <section className="pt-32 pb-28">
-        <div className="mx-auto max-w-3xl px-6">
-          <h1 className="font-display text-4xl font-bold text-white sm:text-5xl">
+      <section className="px-4 pt-24 pb-16 sm:px-6 sm:pt-32 sm:pb-28">
+        <div className="mx-auto max-w-3xl">
+          <h1 className="font-display text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
             Frequently asked questions
           </h1>
           <p className="mt-4 text-muted">Everything you need to know about TrackSync.</p>
-          <div className="mt-12 space-y-2">
+          <div className="mt-10 space-y-2 sm:mt-12">
             {faqs.map((faq, i) => (
               <div
                 key={i}

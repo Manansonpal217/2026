@@ -9,9 +9,9 @@ export const metadata = {
 export default function AboutPage() {
   return (
     <main className="min-h-screen">
-      <section className="pt-32 pb-28">
-        <div className="mx-auto max-w-3xl px-6">
-          <h1 className="font-display text-4xl font-bold text-white sm:text-5xl">
+      <section className="px-4 pt-24 pb-16 sm:px-6 sm:pt-32 sm:pb-28">
+        <div className="mx-auto max-w-3xl">
+          <h1 className="font-display text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
             We believe teams do their best work when they have clarity—not surveillance.
           </h1>
           <p className="mt-8 text-lg text-muted">
@@ -27,10 +27,10 @@ export default function AboutPage() {
         </div>
       </section>
 
-      <section className="border-t border-white/5 py-28">
-        <div className="mx-auto max-w-6xl px-6">
+      <section className="border-t border-white/5 px-4 py-16 sm:px-6 sm:py-28">
+        <div className="mx-auto max-w-6xl">
           <h2 className="font-display text-center text-3xl font-bold text-white">Our values</h2>
-          <div className="mt-16 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-12 grid gap-6 sm:mt-16 sm:grid-cols-2 sm:gap-8 lg:grid-cols-4">
             <ValueCard
               icon={<Target className="h-6 w-6" />}
               title="Transparency"
@@ -55,8 +55,8 @@ export default function AboutPage() {
         </div>
       </section>
 
-      <section className="border-t border-white/5 py-28">
-        <div className="mx-auto max-w-3xl px-6 text-center">
+      <section className="border-t border-white/5 px-4 py-16 sm:px-6 sm:py-28">
+        <div className="mx-auto max-w-3xl text-center">
           <p className="text-lg text-muted">
             We&apos;re a small team building tools for teams who want to work smarter—not harder.
           </p>

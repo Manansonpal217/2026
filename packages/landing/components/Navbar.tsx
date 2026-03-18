@@ -63,10 +63,10 @@ export function Navbar() {
           : 'border-white/5 bg-background/50 backdrop-blur-xl'
       }`}
     >
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
+      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:h-16 sm:px-6">
         <Link
           href="/"
-          className="text-xl font-semibold text-white transition-opacity hover:opacity-90"
+          className="text-lg font-semibold text-white transition-opacity hover:opacity-90 sm:text-xl"
         >
           TrackSync
         </Link>
@@ -81,7 +81,7 @@ export function Navbar() {
         </button>
       </div>
       {mobileOpen && (
-        <div className="sm:hidden absolute inset-x-0 top-16 border-t border-white/5 bg-background/95 backdrop-blur-xl">
+        <div className="sm:hidden absolute inset-x-0 top-14 border-t border-white/5 bg-background/95 backdrop-blur-xl">
           <nav className="flex flex-col gap-4 p-6">{navLinks}</nav>
         </div>
       )}

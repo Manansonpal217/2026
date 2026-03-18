@@ -2,9 +2,9 @@ import Link from 'next/link'
 
 export function Footer() {
   return (
-    <footer className="border-t border-white/5 py-16">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="grid gap-12 sm:grid-cols-2 lg:grid-cols-4">
+    <footer className="border-t border-white/5 py-12 sm:py-16">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6">
+        <div className="grid gap-10 sm:grid-cols-2 sm:gap-12 lg:grid-cols-4">
           <div>
             <span className="text-lg font-semibold text-white">TrackSync</span>
             <p className="mt-2 text-sm text-muted">Work intelligence for modern teams.</p>

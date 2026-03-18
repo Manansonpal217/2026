@@ -9,15 +9,15 @@ export const metadata = {
 export default function PricingPage() {
   return (
     <main className="min-h-screen">
-      <section className="pt-32 pb-16">
-        <div className="mx-auto max-w-6xl px-6">
-          <h1 className="font-display text-center text-4xl font-bold text-white sm:text-5xl">
+      <section className="px-4 pt-24 pb-12 sm:px-6 sm:pt-32 sm:pb-16">
+        <div className="mx-auto max-w-6xl">
+          <h1 className="font-display text-center text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
             Simple, transparent pricing
           </h1>
           <p className="mx-auto mt-4 max-w-2xl text-center text-muted">
             Per user, per month. No hidden fees. Scale as your team grows.
           </p>
-          <div className="mt-16 grid gap-8 lg:grid-cols-3">
+          <div className="mt-12 grid gap-6 sm:mt-16 sm:gap-8 lg:grid-cols-3">
             <PricingCard
               name="Starter"
               price="$2.99"

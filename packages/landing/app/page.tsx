@@ -5,18 +5,18 @@ export default function Home() {
   return (
     <main className="min-h-screen">
       {/* Hero */}
-      <section className="relative overflow-hidden pt-32 pb-28">
+      <section className="relative overflow-hidden px-4 pt-24 pb-20 sm:px-6 sm:pt-32 sm:pb-28">
         <div className="gradient-mesh absolute inset-0" />
         <div className="bg-grid-pattern absolute inset-0" />
-        <div className="relative mx-auto max-w-4xl px-6 text-center">
-          <h1 className="font-display animate-fade-in-up text-5xl font-bold tracking-tight text-white sm:text-6xl lg:text-7xl">
+        <div className="relative mx-auto max-w-4xl text-center">
+          <h1 className="font-display animate-fade-in-up text-4xl font-bold tracking-tight text-white sm:text-5xl md:text-6xl lg:text-7xl">
             Work intelligence for
             <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
               {' '}
               modern teams
             </span>
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-lg text-muted">
+          <p className="mx-auto mt-6 max-w-2xl text-base text-muted sm:text-lg">
             Time tracking, automatic screenshots, and team insights. Understand how your team works
             — without the micromanagement.
           </p>
@@ -33,10 +33,10 @@ export default function Home() {
       </section>
 
       {/* Trust Bar - spacing only, no borders */}
-      <section className="py-16">
-        <div className="relative mx-auto max-w-6xl px-6">
+      <section className="py-12 sm:py-16">
+        <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
           <p className="text-center text-sm text-muted">Trusted by teams at</p>
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-12 gap-y-6">
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-4 sm:gap-x-12 sm:gap-y-6">
             {['TechFlow', 'ScaleUp', 'Nexus Labs', 'DataDrive', 'CloudNine'].map((name) => (
               <span
                 key={name}
@@ -50,15 +50,15 @@ export default function Home() {
       </section>
 
       {/* Features */}
-      <section id="features" className="border-t border-white/5 py-28">
-        <div className="mx-auto max-w-6xl px-6">
-          <h2 className="font-display text-center text-3xl font-bold text-white sm:text-4xl">
+      <section id="features" className="border-t border-white/5 px-4 py-16 sm:px-6 sm:py-28">
+        <div className="mx-auto max-w-6xl">
+          <h2 className="font-display text-center text-2xl font-bold text-white sm:text-3xl lg:text-4xl">
             Everything you need to understand team productivity
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-center text-muted">
             TrackSync combines time tracking, screenshots, and analytics in one platform.
           </p>
-          <div className="mt-16 grid gap-8 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="mt-12 grid gap-6 sm:mt-16 sm:grid-cols-2 sm:gap-8 lg:grid-cols-5">
             <FeatureCard
               icon={<Clock className="h-6 w-6" />}
               title="Time tracking"
@@ -94,21 +94,23 @@ export default function Home() {
       </section>
 
       {/* Product Showcase */}
-      <section className="border-t border-white/5 py-28">
-        <div className="mx-auto max-w-6xl px-6">
-          <div className="overflow-hidden rounded-2xl border border-white/10 bg-surface/50 shadow-2xl shadow-primary/10">
-            <div className="flex items-center gap-2 border-b border-white/5 bg-white/5 px-4 py-3">
-              <div className="h-2.5 w-2.5 rounded-full bg-red-500/80" />
-              <div className="h-2.5 w-2.5 rounded-full bg-yellow-500/80" />
-              <div className="h-2.5 w-2.5 rounded-full bg-green-500/80" />
-              <span className="ml-4 text-xs text-muted">app.tracksync.dev/dashboard</span>
+      <section className="border-t border-white/5 px-4 py-16 sm:px-6 sm:py-28">
+        <div className="mx-auto max-w-6xl">
+          <div className="overflow-hidden rounded-xl border border-white/10 bg-surface/50 shadow-2xl shadow-primary/10 sm:rounded-2xl">
+            <div className="flex items-center gap-2 border-b border-white/5 bg-white/5 px-3 py-2.5 sm:px-4 sm:py-3">
+              <div className="h-2 w-2 rounded-full bg-red-500/80 sm:h-2.5 sm:w-2.5" />
+              <div className="h-2 w-2 rounded-full bg-yellow-500/80 sm:h-2.5 sm:w-2.5" />
+              <div className="h-2 w-2 rounded-full bg-green-500/80 sm:h-2.5 sm:w-2.5" />
+              <span className="ml-2 truncate text-[10px] text-muted sm:ml-4 sm:text-xs">
+                app.tracksync.dev/dashboard
+              </span>
             </div>
-            <div className="bg-gradient-to-br from-surface to-background p-6">
-              <div className="mb-6 flex items-center justify-between">
-                <h3 className="text-sm font-medium text-white">Team Overview</h3>
-                <span className="text-xs text-muted">This week</span>
+            <div className="bg-gradient-to-br from-surface to-background p-4 sm:p-6">
+              <div className="mb-4 flex items-center justify-between sm:mb-6">
+                <h3 className="text-xs font-medium text-white sm:text-sm">Team Overview</h3>
+                <span className="text-[10px] text-muted sm:text-xs">This week</span>
               </div>
-              <div className="mb-6 grid grid-cols-4 gap-4">
+              <div className="mb-4 grid grid-cols-2 gap-2 sm:mb-6 sm:grid-cols-4 sm:gap-4">
                 {[
                   { label: 'Hours today', value: '32.5', unit: 'hrs' },
                   { label: 'Active users', value: '12', unit: '' },
@@ -117,7 +119,7 @@ export default function Home() {
                 ].map((stat) => (
                   <div key={stat.label} className="rounded-lg border border-white/5 bg-white/5 p-4">
                     <p className="text-xs text-muted">{stat.label}</p>
-                    <p className="mt-1 font-display text-xl font-semibold text-white">
+                    <p className="mt-1 font-display text-lg font-semibold text-white sm:text-xl">
                       {stat.value}
                       {stat.unit && (
                         <span className="ml-0.5 text-sm font-normal text-muted">{stat.unit}</span>
@@ -126,9 +128,9 @@ export default function Home() {
                   </div>
                 ))}
               </div>
-              <div className="rounded-lg border border-white/5 bg-white/5 p-4">
-                <p className="mb-3 text-xs text-muted">Activity by day</p>
-                <div className="flex gap-2">
+              <div className="rounded-lg border border-white/5 bg-white/5 p-3 sm:p-4">
+                <p className="mb-2 text-[10px] text-muted sm:mb-3 sm:text-xs">Activity by day</p>
+                <div className="flex gap-1 sm:gap-2">
                   {[
                     { day: 'Mon', hrs: 28, pct: 70 },
                     { day: 'Tue', hrs: 35, pct: 88 },
@@ -145,7 +147,7 @@ export default function Home() {
                           style={{ height: `${d.pct}%` }}
                         />
                       </div>
-                      <span className="text-[10px] text-muted">{d.day}</span>
+                      <span className="text-[8px] text-muted sm:text-[10px]">{d.day}</span>
                     </div>
                   ))}
                 </div>
@@ -157,9 +159,9 @@ export default function Home() {
       </section>
 
       {/* Stats */}
-      <section className="border-t border-white/5 py-28">
-        <div className="mx-auto max-w-6xl px-6">
-          <div className="grid gap-12 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="border-t border-white/5 px-4 py-16 sm:px-6 sm:py-28">
+        <div className="mx-auto max-w-6xl">
+          <div className="grid gap-8 sm:grid-cols-2 sm:gap-12 lg:grid-cols-4">
             <StatItem value="10K+" label="Hours tracked" />
             <StatItem value="500+" label="Teams" />
             <StatItem value="99.9%" label="Uptime" />
@@ -169,12 +171,12 @@ export default function Home() {
       </section>
 
       {/* Testimonials */}
-      <section className="border-t border-white/5 py-28">
-        <div className="mx-auto max-w-6xl px-6">
-          <h2 className="font-display text-center text-3xl font-bold text-white sm:text-4xl">
+      <section className="border-t border-white/5 px-4 py-16 sm:px-6 sm:py-28">
+        <div className="mx-auto max-w-6xl">
+          <h2 className="font-display text-center text-2xl font-bold text-white sm:text-3xl lg:text-4xl">
             What teams are saying
           </h2>
-          <div className="mt-16 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-12 grid gap-6 sm:mt-16 sm:grid-cols-2 sm:gap-8 lg:grid-cols-3">
             <TestimonialCard
               quote="TrackSync gave us visibility into how our team actually works. No more guessing—we have data."
               name="Sarah Chen"
@@ -201,12 +203,12 @@ export default function Home() {
       </section>
 
       {/* Final CTA */}
-      <section className="border-t border-white/5 py-28">
-        <div className="mx-auto max-w-3xl px-6 text-center">
+      <section className="border-t border-white/5 px-4 py-16 sm:px-6 sm:py-28">
+        <div className="mx-auto max-w-3xl text-center">
           <div className="flex justify-center">
             <Activity className="h-12 w-12 text-primary" />
           </div>
-          <h2 className="mt-6 font-display text-3xl font-bold text-white">
+          <h2 className="mt-6 font-display text-2xl font-bold text-white sm:text-3xl">
             Ready to understand how your team works?
           </h2>
           <p className="mt-4 text-muted">
@@ -252,7 +254,7 @@ function FeatureCard({
 function StatItem({ value, label }: { value: string; label: string }) {
   return (
     <div className="text-center">
-      <p className="font-display text-4xl font-bold text-white sm:text-5xl">
+      <p className="font-display text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
         <span className="bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
           {value}
         </span>
