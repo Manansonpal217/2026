@@ -34,11 +34,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body
         className={`${inter.variable} ${outfit.variable} relative min-h-screen overflow-x-hidden font-sans antialiased`}
       >
-        {/* Consistent background across all pages */}
+        {/* Hero-style background across entire site */}
         <div className="fixed inset-0 -z-10 bg-background" aria-hidden />
+        <div className="gradient-mesh fixed inset-0 -z-10" aria-hidden />
         <div className="fixed inset-0 -z-10 bg-grid-pattern opacity-80" aria-hidden />
         <div
-          className="fixed inset-0 -z-10 bg-gradient-to-b from-primary/[0.06] via-transparent to-transparent"
+          className="fixed -top-40 -right-40 -z-10 h-80 w-80 animate-float rounded-full bg-primary/15 blur-3xl"
+          aria-hidden
+        />
+        <div
+          className="fixed -bottom-40 -left-40 -z-10 h-80 w-80 animate-float-slow rounded-full bg-accent/15 blur-3xl"
           aria-hidden
         />
         <Navbar />

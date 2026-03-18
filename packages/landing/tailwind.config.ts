@@ -32,6 +32,9 @@ const config: Config = {
         float: 'float 8s ease-in-out infinite',
         'float-slow': 'float 12s ease-in-out infinite',
         'gradient-shift': 'gradient-shift 10s ease infinite',
+        'gradient-flow': 'gradient-flow 6s ease-in-out infinite',
+        shimmer: 'shimmer 2s ease-in-out infinite',
+        'gradient-text': 'gradient-text 4s ease-in-out infinite',
       },
       keyframes: {
         'fade-in-up': {
@@ -49,6 +52,18 @@ const config: Config = {
         'gradient-shift': {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0.8' },
+        },
+        'gradient-flow': {
+          '0%, 100%': { backgroundPosition: '0% 50%' },
+          '50%': { backgroundPosition: '100% 50%' },
+        },
+        shimmer: {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0.7' },
+        },
+        'gradient-text': {
+          '0%, 100%': { backgroundPosition: '0% 50%' },
+          '50%': { backgroundPosition: '100% 50%' },
         },
       },
     },
