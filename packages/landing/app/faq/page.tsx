@@ -6,7 +6,7 @@ import { ChevronDown } from 'lucide-react'
 const faqs = [
   {
     q: 'How does time tracking work?',
-    a: "TrackSync uses a lightweight desktop app that runs in the background. It automatically detects when you're active and tracks time spent on different applications and projects. No manual timers required—it just works.",
+    a: "TrackSync uses task-based time tracking. Connect Jira, Asana, or Atlassian—time is automatically attributed to the tickets and tasks you're working on. No manual timers required.",
   },
   {
     q: 'Can users disable screenshots?',
@@ -18,7 +18,11 @@ const faqs = [
   },
   {
     q: 'What integrations do you support?',
-    a: 'We integrate with Jira, Asana, Linear, and other project management tools. You can link time entries to tasks and sync work context across your stack. More integrations are coming soon.',
+    a: 'We integrate with Jira, Asana, Atlassian, Linear, and other project management tools. Time is automatically linked to tasks and tickets. More integrations are coming soon.',
+  },
+  {
+    q: 'What are automatic daily standups?',
+    a: "TrackSync generates and posts daily standup summaries automatically—what you worked on, what you're doing next—based on your tracked time and tasks. No manual updates needed.",
   },
   {
     q: 'Is my data secure?',

@@ -18,6 +18,14 @@
   .animate-initial {
     opacity: 0;
   }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* Subtle gradient accent - soft, refined glow */

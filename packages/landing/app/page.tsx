@@ -1,5 +1,15 @@
 import Link from 'next/link'
-import { Clock, Camera, BarChart3, Plug, ArrowRight, Shield, Quote, Activity } from 'lucide-react'
+import {
+  Clock,
+  Camera,
+  BarChart3,
+  Plug,
+  ArrowRight,
+  Shield,
+  Activity,
+  MessageSquare,
+} from 'lucide-react'
+import { TestimonialsCarousel } from '../components/TestimonialsCarousel'
 
 export default function Home() {
   return (
@@ -17,8 +27,8 @@ export default function Home() {
             </span>
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-base text-muted sm:text-lg">
-            Time tracking, automatic screenshots, and team insights. Understand how your team works
-            — without the micromanagement.
+            Task-based time tracking with Jira, Asana, and Atlassian. Automatic daily standups,
+            screenshots, and team insights—without the micromanagement.
           </p>
           <div className="mt-10">
             <Link
@@ -50,41 +60,50 @@ export default function Home() {
       </section>
 
       {/* Features */}
-      <section id="features" className="border-t border-white/5 px-4 py-16 sm:px-6 sm:py-28">
-        <div className="mx-auto max-w-6xl">
-          <h2 className="font-display text-center text-2xl font-bold text-white sm:text-3xl lg:text-4xl">
-            Everything you need to understand team productivity
-          </h2>
-          <p className="mx-auto mt-4 max-w-2xl text-center text-muted">
-            TrackSync combines time tracking, screenshots, and analytics in one platform.
-          </p>
-          <div className="mt-12 grid gap-6 sm:mt-16 sm:grid-cols-2 sm:gap-8 lg:grid-cols-5">
+      <section id="features" className="border-t border-white/5 px-4 py-20 sm:px-6 sm:py-32">
+        <div className="mx-auto max-w-5xl">
+          <div className="text-center">
+            <h2 className="font-display text-2xl font-bold tracking-tight text-white sm:text-3xl lg:text-4xl">
+              Everything you need to understand team productivity
+            </h2>
+            <p className="mx-auto mt-4 max-w-xl text-center text-muted">
+              Task-based time tracking, Jira & Asana integrations, automatic standups, and analytics
+              in one platform.
+            </p>
+          </div>
+          <div className="mt-16 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             <FeatureCard
-              icon={<Clock className="h-6 w-6" />}
-              title="Time tracking"
-              description="Automatic time tracking with the desktop app. See where time goes without manual timers."
+              icon={<Clock className="h-7 w-7" />}
+              title="Task-based time tracking"
+              description="Track time against Jira tickets, Asana tasks, and more. Automatic attribution—no manual timers."
               delay="animate-fade-in-up-delay-1"
             />
             <FeatureCard
-              icon={<Camera className="h-6 w-6" />}
-              title="Screenshots"
-              description="Periodic screenshots with privacy controls. Visual context when you need it."
+              icon={<Plug className="h-7 w-7" />}
+              title="Jira, Asana & Atlassian"
+              description="Native integrations with Jira, Asana, Linear, and Atlassian. Sync work context across your stack."
               delay="animate-fade-in-up-delay-2"
             />
             <FeatureCard
-              icon={<BarChart3 className="h-6 w-6" />}
-              title="Team insights"
-              description="Reports, heatmaps, and activity trends. Understand patterns across your team."
+              icon={<MessageSquare className="h-7 w-7" />}
+              title="Automatic daily standups"
+              description="Daily standup summaries posted automatically. What you did, what you're doing—no manual updates."
               delay="animate-fade-in-up-delay-3"
             />
             <FeatureCard
-              icon={<Plug className="h-6 w-6" />}
-              title="Integrations"
-              description="Connect with Jira, Asana, and more. Sync work context across your tools."
+              icon={<Camera className="h-7 w-7" />}
+              title="Screenshots"
+              description="Periodic screenshots with privacy controls. Visual context when you need it."
               delay="animate-fade-in-up-delay-4"
             />
             <FeatureCard
-              icon={<Shield className="h-6 w-6" />}
+              icon={<BarChart3 className="h-7 w-7" />}
+              title="Team insights"
+              description="Reports, heatmaps, and activity trends. Understand patterns across your team."
+              delay="animate-fade-in-up-delay-4"
+            />
+            <FeatureCard
+              icon={<Shield className="h-7 w-7" />}
               title="Security & privacy"
               description="Enterprise-grade security. Data encrypted at rest and in transit."
               delay="animate-fade-in-up-delay-4"
@@ -95,66 +114,89 @@ export default function Home() {
 
       {/* Product Showcase */}
       <section className="border-t border-white/5 px-4 py-16 sm:px-6 sm:py-28">
-        <div className="mx-auto max-w-6xl">
-          <div className="overflow-hidden rounded-xl border border-white/10 bg-surface/50 shadow-2xl shadow-primary/10 sm:rounded-2xl">
-            <div className="flex items-center gap-2 border-b border-white/5 bg-white/5 px-3 py-2.5 sm:px-4 sm:py-3">
-              <div className="h-2 w-2 rounded-full bg-red-500/80 sm:h-2.5 sm:w-2.5" />
-              <div className="h-2 w-2 rounded-full bg-yellow-500/80 sm:h-2.5 sm:w-2.5" />
-              <div className="h-2 w-2 rounded-full bg-green-500/80 sm:h-2.5 sm:w-2.5" />
-              <span className="ml-2 truncate text-[10px] text-muted sm:ml-4 sm:text-xs">
-                app.tracksync.dev/dashboard
-              </span>
-            </div>
-            <div className="bg-gradient-to-br from-surface to-background p-4 sm:p-6">
-              <div className="mb-4 flex items-center justify-between sm:mb-6">
-                <h3 className="text-xs font-medium text-white sm:text-sm">Team Overview</h3>
-                <span className="text-[10px] text-muted sm:text-xs">This week</span>
+        <div className="mx-auto max-w-5xl">
+          <div className="relative overflow-hidden rounded-2xl border border-white/20 bg-gradient-to-br from-surface via-surface to-background shadow-2xl ring-1 ring-white/10 sm:rounded-3xl">
+            <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-accent/5" />
+            <div className="relative">
+              <div className="flex items-center gap-2 border-b border-white/10 bg-white/5 px-4 py-3 backdrop-blur-sm">
+                <div className="flex gap-1.5">
+                  <div className="h-2.5 w-2.5 rounded-full bg-red-500/90" />
+                  <div className="h-2.5 w-2.5 rounded-full bg-amber-500/90" />
+                  <div className="h-2.5 w-2.5 rounded-full bg-emerald-500/90" />
+                </div>
+                <span className="ml-3 text-xs text-muted">TrackSync Dashboard</span>
+                <div className="ml-auto flex items-center gap-1.5 rounded-md bg-white/5 px-2 py-1">
+                  <span className="text-[10px] text-muted">Jira</span>
+                  <span className="text-[10px] text-muted">•</span>
+                  <span className="text-[10px] text-muted">Asana</span>
+                </div>
               </div>
-              <div className="mb-4 grid grid-cols-2 gap-2 sm:mb-6 sm:grid-cols-4 sm:gap-4">
-                {[
-                  { label: 'Hours today', value: '32.5', unit: 'hrs' },
-                  { label: 'Active users', value: '12', unit: '' },
-                  { label: 'Projects', value: '8', unit: '' },
-                  { label: 'Avg. focus', value: '4.2', unit: 'hrs' },
-                ].map((stat) => (
-                  <div key={stat.label} className="rounded-lg border border-white/5 bg-white/5 p-4">
-                    <p className="text-xs text-muted">{stat.label}</p>
-                    <p className="mt-1 font-display text-lg font-semibold text-white sm:text-xl">
-                      {stat.value}
-                      {stat.unit && (
-                        <span className="ml-0.5 text-sm font-normal text-muted">{stat.unit}</span>
-                      )}
-                    </p>
+              <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-6">
+                {/* Today's Standup */}
+                <div className="rounded-xl border border-primary/20 bg-gradient-to-br from-primary/10 to-transparent p-4 shadow-lg">
+                  <div className="mb-3 flex items-center gap-2">
+                    <MessageSquare className="h-4 w-4 text-primary" />
+                    <span className="text-xs font-medium text-primary">Today&apos;s Standup</span>
                   </div>
-                ))}
+                  <p className="text-sm leading-relaxed text-white/90">
+                    Shipped auth flow (PROJ-142). Working on API integration. Blocked on design
+                    review.
+                  </p>
+                  <p className="mt-2 text-[10px] text-muted">Posted automatically at 9:00 AM</p>
+                </div>
+                {/* Tasks tracked */}
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-primary" />
+                    <span className="text-xs font-medium text-white">Tasks tracked today</span>
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { id: 'PROJ-142', task: 'Auth flow', hrs: '2.5h' },
+                      { id: 'PROJ-138', task: 'API integration', hrs: '1.2h' },
+                      { id: 'ASANA-91', task: 'Design review', hrs: '0.5h' },
+                    ].map((t) => (
+                      <div
+                        key={t.id}
+                        className="flex items-center gap-2 rounded-lg bg-white/5 px-3 py-2"
+                      >
+                        <span className="shrink-0 text-xs font-medium text-white">{t.id}</span>
+                        <span className="min-w-0 flex-1 truncate text-[10px] text-muted">
+                          {t.task}
+                        </span>
+                        <span className="shrink-0 text-xs text-primary">{t.hrs}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div className="rounded-lg border border-white/5 bg-white/5 p-3 sm:p-4">
-                <p className="mb-2 text-[10px] text-muted sm:mb-3 sm:text-xs">Activity by day</p>
-                <div className="flex gap-1 sm:gap-2">
+              <div className="border-t border-white/10 p-4 sm:p-6">
+                <p className="mb-3 text-xs font-medium text-muted">Activity this week</p>
+                <div className="flex items-end gap-1">
                   {[
-                    { day: 'Mon', hrs: 28, pct: 70 },
-                    { day: 'Tue', hrs: 35, pct: 88 },
-                    { day: 'Wed', hrs: 32, pct: 80 },
-                    { day: 'Thu', hrs: 40, pct: 100 },
-                    { day: 'Fri', hrs: 26, pct: 65 },
-                    { day: 'Sat', hrs: 8, pct: 20 },
-                    { day: 'Sun', hrs: 4, pct: 10 },
+                    { day: 'Mon', pct: 70 },
+                    { day: 'Tue', pct: 88 },
+                    { day: 'Wed', pct: 80 },
+                    { day: 'Thu', pct: 100 },
+                    { day: 'Fri', pct: 65 },
+                    { day: 'Sat', pct: 20 },
+                    { day: 'Sun', pct: 10 },
                   ].map((d) => (
                     <div key={d.day} className="flex flex-1 flex-col items-center gap-1">
-                      <div className="flex h-20 w-full items-end">
-                        <div
-                          className="w-full rounded-t bg-gradient-to-t from-primary/60 to-primary/30 transition-colors hover:from-primary/80 hover:to-primary/40"
-                          style={{ height: `${d.pct}%` }}
-                        />
-                      </div>
-                      <span className="text-[8px] text-muted sm:text-[10px]">{d.day}</span>
+                      <div
+                        className="w-full max-w-[32px] rounded-t bg-gradient-to-t from-primary to-accent opacity-90 transition-all hover:opacity-100"
+                        style={{ height: `${Math.max(d.pct, 12)}%`, minHeight: 24 }}
+                      />
+                      <span className="text-[9px] text-muted sm:text-[10px]">{d.day}</span>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
           </div>
-          <p className="mt-6 text-center text-muted">See productivity at a glance</p>
+          <p className="mt-6 text-center text-sm text-muted">
+            Task-based tracking • Jira & Asana • Automatic standups
+          </p>
         </div>
       </section>
 
@@ -164,8 +206,8 @@ export default function Home() {
           <div className="grid gap-8 sm:grid-cols-2 sm:gap-12 lg:grid-cols-4">
             <StatItem value="10K+" label="Hours tracked" />
             <StatItem value="500+" label="Teams" />
-            <StatItem value="99.9%" label="Uptime" />
-            <StatItem value="4.9" label="Average rating" />
+            <StatItem value="50K+" label="Standups posted" />
+            <StatItem value="5+" label="Integrations" />
           </div>
         </div>
       </section>
@@ -176,28 +218,8 @@ export default function Home() {
           <h2 className="font-display text-center text-2xl font-bold text-white sm:text-3xl lg:text-4xl">
             What teams are saying
           </h2>
-          <div className="mt-12 grid gap-6 sm:mt-16 sm:grid-cols-2 sm:gap-8 lg:grid-cols-3">
-            <TestimonialCard
-              quote="TrackSync gave us visibility into how our team actually works. No more guessing—we have data."
-              name="Sarah Chen"
-              role="Engineering Manager"
-              company="TechFlow"
-              avatar="https://ui-avatars.com/api/?name=Sarah+Chen&background=6366f1&color=fff"
-            />
-            <TestimonialCard
-              quote="The privacy controls are a game-changer. Our team trusts the tool because they control their own data."
-              name="Marcus Rodriguez"
-              role="Head of Operations"
-              company="ScaleUp"
-              avatar="https://ui-avatars.com/api/?name=Marcus+Rodriguez&background=6366f1&color=fff"
-            />
-            <TestimonialCard
-              quote="Finally, time tracking that doesn't feel like surveillance. It's about productivity, not policing."
-              name="Emily Watson"
-              role="CTO"
-              company="Nexus Labs"
-              avatar="https://ui-avatars.com/api/?name=Emily+Watson&background=6366f1&color=fff"
-            />
+          <div className="mt-12 sm:mt-16">
+            <TestimonialsCarousel />
           </div>
         </div>
       </section>
@@ -240,13 +262,16 @@ function FeatureCard({
 }) {
   return (
     <div
-      className={`group rounded-xl border border-white/5 bg-white/[0.03] p-6 backdrop-blur-sm transition-all hover:scale-[1.02] hover:border-white/10 hover:shadow-lg hover:shadow-primary/5 ${delay}`}
+      className={`group relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.02] p-8 shadow-lg shadow-black/20 transition-all duration-300 hover:border-primary/30 hover:bg-white/[0.04] hover:shadow-xl hover:shadow-primary/10 ${delay}`}
     >
-      <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-accent/20 text-primary transition-transform group-hover:scale-110">
-        {icon}
+      <div className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-primary/5 blur-2xl transition-opacity group-hover:bg-primary/10" />
+      <div className="relative">
+        <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-primary/30 to-accent/30 text-primary transition-all duration-300 group-hover:from-primary/40 group-hover:to-accent/40">
+          {icon}
+        </div>
+        <h3 className="mt-6 text-lg font-semibold text-white">{title}</h3>
+        <p className="mt-3 leading-relaxed text-muted">{description}</p>
       </div>
-      <h3 className="mt-4 font-semibold text-white">{title}</h3>
-      <p className="mt-2 text-sm text-muted">{description}</p>
     </div>
   )
 }
@@ -260,40 +285,6 @@ function StatItem({ value, label }: { value: string; label: string }) {
         </span>
       </p>
       <p className="mt-2 text-sm text-muted">{label}</p>
-    </div>
-  )
-}
-
-function TestimonialCard({
-  quote,
-  name,
-  role,
-  company,
-  avatar,
-}: {
-  quote: string
-  name: string
-  role: string
-  company: string
-  avatar: string
-}) {
-  return (
-    <div className="rounded-xl border border-white/5 bg-white/[0.03] p-6 backdrop-blur-sm transition-all hover:border-white/10">
-      <Quote className="h-8 w-8 text-primary/40" />
-      <p className="mt-4 text-muted">&ldquo;{quote}&rdquo;</p>
-      <div className="mt-6 flex items-center gap-3">
-        <img
-          src={avatar}
-          alt={name}
-          className="h-10 w-10 shrink-0 rounded-full object-cover ring-1 ring-white/10"
-        />
-        <div>
-          <p className="font-medium text-white">{name}</p>
-          <p className="text-sm text-muted">
-            {role}, {company}
-          </p>
-        </div>
-      </div>
     </div>
   )
 }

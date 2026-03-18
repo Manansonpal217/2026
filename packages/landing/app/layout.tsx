@@ -18,7 +18,8 @@ const outfit = Outfit({
 
 export const metadata: Metadata = {
   title: 'TrackSync — Work Intelligence Platform',
-  description: 'Time tracking, screenshots, and team insights. Understand how your team works.',
+  description:
+    'Task-based time tracking with Jira, Asana & Atlassian. Automatic daily standups, screenshots, and team insights.',
 }
 
 export const viewport: Viewport = {

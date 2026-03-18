@@ -24,7 +24,8 @@ export default function PricingPage() {
               description="For small teams getting started"
               features={[
                 'Up to 10 users',
-                'Automatic time tracking',
+                'Task-based time tracking',
+                'Jira & Asana integration',
                 'Basic reports',
                 'Desktop app',
                 'Email support',
@@ -38,9 +39,10 @@ export default function PricingPage() {
               description="For growing teams that need more"
               features={[
                 'Unlimited users',
+                'Task-based tracking + Jira, Asana, Atlassian',
+                'Automatic daily standups',
                 'Screenshots with privacy controls',
                 'Activity heatmaps',
-                'Jira & Asana integrations',
                 'Advanced reports',
                 'Priority support',
               ]}

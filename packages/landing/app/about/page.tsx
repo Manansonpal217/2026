@@ -20,9 +20,9 @@ export default function AboutPage() {
             doesn&apos;t work.
           </p>
           <p className="mt-6 text-muted">
-            We built automatic time tracking with privacy at the core. Screenshots that users can
-            control. Insights that help managers lead better—not micromanage. Integrations that
-            connect work across tools.
+            We built task-based time tracking with Jira, Asana, and Atlassian at the core. Automatic
+            daily standups. Screenshots that users can control. Insights that help managers lead
+            better—not micromanage.
           </p>
         </div>
       </section>
