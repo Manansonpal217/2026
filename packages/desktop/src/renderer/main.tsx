@@ -81,14 +81,20 @@ try {
           <App />
         </ErrorBoundary>
       </ThemeProvider>
-    </React.StrictMode>,
+    </React.StrictMode>
   )
 } catch (err) {
-  document.body.innerHTML = `
-    <div style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24;background:#08090d;color:#f9fafb;font-family:system-ui">
-      <h2>Failed to start</h2>
-      <pre style="color:#ef4444;font-size:12">${(err as Error).message}</pre>
-      <p style="margin-top:16;font-size:12;color:#9ca3af">Press Cmd+Option+I to open DevTools</p>
-    </div>
-  `
+  const div = document.createElement('div')
+  div.style.cssText =
+    'height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24;background:#08090d;color:#f9fafb;font-family:system-ui'
+  const h2 = document.createElement('h2')
+  h2.textContent = 'Failed to start'
+  const pre = document.createElement('pre')
+  pre.style.cssText = 'color:#ef4444;font-size:12'
+  pre.textContent = (err as Error).message
+  const p = document.createElement('p')
+  p.style.cssText = 'margin-top:16;font-size:12;color:#9ca3af'
+  p.textContent = 'Press Cmd+Option+I to open DevTools'
+  div.append(h2, pre, p)
+  document.body.replaceChildren(div)
 }

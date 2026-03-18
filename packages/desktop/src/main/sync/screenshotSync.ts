@@ -3,6 +3,7 @@ import { readFileSync, unlinkSync } from 'fs'
 import { getDb } from '../db/index.js'
 import { getDbEncryptionKey } from '../db/key.js'
 import { getApiBase, getAuthHeaders } from './sessionSync.js'
+import { getBackoffMinutes } from './resilience.js'
 
 interface LocalScreenshot {
   id: string
@@ -12,7 +13,10 @@ interface LocalScreenshot {
   activity_score: number
   file_size_bytes: number
   sync_attempts: number
+  last_sync_attempt_at: string | null
 }
+
+const nowIso = () => new Date().toISOString()
 
 async function decryptFile(localPath: string, keyHex: string): Promise<Buffer> {
   const encrypted = readFileSync(localPath)
@@ -28,17 +32,26 @@ async function decryptFile(localPath: string, keyHex: string): Promise<Buffer> {
   return Buffer.concat([decipher.update(ciphertext), decipher.final()])
 }
 
-export async function syncPendingScreenshots(): Promise<void> {
+export async function syncPendingScreenshots(): Promise<{ rateLimited?: boolean } | void> {
   const db = getDb()
   const keyHex = await getDbEncryptionKey()
 
-  const unsynced = db
+  const candidates = db
     .prepare(
       `SELECT * FROM local_screenshots
-       WHERE synced = 0 AND sync_attempts < 6
-       ORDER BY taken_at ASC LIMIT 20`,
+       WHERE synced = 0
+       ORDER BY taken_at ASC LIMIT 40`
     )
     .all() as LocalScreenshot[]
+
+  const unsynced = candidates
+    .filter((s) => {
+      const backoffMin = getBackoffMinutes(s.sync_attempts ?? 0)
+      if (!s.last_sync_attempt_at) return true
+      const lastAttempt = new Date(s.last_sync_attempt_at).getTime()
+      return Date.now() - lastAttempt >= backoffMin * 60 * 1000
+    })
+    .slice(0, 20)
 
   if (unsynced.length === 0) return
 
@@ -48,7 +61,6 @@ export async function syncPendingScreenshots(): Promise<void> {
 
   for (const screenshot of unsynced) {
     try {
-      // Step 1: get presigned upload URL
       const uploadRes = await fetch(`${apiBase}/v1/screenshots/upload-url`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
@@ -60,10 +72,20 @@ export async function syncPendingScreenshots(): Promise<void> {
         }),
       })
 
+      if (uploadRes.status === 429) return { rateLimited: true }
+
       if (!uploadRes.ok) {
-        db.prepare(
-          `UPDATE local_screenshots SET sync_attempts = sync_attempts + 1, last_sync_error = ? WHERE id = ?`,
-        ).run(`upload-url failed: HTTP ${uploadRes.status}`, screenshot.id)
+        const isTransient = uploadRes.status >= 500
+        const reason = `upload-url failed: HTTP ${uploadRes.status}`
+        if (isTransient) {
+          db.prepare(
+            `UPDATE local_screenshots SET last_sync_attempt_at = ?, last_sync_error = ? WHERE id = ?`
+          ).run(nowIso(), reason, screenshot.id)
+        } else {
+          db.prepare(
+            `UPDATE local_screenshots SET sync_attempts = sync_attempts + 1, last_sync_error = ?, last_sync_attempt_at = ? WHERE id = ?`
+          ).run(reason, nowIso(), screenshot.id)
+        }
         continue
       }
 
@@ -73,38 +95,56 @@ export async function syncPendingScreenshots(): Promise<void> {
         s3_key: string
       }
 
-      // Step 2: decrypt locally and PUT to presigned URL
       const decrypted = await decryptFile(screenshot.local_path, keyHex)
 
       const putRes = await fetch(presigned_url, {
         method: 'PUT',
-        // Copy into a plain ArrayBuffer to satisfy BodyInit strict typing
-        body: (() => { const ab = new ArrayBuffer(decrypted.length); new Uint8Array(ab).set(decrypted); return ab })(),
+        body: (() => {
+          const ab = new ArrayBuffer(decrypted.length)
+          new Uint8Array(ab).set(decrypted)
+          return ab
+        })(),
         headers: { 'Content-Type': 'image/webp' },
       })
 
       if (!putRes.ok) {
-        db.prepare(
-          `UPDATE local_screenshots SET sync_attempts = sync_attempts + 1, last_sync_error = ? WHERE id = ?`,
-        ).run(`S3 PUT failed: HTTP ${putRes.status}`, screenshot.id)
+        const isTransient = putRes.status >= 500
+        const reason = `S3 PUT failed: HTTP ${putRes.status}`
+        if (isTransient) {
+          db.prepare(
+            `UPDATE local_screenshots SET last_sync_attempt_at = ?, last_sync_error = ? WHERE id = ?`
+          ).run(nowIso(), reason, screenshot.id)
+        } else {
+          db.prepare(
+            `UPDATE local_screenshots SET sync_attempts = sync_attempts + 1, last_sync_error = ?, last_sync_attempt_at = ? WHERE id = ?`
+          ).run(reason, nowIso(), screenshot.id)
+        }
         continue
       }
 
-      // Step 3: confirm upload
       const confirmRes = await fetch(`${apiBase}/v1/screenshots/confirm`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ upload_id }),
       })
 
+      if (confirmRes.status === 429) return { rateLimited: true }
+
       if (!confirmRes.ok) {
-        db.prepare(
-          `UPDATE local_screenshots SET sync_attempts = sync_attempts + 1, last_sync_error = ? WHERE id = ?`,
-        ).run(`confirm failed: HTTP ${confirmRes.status}`, screenshot.id)
+        const isTransient = confirmRes.status >= 500
+        const reason = `confirm failed: HTTP ${confirmRes.status}`
+        if (isTransient) {
+          db.prepare(
+            `UPDATE local_screenshots SET last_sync_attempt_at = ?, last_sync_error = ? WHERE id = ?`
+          ).run(nowIso(), reason, screenshot.id)
+        } else {
+          db.prepare(
+            `UPDATE local_screenshots SET sync_attempts = sync_attempts + 1, last_sync_error = ?, last_sync_attempt_at = ? WHERE id = ?`
+          ).run(reason, nowIso(), screenshot.id)
+        }
         continue
       }
 
-      // Success — mark synced and delete local encrypted file
       db.prepare(`UPDATE local_screenshots SET synced = 1 WHERE id = ?`).run(screenshot.id)
 
       try {
@@ -112,10 +152,8 @@ export async function syncPendingScreenshots(): Promise<void> {
       } catch {
         // Non-fatal: file already deleted
       }
-    } catch (err) {
-      db.prepare(
-        `UPDATE local_screenshots SET sync_attempts = sync_attempts + 1, last_sync_error = ? WHERE id = ?`,
-      ).run(err instanceof Error ? err.message : String(err), screenshot.id)
+    } catch {
+      // Network error — do not increment; will retry next cycle
     }
   }
 }

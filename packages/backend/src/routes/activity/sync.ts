@@ -26,6 +26,7 @@ export async function activitySyncRoutes(fastify: FastifyInstance, opts: { confi
   const authenticate = createAuthenticateMiddleware(opts.config)
 
   fastify.post('/batch', {
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
     preHandler: [authenticate],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
@@ -38,10 +39,21 @@ export async function activitySyncRoutes(fastify: FastifyInstance, opts: { confi
 
       // Collect referenced session IDs for ownership validation
       const sessionIds = [...new Set(body.data.logs.map((l) => l.session_id))]
-      const validSessions = await prisma.timeSession.findMany({
-        where: { id: { in: sessionIds }, user_id: user.id, org_id: user.org_id },
-        select: { id: true },
-      })
+      const [validSessions, orgSettings] = await Promise.all([
+        prisma.timeSession.findMany({
+          where: { id: { in: sessionIds }, user_id: user.id, org_id: user.org_id },
+          select: { id: true },
+        }),
+        prisma.orgSettings.findUnique({
+          where: { org_id: user.org_id },
+          select: {
+            track_keyboard: true,
+            track_mouse: true,
+            track_app_usage: true,
+            track_url: true,
+          },
+        }),
+      ])
       const validSessionSet = new Set(validSessions.map((s) => s.id))
 
       const synced: string[] = []
@@ -53,6 +65,13 @@ export async function activitySyncRoutes(fastify: FastifyInstance, opts: { confi
           continue
         }
 
+        // Enforce org privacy settings — server overrides client data
+        const keyboard_events = orgSettings?.track_keyboard !== false ? log.keyboard_events : 0
+        const mouse_clicks = orgSettings?.track_mouse !== false ? log.mouse_clicks : 0
+        const mouse_distance_px = orgSettings?.track_mouse !== false ? log.mouse_distance_px : 0
+        const active_app = orgSettings?.track_app_usage !== false ? (log.active_app ?? null) : null
+        const active_url = orgSettings?.track_url !== false ? (log.active_url ?? null) : null
+
         try {
           await prisma.activityLog.upsert({
             where: { id: log.id },
@@ -63,19 +82,19 @@ export async function activitySyncRoutes(fastify: FastifyInstance, opts: { confi
               org_id: user.org_id,
               window_start: new Date(log.window_start),
               window_end: new Date(log.window_end),
-              keyboard_events: log.keyboard_events,
-              mouse_clicks: log.mouse_clicks,
-              mouse_distance_px: log.mouse_distance_px,
-              active_app: log.active_app ?? null,
-              active_url: log.active_url ?? null,
+              keyboard_events,
+              mouse_clicks,
+              mouse_distance_px,
+              active_app,
+              active_url,
               activity_score: log.activity_score,
             },
             update: {
-              keyboard_events: log.keyboard_events,
-              mouse_clicks: log.mouse_clicks,
-              mouse_distance_px: log.mouse_distance_px,
-              active_app: log.active_app ?? undefined,
-              active_url: log.active_url ?? undefined,
+              keyboard_events,
+              mouse_clicks,
+              mouse_distance_px,
+              active_app: active_app ?? undefined,
+              active_url: active_url ?? undefined,
               activity_score: log.activity_score,
             },
           })

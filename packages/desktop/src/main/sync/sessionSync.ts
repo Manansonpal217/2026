@@ -1,8 +1,9 @@
 import { getDb } from '../db/index.js'
 import { ensureValidSession } from '../auth/handlers.js'
+import { getBackoffMinutes } from './resilience.js'
 
 const API_URL = process.env.VITE_API_URL || 'http://localhost:3001'
-const BATCH_SIZE = 50
+const BATCH_SIZE = 100
 
 export function getApiBase(): string {
   return API_URL
@@ -30,28 +31,41 @@ export interface LocalSession {
   synced: number
   sync_attempts: number
   last_sync_error: string | null
+  last_sync_attempt_at: string | null
   created_at: string
 }
 
+const nowIso = () => new Date().toISOString()
+
 /**
  * Sync all unsynced local sessions to the backend.
- * Sessions with >5 failed attempts are skipped (requires manual intervention).
+ * No permanent cap — uses exponential backoff and stale recovery.
  */
 export async function syncPendingSessions(): Promise<{
   synced: number
   errors: number
   skipped: number
+  rateLimited?: boolean
 }> {
   const db = getDb()
 
-  const unsynced = db
+  const candidates = db
     .prepare(
       `SELECT * FROM local_sessions
-       WHERE synced = 0 AND ended_at IS NOT NULL AND sync_attempts < 6
+       WHERE synced = 0 AND ended_at IS NOT NULL
        ORDER BY created_at ASC
        LIMIT ?`
     )
-    .all(BATCH_SIZE) as LocalSession[]
+    .all(BATCH_SIZE * 2) as LocalSession[]
+
+  const unsynced = candidates
+    .filter((s) => {
+      const backoffMin = getBackoffMinutes(s.sync_attempts ?? 0)
+      if (!s.last_sync_attempt_at) return true
+      const lastAttempt = new Date(s.last_sync_attempt_at).getTime()
+      return Date.now() - lastAttempt >= backoffMin * 60 * 1000
+    })
+    .slice(0, BATCH_SIZE)
 
   if (unsynced.length === 0) {
     return { synced: 0, errors: 0, skipped: 0 }
@@ -87,40 +101,41 @@ export async function syncPendingSessions(): Promise<{
       body: JSON.stringify({ sessions: payload }),
     })
 
+    if (res.status === 429) {
+      return { synced: 0, errors: 0, skipped: 0, rateLimited: true }
+    }
+
     if (!res.ok) {
-      // Mark all as failed
+      const isTransient = res.status >= 500
       const reason = `HTTP ${res.status}`
-      const stmt = db.prepare(
-        `UPDATE local_sessions SET sync_attempts = sync_attempts + 1, last_sync_error = ? WHERE id = ?`
+      const stmtTransient = db.prepare(
+        `UPDATE local_sessions SET last_sync_attempt_at = ?, last_sync_error = ? WHERE id = ?`
+      )
+      const stmtPermanent = db.prepare(
+        `UPDATE local_sessions SET sync_attempts = sync_attempts + 1, last_sync_error = ?, last_sync_attempt_at = ? WHERE id = ?`
       )
       for (const s of unsynced) {
-        stmt.run(reason, s.id)
+        if (isTransient) stmtTransient.run(nowIso(), reason, s.id)
+        else stmtPermanent.run(reason, nowIso(), s.id)
       }
       return { synced: 0, errors: unsynced.length, skipped: 0 }
     }
 
     responseData = await res.json()
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : 'Network error'
-    const stmt = db.prepare(
-      `UPDATE local_sessions SET sync_attempts = sync_attempts + 1, last_sync_error = ? WHERE id = ?`
-    )
-    for (const s of unsynced) {
-      stmt.run(reason, s.id)
-    }
-    return { synced: 0, errors: unsynced.length, skipped: 0 }
+  } catch {
+    return { synced: 0, errors: 0, skipped: 0 }
   }
 
   const markSynced = db.prepare(`UPDATE local_sessions SET synced = 1 WHERE id = ?`)
   const markFailed = db.prepare(
-    `UPDATE local_sessions SET sync_attempts = sync_attempts + 1, last_sync_error = ? WHERE id = ?`
+    `UPDATE local_sessions SET sync_attempts = sync_attempts + 1, last_sync_error = ?, last_sync_attempt_at = ? WHERE id = ?`
   )
 
   for (const { id } of responseData.synced) {
     markSynced.run(id)
   }
   for (const { id, reason } of responseData.errors) {
-    markFailed.run(reason, id)
+    markFailed.run(reason, nowIso(), id)
   }
 
   return {

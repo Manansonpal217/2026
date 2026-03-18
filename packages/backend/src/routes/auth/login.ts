@@ -70,7 +70,10 @@ export async function loginRoutes(fastify: FastifyInstance, _opts: { config: Con
         })
       }
 
-      if (user.mfa_enabled && user.mfa_secret) {
+      if (
+        user.mfa_enabled &&
+        (user.mfa_secret || (user.mfa_secret_encrypted && user.mfa_secret_encrypted.length > 0))
+      ) {
         const mfaToken = await issueMfaPendingToken(user.id, org.id)
         return reply.send({ mfa_required: true, mfa_token: mfaToken })
       }

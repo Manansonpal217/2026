@@ -621,7 +621,7 @@ function registerTimerHandlers(): void {
       const db = getDb()
       return db
         .prepare(
-          `SELECT id, session_id, file_path, taken_at, activity_score, file_size_bytes, synced, created_at
+          `SELECT id, session_id, local_path, taken_at, activity_score, file_size_bytes, synced, created_at
          FROM local_screenshots ORDER BY taken_at DESC LIMIT 100`
         )
         .all()

@@ -1,4 +1,10 @@
-import type { IntegrationAdapter, AuthTokens, ExternalProject, ExternalTask, TimeEntry } from './adapter.js'
+import type {
+  IntegrationAdapter,
+  AuthTokens,
+  ExternalProject,
+  ExternalTask,
+  TimeEntry,
+} from './adapter.js'
 import { validateOutboundUrl } from './ssrf.js'
 
 const JIRA_AUTH_URL = 'https://auth.atlassian.com/authorize'
@@ -8,7 +14,7 @@ const JIRA_API_BASE = 'https://api.atlassian.com/ex/jira'
 async function jiraFetch(
   url: string,
   auth: AuthTokens,
-  options: RequestInit = {},
+  options: RequestInit = {}
 ): Promise<Response> {
   validateOutboundUrl(url)
   return fetch(url, {
@@ -34,7 +40,7 @@ export const jiraAdapter: IntegrationAdapter = {
   type: 'jira',
   displayName: 'Jira',
 
-  oauthAuthUrl(state: string, redirectUri: string): string {
+  oauthAuthUrl(state: string, redirectUri: string, codeChallenge?: string): string {
     const clientId = process.env.JIRA_CLIENT_ID ?? ''
     const params = new URLSearchParams({
       audience: 'api.atlassian.com',
@@ -45,21 +51,32 @@ export const jiraAdapter: IntegrationAdapter = {
       response_type: 'code',
       prompt: 'consent',
     })
+    if (codeChallenge) {
+      params.set('code_challenge', codeChallenge)
+      params.set('code_challenge_method', 'S256')
+    }
     return `${JIRA_AUTH_URL}?${params.toString()}`
   },
 
-  async exchangeCode(code: string, redirectUri: string): Promise<AuthTokens> {
+  async exchangeCode(
+    code: string,
+    redirectUri: string,
+    codeVerifier?: string
+  ): Promise<AuthTokens> {
     validateOutboundUrl(JIRA_TOKEN_URL)
+    const body: Record<string, string | undefined> = {
+      grant_type: 'authorization_code',
+      client_id: process.env.JIRA_CLIENT_ID,
+      client_secret: process.env.JIRA_CLIENT_SECRET,
+      code,
+      redirect_uri: redirectUri,
+    }
+    if (codeVerifier) body.code_verifier = codeVerifier
+
     const res = await fetch(JIRA_TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        grant_type: 'authorization_code',
-        client_id: process.env.JIRA_CLIENT_ID,
-        client_secret: process.env.JIRA_CLIENT_SECRET,
-        code,
-        redirect_uri: redirectUri,
-      }),
+      body: JSON.stringify(body),
     })
     if (!res.ok) throw new Error(`Jira token exchange failed: ${res.status}`)
     const data = (await res.json()) as {
@@ -104,10 +121,15 @@ export const jiraAdapter: IntegrationAdapter = {
     const cloudId = await getCloudId(auth)
     const res = await jiraFetch(
       `${JIRA_API_BASE}/${cloudId}/rest/api/3/project?maxResults=50`,
-      auth,
+      auth
     )
     if (!res.ok) throw new Error(`Jira fetchProjects failed: ${res.status}`)
-    const data = (await res.json()) as Array<{ id: string; key: string; name: string; avatarUrls?: Record<string, string> }>
+    const data = (await res.json()) as Array<{
+      id: string
+      key: string
+      name: string
+      avatarUrls?: Record<string, string>
+    }>
     return data.map((p) => ({ id: p.key, name: p.name }))
   },
 
@@ -116,7 +138,7 @@ export const jiraAdapter: IntegrationAdapter = {
     const jql = encodeURIComponent(`project=${projectKey} ORDER BY updated DESC`)
     const res = await jiraFetch(
       `${JIRA_API_BASE}/${cloudId}/rest/api/3/search?jql=${jql}&fields=summary,status,assignee&maxResults=100`,
-      auth,
+      auth
     )
     if (!res.ok) throw new Error(`Jira fetchTasks failed: ${res.status}`)
     const data = (await res.json()) as {
@@ -151,7 +173,12 @@ export const jiraAdapter: IntegrationAdapter = {
         comment: {
           type: 'doc',
           version: 1,
-          content: [{ type: 'paragraph', content: [{ type: 'text', text: entry.notes || `Logged by ${entry.userName}` }] }],
+          content: [
+            {
+              type: 'paragraph',
+              content: [{ type: 'text', text: entry.notes || `Logged by ${entry.userName}` }],
+            },
+          ],
         },
       }),
     })

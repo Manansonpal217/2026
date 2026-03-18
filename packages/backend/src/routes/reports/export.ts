@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import { prisma } from '../../db/prisma.js'
 import { getDbRead } from '../../lib/db-read.js'
 import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
@@ -17,7 +18,9 @@ function formatCsvRow(values: (string | number | null | undefined)[]): string {
   return values
     .map((v) => {
       const s = v == null ? '' : String(v)
-      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
+      return s.includes(',') || s.includes('"') || s.includes('\n')
+        ? `"${s.replace(/"/g, '""')}"`
+        : s
     })
     .join(',')
 }
@@ -39,13 +42,48 @@ export async function exportReportRoutes(fastify: FastifyInstance, opts: { confi
       const query = parsed.data
 
       const canViewOthers = ['admin', 'super_admin', 'manager'].includes(user.role)
-      const userIds = canViewOthers && query.user_id
-        ? Array.isArray(query.user_id) ? query.user_id : [query.user_id]
-        : [user.id]
+      const userIds =
+        canViewOthers && query.user_id
+          ? Array.isArray(query.user_id)
+            ? query.user_id
+            : [query.user_id]
+          : [user.id]
 
       const projectIds = query.project_id
-        ? Array.isArray(query.project_id) ? query.project_id : [query.project_id]
+        ? Array.isArray(query.project_id)
+          ? query.project_id
+          : [query.project_id]
         : undefined
+
+      // Explicitly validate user_id and project_id belong to org
+      if (userIds.length > 0) {
+        const validUsers = await prisma.user.findMany({
+          where: { id: { in: userIds }, org_id: user.org_id },
+          select: { id: true },
+        })
+        const validUserSet = new Set(validUsers.map((u) => u.id))
+        const invalid = userIds.find((id) => !validUserSet.has(id))
+        if (invalid) {
+          return reply.status(400).send({
+            code: 'INVALID_USER',
+            message: `User ${invalid} not found in your organization`,
+          })
+        }
+      }
+      if (projectIds && projectIds.length > 0) {
+        const validProjects = await prisma.project.findMany({
+          where: { id: { in: projectIds }, org_id: user.org_id },
+          select: { id: true },
+        })
+        const validProjectSet = new Set(validProjects.map((p) => p.id))
+        const invalid = projectIds.find((id) => !validProjectSet.has(id))
+        if (invalid) {
+          return reply.status(400).send({
+            code: 'INVALID_PROJECT',
+            message: `Project ${invalid} not found in your organization`,
+          })
+        }
+      }
 
       const where = {
         org_id: user.org_id,
@@ -119,7 +157,7 @@ export async function exportReportRoutes(fastify: FastifyInstance, opts: { confi
           s.notes ?? '',
           s.approval_status,
           s.is_manual ? '1' : '0',
-        ]),
+        ])
       )
 
       const csv = [formatCsvRow(headers), ...rows].join('\n')

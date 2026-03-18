@@ -48,13 +48,46 @@ async function main() {
     credentials: true,
   })
 
-  await fastify.register(helmet, { contentSecurityPolicy: false })
+  await fastify.register(helmet, {
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'https:'],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        mediaSrc: ["'self'"],
+        frameSrc: ["'none'"],
+      },
+    },
+  })
 
   await fastify.register(rateLimit, {
     max: 200,
     timeWindow: '1 minute',
     // Use Redis for distributed rate limiting when scaling horizontally
     redis: getRedis(config),
+  })
+
+  // Never leak internal error details to clients (security + UX)
+  fastify.setErrorHandler((error, request, reply) => {
+    if (reply.sent) return
+    const statusCode = error.statusCode ?? 500
+    // For 5xx or unknown, always return generic message — never expose stack traces or internal details
+    if (statusCode >= 500 || !Number.isInteger(statusCode)) {
+      fastify.log?.warn({ err: error }, 'Unhandled error')
+      return reply.status(500).send({
+        code: 'INTERNAL_ERROR',
+        message: 'Something went wrong. Please try again.',
+      })
+    }
+    // For 4xx, pass through the error (validation, etc.) but sanitize message
+    const message =
+      error.message && typeof error.message === 'string' ? error.message : 'Bad request'
+    return reply.status(statusCode).send({ code: error.code ?? 'ERROR', message })
   })
 
   fastify.get('/health', async () => ({

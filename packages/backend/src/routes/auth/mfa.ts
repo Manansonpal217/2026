@@ -1,11 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { prisma } from '../../db/prisma.js'
 import { comparePassword, hashRefreshToken } from '../../lib/password.js'
-import {
-  issueAccessToken,
-  createRefreshToken,
-  verifyMfaPendingToken,
-} from '../../lib/jwt.js'
+import { issueAccessToken, createRefreshToken, verifyMfaPendingToken } from '../../lib/jwt.js'
 import {
   generateSecret,
   generateTotpUri,
@@ -14,6 +10,7 @@ import {
   generateBackupCodes,
   formatBackupCode,
 } from '../../lib/mfa.js'
+import { encryptMfaSecret, resolveMfaSecret } from '../../lib/integrations/kms.js'
 import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
@@ -48,7 +45,9 @@ export async function mfaRoutes(fastify: FastifyInstance, opts: { config: Config
       try {
         pending = await verifyMfaPendingToken(mfa_token)
       } catch {
-        return reply.status(401).send({ code: 'INVALID_MFA_TOKEN', message: 'MFA token is invalid or expired' })
+        return reply
+          .status(401)
+          .send({ code: 'INVALID_MFA_TOKEN', message: 'MFA token is invalid or expired' })
       }
 
       const user = await prisma.user.findUnique({
@@ -56,16 +55,22 @@ export async function mfaRoutes(fastify: FastifyInstance, opts: { config: Config
         include: { organization: true },
       })
 
-      if (!user || !user.mfa_secret) {
+      if (!user) {
+        return reply.status(401).send({ code: 'MFA_NOT_SETUP', message: 'MFA is not configured' })
+      }
+      const mfaSecret = await resolveMfaSecret(user, config)
+      if (!mfaSecret) {
         return reply.status(401).send({ code: 'MFA_NOT_SETUP', message: 'MFA is not configured' })
       }
 
       if (user.organization.status === 'suspended') {
-        return reply.status(402).send({ code: 'ORG_SUSPENDED', message: 'Organization access has been suspended' })
+        return reply
+          .status(402)
+          .send({ code: 'ORG_SUSPENDED', message: 'Organization access has been suspended' })
       }
 
       const isBackupCode = user.mfa_backup_codes.includes(totp_code.toUpperCase().replace('-', ''))
-      const isTotpValid = await verifyTotp(totp_code, user.mfa_secret)
+      const isTotpValid = await verifyTotp(totp_code, mfaSecret)
 
       if (!isBackupCode && !isTotpValid) {
         return reply.status(401).send({ code: 'INVALID_TOTP', message: 'Invalid TOTP code' })
@@ -118,14 +123,20 @@ export async function mfaRoutes(fastify: FastifyInstance, opts: { config: Config
       if (!user) return reply.status(404).send({ code: 'NOT_FOUND' })
 
       if (user.mfa_enabled) {
-        return reply.status(400).send({ code: 'MFA_ALREADY_ENABLED', message: 'MFA is already enabled' })
+        return reply
+          .status(400)
+          .send({ code: 'MFA_ALREADY_ENABLED', message: 'MFA is already enabled' })
       }
 
       const secret = generateSecret()
       const uri = generateTotpUri(user.email, secret)
       const qr_code_url = await generateQrCodeDataUrl(uri)
 
-      await prisma.user.update({ where: { id: user.id }, data: { mfa_secret: secret } })
+      const encrypted = await encryptMfaSecret(secret, config)
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { mfa_secret_encrypted: Buffer.from(encrypted), mfa_secret: null },
+      })
 
       return reply.send({ qr_code_url, secret, uri })
     }
@@ -144,17 +155,15 @@ export async function mfaRoutes(fastify: FastifyInstance, opts: { config: Config
         },
       },
     },
-    async (
-      request: FastifyRequest<{ Body: { totp_code: string } }>,
-      reply: FastifyReply
-    ) => {
+    async (request: FastifyRequest<{ Body: { totp_code: string } }>, reply: FastifyReply) => {
       const authReq = request as AuthenticatedRequest
       const user = await prisma.user.findUnique({ where: { id: authReq.user!.id } })
-      if (!user || !user.mfa_secret) {
+      const mfaSecret = user ? await resolveMfaSecret(user, config) : null
+      if (!user || !mfaSecret) {
         return reply.status(400).send({ code: 'MFA_NOT_SETUP', message: 'Call /mfa/setup first' })
       }
 
-      if (!(await verifyTotp(request.body.totp_code, user.mfa_secret))) {
+      if (!(await verifyTotp(request.body.totp_code, mfaSecret))) {
         return reply.status(401).send({ code: 'INVALID_TOTP', message: 'Invalid TOTP code' })
       }
 
@@ -202,13 +211,19 @@ export async function mfaRoutes(fastify: FastifyInstance, opts: { config: Config
         return reply.status(401).send({ code: 'INVALID_CREDENTIALS', message: 'Invalid password' })
       }
 
-      if (!(await verifyTotp(request.body.totp_code, user.mfa_secret!))) {
+      const mfaSecret = await resolveMfaSecret(user, config)
+      if (!mfaSecret || !(await verifyTotp(request.body.totp_code, mfaSecret))) {
         return reply.status(401).send({ code: 'INVALID_TOTP', message: 'Invalid TOTP code' })
       }
 
       await prisma.user.update({
         where: { id: user.id },
-        data: { mfa_enabled: false, mfa_secret: null, mfa_backup_codes: [] },
+        data: {
+          mfa_enabled: false,
+          mfa_secret: null,
+          mfa_secret_encrypted: null,
+          mfa_backup_codes: [],
+        },
       })
 
       return reply.send({ message: 'MFA disabled' })

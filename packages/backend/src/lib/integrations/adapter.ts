@@ -29,8 +29,8 @@ export interface TimeEntry {
 export interface IntegrationAdapter {
   type: string
   displayName: string
-  oauthAuthUrl(state: string, redirectUri: string): string
-  exchangeCode(code: string, redirectUri: string): Promise<AuthTokens>
+  oauthAuthUrl(state: string, redirectUri: string, codeChallenge?: string): string
+  exchangeCode(code: string, redirectUri: string, codeVerifier?: string): Promise<AuthTokens>
   refreshTokens(existing: AuthTokens): Promise<AuthTokens>
   fetchProjects(auth: AuthTokens, config: Record<string, unknown>): Promise<ExternalProject[]>
   fetchTasks(auth: AuthTokens, projectExternalId: string): Promise<ExternalTask[]>

@@ -30,18 +30,22 @@ model Organization {
 model OrgSettings {
   id                          String  @id @default(uuid())
   org_id                      String  @unique
-  screenshot_interval_seconds Int     @default(60)
-  screenshot_retention_days   Int     @default(30)
-  blur_screenshots            Boolean @default(false)
-  activity_weight_keyboard    Float   @default(0.5)
+  screenshot_interval_seconds  Int     @default(60)
+  screenshot_retention_days    Int     @default(30)
+  blur_screenshots             Boolean @default(false)
+  activity_weight_keyboard     Float   @default(0.5)
   activity_weight_mouse       Float   @default(0.3)
   activity_weight_movement    Float   @default(0.2)
-  time_approval_required      Boolean @default(false)
-  mfa_required_for_admins     Boolean @default(false)
-  mfa_required_for_managers   Boolean @default(false)
-  idle_detection_enabled      Boolean @default(true)
-  idle_timeout_minutes        Int     @default(5)
-  idle_timeout_intervals      Int     @default(3)
+  track_keyboard              Boolean @default(true)
+  track_mouse                 Boolean @default(true)
+  track_app_usage             Boolean @default(true)
+  track_url                   Boolean @default(false)
+  time_approval_required       Boolean @default(false)
+  mfa_required_for_admins      Boolean @default(false)
+  mfa_required_for_managers    Boolean @default(false)
+  idle_detection_enabled       Boolean @default(true)
+  idle_timeout_minutes         Int     @default(5)
+  idle_timeout_intervals       Int     @default(3)
 
   organization Organization @relation(fields: [org_id], references: [id])
 }
@@ -55,9 +59,10 @@ model User {
   name             String
   timezone         String   @default("UTC")
   status           String   @default("active")
-  mfa_enabled      Boolean  @default(false)
-  mfa_secret       String?
-  mfa_backup_codes String[] @default([])
+  mfa_enabled       Boolean  @default(false)
+  mfa_secret        String?  // Legacy plaintext; prefer mfa_secret_encrypted
+  mfa_secret_encrypted Bytes?
+  mfa_backup_codes  String[] @default([])
   created_at       DateTime @default(now())
   updated_at       DateTime @updatedAt
 
@@ -194,6 +199,7 @@ model Screenshot {
   @@index([user_id, taken_at])
   @@index([org_id, taken_at])
   @@index([session_id])
+  @@index([org_id, deleted_at, taken_at])
 }
 
 model Integration {
@@ -217,15 +223,16 @@ model Integration {
 }
 
 model OAuthState {
-  id             String    @id @default(uuid())
-  integration_id String?
-  org_id         String
-  state          String    @unique @default(uuid())
-  provider       String
-  redirect_uri   String
-  used           Boolean   @default(false)
-  expires_at     DateTime
-  created_at     DateTime  @default(now())
+  id              String    @id @default(uuid())
+  integration_id  String?
+  org_id          String
+  state           String    @unique @default(uuid())
+  provider        String
+  redirect_uri    String
+  code_verifier   String?   // PKCE: stored for token exchange
+  used            Boolean   @default(false)
+  expires_at      DateTime
+  created_at      DateTime  @default(now())
 
   integration Integration? @relation(fields: [integration_id], references: [id])
 

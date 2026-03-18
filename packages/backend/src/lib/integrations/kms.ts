@@ -65,16 +65,39 @@ export async function encryptAuthData(data: object, config: Config): Promise<Buf
 
 import type { AuthTokens } from './adapter.js'
 
-export async function decryptAuthData(blob: Buffer, config: Config): Promise<AuthTokens> {
+/** Encrypt a plaintext string (e.g. MFA secret) at rest. */
+export async function encryptMfaSecret(plaintext: string, config: Config): Promise<Buffer> {
+  return encryptAuthData({ v: plaintext }, config)
+}
+
+/** Resolve MFA secret from user (encrypted or legacy plaintext). */
+export async function resolveMfaSecret(
+  user: { mfa_secret_encrypted?: Buffer | null; mfa_secret?: string | null },
+  config: Config
+): Promise<string | null> {
+  if (user.mfa_secret_encrypted && user.mfa_secret_encrypted.length > 0) {
+    return decryptMfaSecret(Buffer.from(user.mfa_secret_encrypted), config)
+  }
+  return user.mfa_secret ?? null
+}
+
+/** Decrypt an MFA secret blob. */
+export async function decryptMfaSecret(blob: Buffer, config: Config): Promise<string> {
+  const parsed = (await decryptBlob(blob, config)) as { v?: string }
+  if (typeof parsed.v !== 'string') {
+    throw new Error('Invalid MFA secret blob')
+  }
+  return parsed.v
+}
+
+/** Decrypt blob to parsed JSON (internal). */
+async function decryptBlob(blob: Buffer, config: Config): Promise<unknown> {
   const encryptedKeyLen = blob.readUInt32BE(0)
   let offset = 4
-
   let dataKey: Buffer
-
   if (encryptedKeyLen > 0) {
     const encryptedDataKey = blob.subarray(offset, offset + encryptedKeyLen)
     offset += encryptedKeyLen
-
     const { KMSClient, DecryptCommand } = await import('@aws-sdk/client-kms')
     const kms = new KMSClient({ region: config.AWS_REGION })
     const { Plaintext } = await kms.send(new DecryptCommand({ CiphertextBlob: encryptedDataKey }))
@@ -82,16 +105,17 @@ export async function decryptAuthData(blob: Buffer, config: Config): Promise<Aut
   } else {
     dataKey = await getLocalKey(config)
   }
-
   const iv = blob.subarray(offset, offset + 12)
   offset += 12
   const authTag = blob.subarray(offset, offset + 16)
   offset += 16
   const ciphertext = blob.subarray(offset)
-
   const decipher = createDecipheriv('aes-256-gcm', dataKey, iv)
   decipher.setAuthTag(authTag)
   const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()])
+  return JSON.parse(decrypted.toString('utf-8'))
+}
 
-  return JSON.parse(decrypted.toString('utf-8')) as AuthTokens
+export async function decryptAuthData(blob: Buffer, config: Config): Promise<AuthTokens> {
+  return (await decryptBlob(blob, config)) as AuthTokens
 }

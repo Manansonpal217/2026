@@ -2,7 +2,8 @@ import type { NextAuthOptions } from 'next-auth'
 import type { JWT } from 'next-auth/jwt'
 import CredentialsProvider from 'next-auth/providers/credentials'
 
-const API_URL = process.env.NEXTAUTH_API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
+const API_URL =
+  process.env.NEXTAUTH_API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
 async function refreshAccessToken(token: JWT): Promise<JWT> {
   try {
@@ -51,7 +52,11 @@ export const authOptions: NextAuthOptions = {
           }),
         })
 
-        if (!res.ok) return null
+        if (!res.ok) {
+          // 5xx: throw so page catch shows generic message — never expose server error details
+          if (res.status >= 500) throw new Error('Something went wrong. Please try again.')
+          return null
+        }
 
         const data = await res.json()
         return {
@@ -84,7 +89,7 @@ export const authOptions: NextAuthOptions = {
       }
 
       // Access token still valid
-      if (Date.now() < (token.access_token_expires as number ?? 0)) {
+      if (Date.now() < ((token.access_token_expires as number) ?? 0)) {
         return token
       }
 
@@ -93,7 +98,7 @@ export const authOptions: NextAuthOptions = {
     },
     async session({ session, token }) {
       if (session.user) {
-        (session.user as { id?: string }).id = token.id as string
+        ;(session.user as { id?: string }).id = token.id as string
         ;(session.user as { role?: string }).role = token.role as string
         ;(session.user as { org_id?: string }).org_id = token.org_id as string
         ;(session.user as { org_name?: string }).org_name = token.org_name as string

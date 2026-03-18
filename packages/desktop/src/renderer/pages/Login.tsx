@@ -70,9 +70,7 @@ function InputField({
             'hover:border-white/20',
             rightElement ? 'pr-12' : '',
             disabled ? 'opacity-50 cursor-not-allowed' : '',
-            error
-              ? 'border-red-400/50 focus:border-red-400'
-              : '',
+            error ? 'border-red-400/50 focus:border-red-400' : '',
           ]
             .filter(Boolean)
             .join(' ')}
@@ -99,7 +97,7 @@ function MfaInput({ value, onChange }: { value: string; onChange: (v: string) =>
         inputRefs.current[idx + 1]?.focus()
       }
     },
-    [digits, onChange],
+    [digits, onChange]
   )
 
   const handleKeyDown = useCallback(
@@ -121,7 +119,7 @@ function MfaInput({ value, onChange }: { value: string; onChange: (v: string) =>
         inputRefs.current[idx + 1]?.focus()
       }
     },
-    [digits, onChange],
+    [digits, onChange]
   )
 
   const handlePaste = useCallback(
@@ -132,7 +130,7 @@ function MfaInput({ value, onChange }: { value: string; onChange: (v: string) =>
       const nextIdx = Math.min(pasted.length, 5)
       inputRefs.current[nextIdx]?.focus()
     },
-    [onChange],
+    [onChange]
   )
 
   return (
@@ -188,7 +186,12 @@ export default function Login({ onSuccess }: LoginProps) {
         password,
         org_slug: 'demo',
       })
-      const result = res as { mfa_required?: boolean; mfa_token?: string; error?: string; user?: User }
+      const result = res as {
+        mfa_required?: boolean
+        mfa_token?: string
+        error?: string
+        user?: User
+      }
 
       if (result.mfa_required) {
         setMfaToken(result.mfa_token ?? '')
@@ -205,7 +208,7 @@ export default function Login({ onSuccess }: LoginProps) {
         onSuccess(result.user)
       }
     } catch {
-      setError('Connection failed. Make sure the server is running.')
+      setError('Something went wrong. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -236,7 +239,7 @@ export default function Login({ onSuccess }: LoginProps) {
         onSuccess(result.user)
       }
     } catch {
-      setError('Verification failed. Please try again.')
+      setError('Something went wrong. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -342,11 +345,7 @@ export default function Login({ onSuccess }: LoginProps) {
                       className="text-white/40 hover:text-white/80 transition-colors duration-200"
                       tabIndex={-1}
                     >
-                      {showPassword ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   }
                 />

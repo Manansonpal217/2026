@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import { prisma } from '../../db/prisma.js'
 import { getDbRead } from '../../lib/db-read.js'
 import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
@@ -31,6 +32,19 @@ export async function activityReportRoutes(fastify: FastifyInstance, opts: { con
 
       const canViewOthers = ['admin', 'super_admin', 'manager'].includes(user.role)
       const targetUserId = canViewOthers && query.user_id ? query.user_id : user.id
+
+      if (targetUserId !== user.id) {
+        const validUser = await prisma.user.findFirst({
+          where: { id: targetUserId, org_id: user.org_id },
+          select: { id: true },
+        })
+        if (!validUser) {
+          return reply.status(400).send({
+            code: 'INVALID_USER',
+            message: `User ${targetUserId} not found in your organization`,
+          })
+        }
+      }
 
       const where = {
         org_id: user.org_id,

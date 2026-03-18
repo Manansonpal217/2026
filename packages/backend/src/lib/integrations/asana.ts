@@ -1,4 +1,10 @@
-import type { IntegrationAdapter, AuthTokens, ExternalProject, ExternalTask, TimeEntry } from './adapter.js'
+import type {
+  IntegrationAdapter,
+  AuthTokens,
+  ExternalProject,
+  ExternalTask,
+  TimeEntry,
+} from './adapter.js'
 import { validateOutboundUrl } from './ssrf.js'
 
 const ASANA_AUTH_URL = 'https://app.asana.com/-/oauth_authorize'
@@ -8,7 +14,7 @@ const ASANA_API_BASE = 'https://app.asana.com/api/1.0'
 async function asanaFetch(
   url: string,
   auth: AuthTokens,
-  options: RequestInit = {},
+  options: RequestInit = {}
 ): Promise<Response> {
   validateOutboundUrl(url)
   return fetch(url, {
@@ -26,28 +32,39 @@ export const asanaAdapter: IntegrationAdapter = {
   type: 'asana',
   displayName: 'Asana',
 
-  oauthAuthUrl(state: string, redirectUri: string): string {
+  oauthAuthUrl(state: string, redirectUri: string, codeChallenge?: string): string {
     const params = new URLSearchParams({
       client_id: process.env.ASANA_CLIENT_ID ?? '',
       redirect_uri: redirectUri,
       response_type: 'code',
       state,
     })
+    if (codeChallenge) {
+      params.set('code_challenge', codeChallenge)
+      params.set('code_challenge_method', 'S256')
+    }
     return `${ASANA_AUTH_URL}?${params.toString()}`
   },
 
-  async exchangeCode(code: string, redirectUri: string): Promise<AuthTokens> {
+  async exchangeCode(
+    code: string,
+    redirectUri: string,
+    codeVerifier?: string
+  ): Promise<AuthTokens> {
     validateOutboundUrl(ASANA_TOKEN_URL)
+    const tokenParams: Record<string, string> = {
+      grant_type: 'authorization_code',
+      client_id: process.env.ASANA_CLIENT_ID ?? '',
+      client_secret: process.env.ASANA_CLIENT_SECRET ?? '',
+      code,
+      redirect_uri: redirectUri,
+    }
+    if (codeVerifier) tokenParams.code_verifier = codeVerifier
+
     const res = await fetch(ASANA_TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        client_id: process.env.ASANA_CLIENT_ID ?? '',
-        client_secret: process.env.ASANA_CLIENT_SECRET ?? '',
-        code,
-        redirect_uri: redirectUri,
-      }).toString(),
+      body: new URLSearchParams(tokenParams).toString(),
     })
     if (!res.ok) throw new Error(`Asana token exchange failed: ${res.status}`)
     const data = (await res.json()) as {
@@ -77,7 +94,11 @@ export const asanaAdapter: IntegrationAdapter = {
       }).toString(),
     })
     if (!res.ok) throw new Error(`Asana token refresh failed: ${res.status}`)
-    const data = (await res.json()) as { access_token: string; refresh_token?: string; expires_in?: number }
+    const data = (await res.json()) as {
+      access_token: string
+      refresh_token?: string
+      expires_in?: number
+    }
     return {
       access_token: data.access_token,
       refresh_token: data.refresh_token ?? existing.refresh_token,
@@ -85,7 +106,10 @@ export const asanaAdapter: IntegrationAdapter = {
     }
   },
 
-  async fetchProjects(auth: AuthTokens, config: Record<string, unknown>): Promise<ExternalProject[]> {
+  async fetchProjects(
+    auth: AuthTokens,
+    config: Record<string, unknown>
+  ): Promise<ExternalProject[]> {
     const workspaceGid = config.workspace_gid as string | undefined
     if (!workspaceGid) {
       // Fetch default workspace from me endpoint
@@ -97,30 +121,39 @@ export const asanaAdapter: IntegrationAdapter = {
 
       const res = await asanaFetch(
         `${ASANA_API_BASE}/workspaces/${wsGid}/projects?opt_fields=gid,name,color&limit=100`,
-        auth,
+        auth
       )
       if (!res.ok) throw new Error(`Asana fetchProjects failed: ${res.status}`)
-      const data = (await res.json()) as { data: Array<{ gid: string; name: string; color?: string }> }
+      const data = (await res.json()) as {
+        data: Array<{ gid: string; name: string; color?: string }>
+      }
       return data.data.map((p) => ({ id: p.gid, name: p.name, color: p.color }))
     }
 
     const res = await asanaFetch(
       `${ASANA_API_BASE}/workspaces/${workspaceGid}/projects?opt_fields=gid,name,color&limit=100`,
-      auth,
+      auth
     )
     if (!res.ok) throw new Error(`Asana fetchProjects failed: ${res.status}`)
-    const data = (await res.json()) as { data: Array<{ gid: string; name: string; color?: string }> }
+    const data = (await res.json()) as {
+      data: Array<{ gid: string; name: string; color?: string }>
+    }
     return data.data.map((p) => ({ id: p.gid, name: p.name, color: p.color }))
   },
 
   async fetchTasks(auth: AuthTokens, projectGid: string): Promise<ExternalTask[]> {
     const res = await asanaFetch(
       `${ASANA_API_BASE}/projects/${projectGid}/tasks?opt_fields=gid,name,completed,assignee,assignee.email&limit=100`,
-      auth,
+      auth
     )
     if (!res.ok) throw new Error(`Asana fetchTasks failed: ${res.status}`)
     const data = (await res.json()) as {
-      data: Array<{ gid: string; name: string; completed: boolean; assignee?: { email?: string } | null }>
+      data: Array<{
+        gid: string
+        name: string
+        completed: boolean
+        assignee?: { email?: string } | null
+      }>
     }
     return data.data.map((t) => ({
       id: t.gid,

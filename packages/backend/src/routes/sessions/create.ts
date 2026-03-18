@@ -26,6 +26,7 @@ export async function sessionCreateRoutes(fastify: FastifyInstance, opts: { conf
   const authenticate = createAuthenticateMiddleware(opts.config)
 
   fastify.post('/batch', {
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
     preHandler: [authenticate],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
@@ -39,8 +40,12 @@ export async function sessionCreateRoutes(fastify: FastifyInstance, opts: { conf
       const sessions = body.data.sessions
 
       // Collect all referenced project_ids and task_ids for IDOR check
-      const referencedProjectIds = [...new Set(sessions.map((s) => s.project_id).filter(Boolean))] as string[]
-      const referencedTaskIds = [...new Set(sessions.map((s) => s.task_id).filter(Boolean))] as string[]
+      const referencedProjectIds = [
+        ...new Set(sessions.map((s) => s.project_id).filter(Boolean)),
+      ] as string[]
+      const referencedTaskIds = [
+        ...new Set(sessions.map((s) => s.task_id).filter(Boolean)),
+      ] as string[]
 
       // Validate projects belong to caller's org
       if (referencedProjectIds.length > 0) {
@@ -51,7 +56,12 @@ export async function sessionCreateRoutes(fastify: FastifyInstance, opts: { conf
         const validProjectSet = new Set(validProjects.map((p) => p.id))
         const invalid = referencedProjectIds.find((id) => !validProjectSet.has(id))
         if (invalid) {
-          return reply.status(400).send({ code: 'INVALID_PROJECT', message: `Project ${invalid} not found in your organization` })
+          return reply
+            .status(400)
+            .send({
+              code: 'INVALID_PROJECT',
+              message: `Project ${invalid} not found in your organization`,
+            })
         }
       }
 
@@ -65,7 +75,12 @@ export async function sessionCreateRoutes(fastify: FastifyInstance, opts: { conf
         for (const s of sessions) {
           if (!s.task_id) continue
           if (!validTaskMap.has(s.task_id)) {
-            return reply.status(400).send({ code: 'INVALID_TASK', message: `Task ${s.task_id} not found in your organization` })
+            return reply
+              .status(400)
+              .send({
+                code: 'INVALID_TASK',
+                message: `Task ${s.task_id} not found in your organization`,
+              })
           }
           // Cross-validate: task must belong to the session's project
           if (s.project_id && validTaskMap.get(s.task_id) !== s.project_id) {
@@ -92,7 +107,10 @@ export async function sessionCreateRoutes(fastify: FastifyInstance, opts: { conf
             }
           }
           if (s.ended_at && s.duration_sec <= 0) {
-            errors.push({ id: s.id, reason: 'duration_sec must be positive for completed sessions' })
+            errors.push({
+              id: s.id,
+              reason: 'duration_sec must be positive for completed sessions',
+            })
             continue
           }
 

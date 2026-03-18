@@ -64,15 +64,22 @@ export function Sidebar() {
       {/* Content */}
       <div className="relative flex flex-col h-full">
         {/* Logo */}
-        <div className="flex items-center gap-3 px-5 py-5">
+        <Link
+          href={process.env.NEXT_PUBLIC_LANDING_URL || 'https://tracksync.dev'}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-3 px-5 py-5 hover:opacity-90 transition-opacity"
+        >
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 shadow-glow-sm">
             <Zap className="h-4 w-4 text-white" fill="white" />
           </div>
           <div className="flex flex-col">
             <span className="text-sm font-bold text-foreground tracking-tight">TrackSync</span>
-            <span className="text-[10px] text-muted-foreground leading-none">Work Intelligence</span>
+            <span className="text-[10px] text-muted-foreground leading-none">
+              Work Intelligence
+            </span>
           </div>
-        </div>
+        </Link>
 
         <Separator className="mx-3 w-auto" />
 
@@ -98,25 +105,25 @@ export function Sidebar() {
                       'transition-all duration-150',
                       isActive
                         ? 'bg-primary/10 text-primary border border-primary/20'
-                        : 'text-muted-foreground hover:bg-white/5 hover:text-foreground',
+                        : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
                     )}
                   >
                     <Icon
                       className={cn(
                         'h-4 w-4 shrink-0 transition-colors',
-                        isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground',
+                        isActive
+                          ? 'text-primary'
+                          : 'text-muted-foreground group-hover:text-foreground'
                       )}
                     />
                     <span className="flex-1">{item.label}</span>
-                    {isActive && (
-                      <ChevronRight className="h-3 w-3 text-primary/60 shrink-0" />
-                    )}
+                    {isActive && <ChevronRight className="h-3 w-3 text-primary/60 shrink-0" />}
                   </Link>
                 ) : (
                   <div
                     className={cn(
                       'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium',
-                      'text-muted-foreground/40 cursor-not-allowed',
+                      'text-muted-foreground/40 cursor-not-allowed'
                     )}
                   >
                     <Icon className="h-4 w-4 shrink-0" />
@@ -147,16 +154,14 @@ export function Sidebar() {
               <p className="text-sm font-medium text-foreground truncate">
                 {session?.user?.name ?? 'User'}
               </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {session?.user?.email ?? ''}
-              </p>
+              <p className="text-xs text-muted-foreground truncate">{session?.user?.email ?? ''}</p>
             </div>
             <button
               onClick={() => signOut({ callbackUrl: '/auth/login' })}
               className={cn(
                 'p-1.5 rounded-md text-muted-foreground/60',
                 'hover:text-destructive hover:bg-destructive/10',
-                'transition-all duration-150 shrink-0',
+                'transition-all duration-150 shrink-0'
               )}
               title="Sign out"
             >

@@ -71,6 +71,44 @@ const EMBEDDED_MIGRATIONS: Record<string, string> = {
       interval_index INTEGER PRIMARY KEY
     );
   `,
+  '004_settings_cache.sql': `
+    CREATE TABLE IF NOT EXISTS settings_cache (
+      key         TEXT PRIMARY KEY,
+      value       TEXT,
+      updated_at  INTEGER NOT NULL,
+      synced_at   INTEGER
+    );
+  `,
+  '005_sync_resilience.sql': `
+    ALTER TABLE local_sessions ADD COLUMN last_sync_attempt_at TEXT;
+    ALTER TABLE local_screenshots ADD COLUMN last_sync_attempt_at TEXT;
+    ALTER TABLE local_activity_logs ADD COLUMN last_sync_attempt_at TEXT;
+  `,
+}
+
+const SYNCED_RETENTION_DAYS = 30
+const SYNCED_SCREENSHOTS_RETENTION_DAYS = 7
+
+/** Prune synced rows older than retention period. Run on startup. */
+export function pruneSyncedData(database: Database.Database): void {
+  const now = new Date()
+  const sessionsCutoff = new Date(now)
+  sessionsCutoff.setDate(sessionsCutoff.getDate() - SYNCED_RETENTION_DAYS)
+  const screenshotsCutoff = new Date(now)
+  screenshotsCutoff.setDate(screenshotsCutoff.getDate() - SYNCED_SCREENSHOTS_RETENTION_DAYS)
+
+  const cutoffSessions = sessionsCutoff.toISOString()
+  const cutoffScreenshots = screenshotsCutoff.toISOString()
+
+  database
+    .prepare(`DELETE FROM local_sessions WHERE synced = 1 AND created_at < ?`)
+    .run(cutoffSessions)
+  database
+    .prepare(`DELETE FROM local_activity_logs WHERE synced = 1 AND created_at < ?`)
+    .run(cutoffSessions)
+  database
+    .prepare(`DELETE FROM local_screenshots WHERE synced = 1 AND created_at < ?`)
+    .run(cutoffScreenshots)
 }
 
 /** Open the local SQLite database and run all pending migrations. */
@@ -84,6 +122,7 @@ export async function openDb(): Promise<void> {
   db.pragma('synchronous = NORMAL')
   db.pragma('foreign_keys = ON')
   runMigrations(db)
+  pruneSyncedData(db)
 }
 
 /** Return the open database; throws if not yet initialized. */
@@ -111,8 +150,8 @@ function runMigrations(database: Database.Database): void {
 
   const applied = new Set(
     (database.prepare('SELECT filename FROM __migrations').all() as { filename: string }[]).map(
-      (r) => r.filename,
-    ),
+      (r) => r.filename
+    )
   )
 
   // Load migrations: try disk first, then merge with embedded to ensure all tables exist
@@ -147,6 +186,10 @@ function runMigrations(database: Database.Database): void {
     const version = parseInt(filename.split('_')[0], 10)
     database
       .prepare('INSERT INTO __migrations (version, filename, applied_at) VALUES (?, ?, ?)')
-      .run(isNaN(version) ? fileEntries.indexOf({ filename, sql }) + 1 : version, filename, new Date().toISOString())
+      .run(
+        isNaN(version) ? fileEntries.indexOf({ filename, sql }) + 1 : version,
+        filename,
+        new Date().toISOString()
+      )
   }
 }

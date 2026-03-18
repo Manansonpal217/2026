@@ -13,6 +13,10 @@ const patchSettingsSchema = z.object({
   activity_weight_keyboard: z.number().min(0).max(1).optional(),
   activity_weight_mouse: z.number().min(0).max(1).optional(),
   activity_weight_movement: z.number().min(0).max(1).optional(),
+  track_keyboard: z.boolean().optional(),
+  track_mouse: z.boolean().optional(),
+  track_app_usage: z.boolean().optional(),
+  track_url: z.boolean().optional(),
   time_approval_required: z.boolean().optional(),
   mfa_required_for_admins: z.boolean().optional(),
   mfa_required_for_managers: z.boolean().optional(),
@@ -44,7 +48,11 @@ export async function adminSettingsRoutes(fastify: FastifyInstance, opts: { conf
       }
 
       // Validate activity weights sum to ~1.0 if all three are provided
-      const { activity_weight_keyboard: k, activity_weight_mouse: m, activity_weight_movement: mv } = body.data
+      const {
+        activity_weight_keyboard: k,
+        activity_weight_mouse: m,
+        activity_weight_movement: mv,
+      } = body.data
       if (k !== undefined || m !== undefined || mv !== undefined) {
         const existing = await prisma.orgSettings.findFirst({ where: { org_id: user.org_id } })
         const finalK = k ?? existing?.activity_weight_keyboard ?? 0.5

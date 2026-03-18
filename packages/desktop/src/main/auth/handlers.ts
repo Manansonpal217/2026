@@ -1,4 +1,5 @@
 import type { IpcMain, BrowserWindow } from 'electron'
+import { decodeJwt } from 'jose'
 import { storeTokens, loadTokens, clearTokens } from './keychain.js'
 
 const API_URL = process.env.VITE_API_URL || 'http://localhost:3001'
@@ -8,8 +9,8 @@ export async function ensureValidSession(win?: BrowserWindow): Promise<string | 
   if (!tokens) return null
 
   try {
-    const payload = JSON.parse(atob(tokens.accessToken.split('.')[1]))
-    const exp = payload.exp * 1000
+    const payload = decodeJwt(tokens.accessToken)
+    const exp = (payload.exp ?? 0) * 1000
     if (exp - Date.now() > 60 * 1000) return tokens.accessToken
   } catch {
     await clearTokens()
@@ -62,8 +63,13 @@ export function authHandlers(
       })
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.message || 'Login failed')
+        const err = (await res.json().catch(() => ({}))) as { message?: string }
+        // Auth failures (401/402/403): return user-friendly message — never "Server error"
+        if (res.status === 401 || res.status === 402 || res.status === 403) {
+          return { error: err.message || 'Invalid email or password' }
+        }
+        // 5xx or other: generic message — never expose internal server details
+        throw new Error('Something went wrong. Please try again.')
       }
 
       const data = await res.json()
@@ -87,8 +93,13 @@ export function authHandlers(
       })
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.message || 'Invalid TOTP code')
+        const err = (await res.json().catch(() => ({}))) as { message?: string }
+        // Auth failures (401/402/403): return user-friendly message — never "Server error"
+        if (res.status === 401 || res.status === 402 || res.status === 403) {
+          return { error: err.message || 'Invalid code' }
+        }
+        // 5xx or other: generic message — never expose internal server details
+        throw new Error('Something went wrong. Please try again.')
       }
 
       const data = await res.json()
@@ -118,7 +129,7 @@ export function authHandlers(
     if (!token) return null
 
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]))
+      const payload = decodeJwt(token) as { sub?: string; org_id?: string; role?: string }
       return {
         id: payload.sub,
         org_id: payload.org_id,

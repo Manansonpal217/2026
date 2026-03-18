@@ -6,7 +6,7 @@ import { encryptAuthData } from '../../lib/integrations/kms.js'
 
 export async function integrationCallbackRoutes(
   fastify: FastifyInstance,
-  opts: { config: Config },
+  opts: { config: Config }
 ) {
   fastify.get('/callback', {
     handler: async (request, reply) => {
@@ -19,12 +19,14 @@ export async function integrationCallbackRoutes(
 
       if (query.error) {
         return reply.redirect(
-          `${opts.config.APP_URL}/admin/integrations?error=${encodeURIComponent(query.error_description ?? query.error)}`,
+          `${opts.config.APP_URL}/admin/integrations?error=${encodeURIComponent(query.error_description ?? query.error)}`
         )
       }
 
       if (!query.code || !query.state) {
-        return reply.status(400).send({ code: 'MISSING_PARAMS', message: 'Missing code or state parameter' })
+        return reply
+          .status(400)
+          .send({ code: 'MISSING_PARAMS', message: 'Missing code or state parameter' })
       }
 
       // Find and validate state token
@@ -56,8 +58,12 @@ export async function integrationCallbackRoutes(
       }
 
       try {
-        // Exchange code for tokens
-        const tokens = await adapter.exchangeCode(query.code, oauthState.redirect_uri)
+        // Exchange code for tokens (with PKCE code_verifier if stored)
+        const tokens = await adapter.exchangeCode(
+          query.code,
+          oauthState.redirect_uri,
+          oauthState.code_verifier ?? undefined
+        )
 
         // Encrypt tokens with KMS
         const encryptedTokens = await encryptAuthData(tokens, opts.config)
@@ -94,16 +100,16 @@ export async function integrationCallbackRoutes(
         await queue.add(
           'sync',
           { integrationId: integration.id, orgId: oauthState.org_id },
-          { jobId: `integrationSync:${integration.id}`, attempts: 3 },
+          { jobId: `integrationSync:${integration.id}`, attempts: 3 }
         )
 
         return reply.redirect(
-          `${opts.config.APP_URL}/admin/integrations?connected=${oauthState.provider}`,
+          `${opts.config.APP_URL}/admin/integrations?connected=${oauthState.provider}`
         )
       } catch (err) {
         console.error('[OAuth callback] Error:', err)
         return reply.redirect(
-          `${opts.config.APP_URL}/admin/integrations?error=${encodeURIComponent('Failed to connect integration')}`,
+          `${opts.config.APP_URL}/admin/integrations?error=${encodeURIComponent('Failed to connect integration')}`
         )
       }
     },
