@@ -33,7 +33,7 @@ export function getActivityPercent(periodStartMs: number, periodEndMs: number): 
 
     const row = getDb()
       .prepare(
-        'SELECT COUNT(*) as count FROM active_intervals WHERE interval_index >= ? AND interval_index <= ?',
+        'SELECT COUNT(*) as count FROM active_intervals WHERE interval_index >= ? AND interval_index <= ?'
       )
       .get(startIdx, endIdx) as { count: number }
 
@@ -41,7 +41,7 @@ export function getActivityPercent(periodStartMs: number, periodEndMs: number): 
 
     const activeRows = getDb()
       .prepare(
-        'SELECT interval_index FROM active_intervals WHERE interval_index >= ? AND interval_index <= ? ORDER BY interval_index',
+        'SELECT interval_index FROM active_intervals WHERE interval_index >= ? AND interval_index <= ? ORDER BY interval_index'
       )
       .all(startIdx, endIdx) as { interval_index: number }[]
 
@@ -78,11 +78,11 @@ export function getActivityPercent(periodStartMs: number, periodEndMs: number): 
 }
 
 /**
- * Get activity percentage for today, counting only intervals when the timer was running.
- * Total = sum of 10-sec intervals across all today's sessions (tracked time).
- * Active = intervals with input during tracked time.
+ * Get activity percentage for today, counting only intervals when the timer was running
+ * for this user. Total = sum of 10-sec intervals across that user's today's sessions.
+ * Active = intervals with input during those ranges.
  */
-export function getActivityPercentForTrackedTime(): number {
+export function getActivityPercentForTrackedTime(userId: string): number {
   const now = Date.now()
   const today = new Date()
   const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0)
@@ -93,10 +93,10 @@ export function getActivityPercentForTrackedTime(): number {
     const sessions = db
       .prepare(
         `SELECT started_at, ended_at FROM local_sessions
-         WHERE started_at >= ?
-         ORDER BY started_at ASC`,
+         WHERE user_id = ? AND started_at >= ?
+         ORDER BY started_at ASC`
       )
-      .all(startOfTodayISO) as { started_at: string; ended_at: string | null }[]
+      .all(userId, startOfTodayISO) as { started_at: string; ended_at: string | null }[]
 
     let totalTracked = 0
     const ranges: { startIdx: number; endIdx: number }[] = []
@@ -119,7 +119,7 @@ export function getActivityPercentForTrackedTime(): number {
     for (const r of ranges) {
       const row = db
         .prepare(
-          'SELECT COUNT(*) as count FROM active_intervals WHERE interval_index >= ? AND interval_index <= ?',
+          'SELECT COUNT(*) as count FROM active_intervals WHERE interval_index >= ? AND interval_index <= ?'
         )
         .get(r.startIdx, r.endIdx) as { count: number }
       activeInTracked += row?.count ?? 0

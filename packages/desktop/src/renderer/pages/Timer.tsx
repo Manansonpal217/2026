@@ -1,13 +1,26 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Play, Square, AlertCircle, Activity, Folder, Edit3 } from 'lucide-react'
+import { Play, Square, AlertCircle, Activity, Folder, Edit3, Ticket } from 'lucide-react'
 import { useTimerStore } from '../stores/timerStore'
 import { useTheme } from '../contexts/ThemeContext'
-import { TaskSearchInput, type TaskWithProject } from '../components/TaskSearchInput'
+import {
+  TaskSearchInput,
+  type TaskWithProject,
+  type JiraIssue,
+} from '../components/TaskSearchInput'
 import type { Project } from '../components/ProjectPicker'
 import type { LocalSessionRow } from '../stores/timerStore'
 import { PageLoader, InlineLoader } from '../components/Loader'
+import { formatNotesForDisplay, isJiraTask } from '../lib/format'
 
-export function Timer() {
+interface TimerProps {
+  jiraConnected?: boolean
+  jiraIssues?: JiraIssue[]
+  onJiraConnected?: () => void
+  onJiraDisconnected?: () => void
+  refreshJiraIssues?: () => void | Promise<void>
+}
+
+export function Timer({ jiraConnected = false, jiraIssues = [] }: TimerProps = {}) {
   const { theme } = useTheme()
   const {
     isRunning,
@@ -33,6 +46,7 @@ export function Timer() {
   const [inputMonitorAvailable, setInputMonitorAvailable] = useState(true)
   const [projects, setProjects] = useState<Project[]>([])
   const [recentSessions, setRecentSessions] = useState<LocalSessionRow[]>([])
+  const [selectedJiraIssue, setSelectedJiraIssue] = useState<JiraIssue | null>(null)
 
   const fetchRecentSessions = useCallback(async () => {
     const sessions = (await window.electron?.ipcRenderer.invoke(
@@ -129,7 +143,23 @@ export function Timer() {
 
   const handleToggle = useCallback(async () => {
     if (isRunning) {
+      const session = useTimerStore.getState().currentSession
+      const elapsed = useTimerStore.getState().elapsedSeconds
+      const notes = session?.notes
       await stop()
+      if (notes?.startsWith('jira:')) {
+        const key = notes.slice(5).trim()
+        if (key && elapsed > 0) {
+          window.trackysnc?.logWork(key, elapsed, `Tracked via TrackSync`).catch(() => {})
+        }
+      }
+    } else if (selectedJiraIssue) {
+      await start({
+        projectId: null,
+        taskId: null,
+        notes: `jira:${selectedJiraIssue.key}`,
+      })
+      await Promise.all([refreshTodaySessions(), fetchRecentSessions()])
     } else if (selectedProjectId && selectedTaskId) {
       await start({
         projectId: selectedProjectId,
@@ -151,6 +181,7 @@ export function Timer() {
     start,
     selectedProjectId,
     selectedTaskId,
+    selectedJiraIssue,
     inputValue,
     refreshTodaySessions,
     fetchRecentSessions,
@@ -166,6 +197,7 @@ export function Timer() {
       setSelectedProjectId(projectId)
       setSelectedTaskId(taskId)
       setSelectedTask(task ?? null)
+      setSelectedJiraIssue(null)
       if (manualNotes !== undefined) setInputValue(manualNotes)
       if (isRunning) {
         await switchTask({
@@ -176,6 +208,24 @@ export function Timer() {
       }
     },
     [isRunning, switchTask, inputValue]
+  )
+
+  const handleJiraTaskSelect = useCallback(
+    (issue: JiraIssue) => {
+      setSelectedJiraIssue(issue)
+      setSelectedProjectId(null)
+      setSelectedTaskId(null)
+      setSelectedTask(null)
+      setInputValue('')
+      if (isRunning) {
+        switchTask({
+          projectId: null,
+          taskId: null,
+          notes: `jira:${issue.key}`,
+        })
+      }
+    },
+    [isRunning, switchTask]
   )
 
   const handleSummaryClick = useCallback(
@@ -225,20 +275,6 @@ export function Timer() {
     if (h > 0) return `${h}h ${m}m ${s}s`
     if (m > 0) return `${m}m ${s}s`
     return `${s}s`
-  }
-
-  const formatTime = (iso: string) => {
-    return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-  }
-
-  const formatDateShort = (iso: string) => {
-    const d = new Date(iso)
-    const today = new Date()
-    if (d.toDateString() === today.toDateString()) return ''
-    const yesterday = new Date(today)
-    yesterday.setDate(yesterday.getDate() - 1)
-    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday '
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' '
   }
 
   const formatDurationShort = (sec: number) => {
@@ -377,7 +413,10 @@ export function Timer() {
                   selectedProjectId={selectedProjectId}
                   selectedTaskId={selectedTaskId}
                   selectedTask={selectedTask}
+                  selectedJiraIssue={selectedJiraIssue}
+                  jiraIssues={jiraConnected ? jiraIssues : []}
                   onSelect={handleSelect}
+                  onSelectJiraIssue={handleJiraTaskSelect}
                   disabled={false}
                   theme={theme}
                 />
@@ -414,18 +453,15 @@ export function Timer() {
                                 : m
                                   ? m.firstSession.project_id == null
                                   : false
+                              const notes = cs?.notes || m?.firstSession.notes
+                              const isJira = isJiraTask(notes)
                               const displayLabel = isManual
-                                ? cs?.notes || m?.firstSession.notes || 'Uncategorized'
+                                ? formatNotesForDisplay(cs?.notes || m?.firstSession.notes) ||
+                                  'Uncategorized'
                                 : project?.name || 'No project'
                               const totalSec = isCombined
                                 ? m!.totalSec + elapsedSeconds
                                 : elapsedSeconds
-                              const firstStarted =
-                                isCombined && m && cs
-                                  ? m.firstStarted < cs.startedAt
-                                    ? m.firstStarted
-                                    : cs.startedAt
-                                  : (cs?.startedAt ?? '')
                               return (
                                 <button
                                   type="button"
@@ -451,14 +487,14 @@ export function Timer() {
                                     }
                                   }}
                                   className={[
-                                    'w-full flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors',
+                                    'w-full flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors border',
                                     isRunning
                                       ? theme === 'dark'
-                                        ? 'bg-white/[0.08] border border-white/[0.12] text-[#d1d5db]'
-                                        : 'bg-slate-100 border border-slate-200 text-slate-700'
+                                        ? 'bg-white/[0.08] border-white/[0.12] text-[#d1d5db]'
+                                        : 'bg-slate-100 border-slate-200 text-slate-700'
                                       : theme === 'dark'
-                                        ? 'hover:bg-white/[0.06] text-[#d1d5db]'
-                                        : 'hover:bg-slate-100 text-slate-700',
+                                        ? 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.06] text-[#d1d5db]'
+                                        : 'border-slate-200/60 bg-slate-50/50 hover:bg-slate-100 text-slate-700',
                                   ].join(' ')}
                                 >
                                   <div className="flex items-center gap-2.5 min-w-0">
@@ -472,7 +508,11 @@ export function Timer() {
                                             : 'rgba(148,163,184,0.2)',
                                       }}
                                     >
-                                      {isManual ? (
+                                      {isJira ? (
+                                        <Ticket
+                                          className={`h-3.5 w-3.5 ${theme === 'dark' ? 'text-white/60' : 'text-slate-500'}`}
+                                        />
+                                      ) : isManual ? (
                                         <Edit3
                                           className={`h-3.5 w-3.5 ${theme === 'dark' ? 'text-white/60' : 'text-slate-500'}`}
                                         />
@@ -487,15 +527,6 @@ export function Timer() {
                                         className={`text-sm font-medium truncate ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}
                                       >
                                         {displayLabel}
-                                      </div>
-                                      <div
-                                        className={`text-[10px] ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}
-                                      >
-                                        {isRunning
-                                          ? `Started ${formatTime(firstStarted)}`
-                                          : m
-                                            ? `${formatTime(m.firstStarted)}${m.lastEnded ? ` – ${formatTime(m.lastEnded)}` : ''}`
-                                            : ''}
                                       </div>
                                     </div>
                                   </div>
@@ -514,8 +545,9 @@ export function Timer() {
                           const s = m.firstSession
                           const project = s.project_id ? projectMap.get(s.project_id) : null
                           const isManual = s.project_id == null
+                          const isJira = isJiraTask(s.notes)
                           const displayLabel = isManual
-                            ? s.notes || 'Uncategorized'
+                            ? formatNotesForDisplay(s.notes) || 'Uncategorized'
                             : project?.name || 'No project'
                           return (
                             <button
@@ -523,10 +555,10 @@ export function Timer() {
                               type="button"
                               onClick={() => handleSummaryClick(s)}
                               className={[
-                                'w-full flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors',
+                                'w-full flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition-colors border',
                                 theme === 'dark'
-                                  ? 'hover:bg-white/[0.06] text-[#d1d5db]'
-                                  : 'hover:bg-slate-100 text-slate-700',
+                                  ? 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.06] text-[#d1d5db]'
+                                  : 'border-slate-200/60 bg-slate-50/50 hover:bg-slate-100 text-slate-700',
                               ].join(' ')}
                             >
                               <div className="flex items-center gap-2.5 min-w-0">
@@ -540,7 +572,11 @@ export function Timer() {
                                         : 'rgba(148,163,184,0.2)',
                                   }}
                                 >
-                                  {isManual ? (
+                                  {isJira ? (
+                                    <Ticket
+                                      className={`h-3.5 w-3.5 ${theme === 'dark' ? 'text-white/60' : 'text-slate-500'}`}
+                                    />
+                                  ) : isManual ? (
                                     <Edit3
                                       className={`h-3.5 w-3.5 ${theme === 'dark' ? 'text-white/60' : 'text-slate-500'}`}
                                     />
@@ -555,13 +591,6 @@ export function Timer() {
                                     className={`text-sm font-medium truncate ${theme === 'dark' ? 'text-white' : 'text-slate-900'}`}
                                   >
                                     {displayLabel}
-                                  </div>
-                                  <div
-                                    className={`text-[10px] ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}
-                                  >
-                                    {formatDateShort(m.firstStarted)}
-                                    {formatTime(m.firstStarted)}
-                                    {m.lastEnded && ` – ${formatTime(m.lastEnded)}`}
                                   </div>
                                 </div>
                               </div>

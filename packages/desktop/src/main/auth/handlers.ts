@@ -1,20 +1,40 @@
 import type { IpcMain, BrowserWindow } from 'electron'
 import { decodeJwt } from 'jose'
-import { storeTokens, loadTokens, clearTokens } from './keychain.js'
+import {
+  storeTokens,
+  loadTokens,
+  clearTokens,
+  consumeAuthStorageUnreadableFlag,
+} from './keychain.js'
 
 const API_URL = process.env.VITE_API_URL || 'http://localhost:3001'
 
-export async function ensureValidSession(win?: BrowserWindow): Promise<string | null> {
+export type SessionFailureReason =
+  | 'missing'
+  | 'invalid'
+  | 'refresh_denied'
+  | 'network'
+  | 'storage_unreadable'
+
+/** Full session check with a stable reason when refresh cannot produce a token. */
+export async function ensureValidSessionDetailed(
+  win?: BrowserWindow
+): Promise<{ ok: true; token: string } | { ok: false; reason: SessionFailureReason }> {
   const tokens = await loadTokens()
-  if (!tokens) return null
+  if (consumeAuthStorageUnreadableFlag()) {
+    win?.webContents.send('auth:session-expired')
+    return { ok: false, reason: 'storage_unreadable' }
+  }
+  if (!tokens) return { ok: false, reason: 'missing' }
 
   try {
     const payload = decodeJwt(tokens.accessToken)
     const exp = (payload.exp ?? 0) * 1000
-    if (exp - Date.now() > 60 * 1000) return tokens.accessToken
+    if (exp - Date.now() > 60 * 1000) return { ok: true, token: tokens.accessToken }
   } catch {
     await clearTokens()
-    return null
+    win?.webContents.send('auth:session-expired')
+    return { ok: false, reason: 'invalid' }
   }
 
   let res: Response
@@ -24,25 +44,28 @@ export async function ensureValidSession(win?: BrowserWindow): Promise<string | 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: tokens.refreshToken }),
     })
-  } catch (err) {
-    // Network error (e.g. backend not ready yet on dev restart) — keep tokens, return null
-    // Caller can retry; tokens remain in keychain for next attempt
-    return null
+  } catch {
+    return { ok: false, reason: 'network' }
   }
 
   if (!res.ok) {
-    // Only clear tokens on auth failures (401/403); keep them on 5xx/server errors
     if (res.status === 401 || res.status === 403) {
       await clearTokens()
       win?.webContents.send('auth:session-expired')
-      return null
+      return { ok: false, reason: 'refresh_denied' }
     }
     throw new Error('Server error. Please try again in a moment.')
   }
 
   const data = await res.json()
   await storeTokens(data.access_token, data.refresh_token)
-  return data.access_token
+  return { ok: true, token: data.access_token }
+}
+
+export async function ensureValidSession(win?: BrowserWindow): Promise<string | null> {
+  const r = await ensureValidSessionDetailed(win)
+  if (r.ok) return r.token
+  return null
 }
 
 export function authHandlers(
@@ -110,6 +133,7 @@ export function authHandlers(
 
   ipcMain.handle('auth:logout', async () => {
     const tokens = await loadTokens()
+    consumeAuthStorageUnreadableFlag()
     if (tokens) {
       await fetch(`${API_URL}/v1/app/auth/logout`, {
         method: 'POST',

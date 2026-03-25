@@ -1,8 +1,23 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Login from './pages/Login'
 import Onboarding from './pages/Onboarding'
 import { Timer } from './pages/Timer'
-import { Zap, ExternalLink, Users, Sun, Moon, Camera, Clock } from 'lucide-react'
+import { ConnectJira } from './components/ConnectJira'
+import {
+  Zap,
+  ExternalLink,
+  Users,
+  Sun,
+  Moon,
+  Camera,
+  Clock,
+  BarChart3,
+  Settings,
+} from 'lucide-react'
+import ReportsPage from './pages/Reports'
+import ScreenshotsPage from './pages/Screenshots'
+import AppSettingsPage from './pages/AppSettings'
+import type { JiraIssue } from './components/TaskSearchInput'
 import { SummaryPanel } from './components/SummaryPanel'
 import { useTheme } from './contexts/ThemeContext'
 import { useTimerStore } from './stores/timerStore'
@@ -85,33 +100,54 @@ function AvatarBlock({
   )
 }
 
-function formatDurationLong(sec: number) {
-  const h = Math.floor(sec / 3600)
-  const m = Math.floor((sec % 3600) / 60)
-  const s = Math.floor(sec % 60)
-  if (h > 0) return `${h}h ${m}m ${s}s`
-  if (m > 0) return `${m}m ${s}s`
-  return `${s}s`
-}
-
 function formatLastCaptured(isoString: string): string {
   const diffSec = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000)
-  if (diffSec < 60) return `${diffSec}s ago`
+  if (diffSec < 60) return 'just now'
   if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`
   if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`
   return `${Math.floor(diffSec / 86400)}d ago`
 }
 
+type ShellPage = 'timer' | 'reports' | 'screenshots' | 'settings'
+
 function DashboardShell({ user, onSignOut }: DashboardShellProps) {
-  const [, setSyncStatus] = useState<{ pending: number } | null>(null)
+  const [, setSyncStatus] = useState<{
+    pending: number
+    pendingActivity?: number
+    pendingScreenshots?: number
+  } | null>(null)
+  const [activePage, setActivePage] = useState<ShellPage>('timer')
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [streak, setStreak] = useState<number>(0)
   const [lastScreenshotAt, setLastScreenshotAt] = useState<string | null>(null)
+  const [notifyScreenshotCapture, setNotifyScreenshotCapture] = useState(false)
+  const [jiraConnected, setJiraConnected] = useState(false)
+  const [jiraIssues, setJiraIssues] = useState<JiraIssue[]>([])
   const { theme, toggleTheme } = useTheme()
+
+  const refreshJiraIssues = useCallback(async () => {
+    const list = (await window.trackysnc?.getIssues()) as JiraIssue[] | undefined
+    setJiraIssues(list ?? [])
+  }, [])
+
+  useEffect(() => {
+    window.trackysnc?.isConnected().then((connected) => setJiraConnected(connected === true))
+  }, [])
+
+  useEffect(() => {
+    if (jiraConnected) {
+      window.trackysnc?.getIssues().then((list) => setJiraIssues((list as JiraIssue[]) ?? []))
+    } else {
+      setJiraIssues([])
+    }
+  }, [jiraConnected])
+
+  useEffect(() => {
+    const onJiraAuthLost = () => setJiraConnected(false)
+    window.electron?.ipcRenderer?.on('jira:auth-lost', onJiraAuthLost)
+    return () => window.electron?.ipcRenderer?.off('jira:auth-lost', onJiraAuthLost)
+  }, [])
   const { todaySessions, currentSession, isRunning, elapsedSeconds } = useTimerStore()
-  const todayTotalSec =
-    todaySessions.filter((s) => s.ended_at).reduce((sum, s) => sum + s.duration_sec, 0) +
-    (isRunning ? elapsedSeconds : 0)
 
   const fetchLastScreenshot = () => {
     window.electron?.ipcRenderer
@@ -120,8 +156,20 @@ function DashboardShell({ user, onSignOut }: DashboardShellProps) {
   }
 
   useEffect(() => {
+    window.electron?.ipcRenderer
+      .invoke('prefs:get')
+      .then((p) =>
+        setNotifyScreenshotCapture(
+          (p as { notifyOnScreenshotCapture?: boolean }).notifyOnScreenshotCapture === true
+        )
+      )
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
     fetchLastScreenshot()
-    const onCaptured = (_: unknown, payload: { taken_at: string }) => {
+    const onCaptured = (...args: unknown[]) => {
+      const payload = args[0] as { taken_at: string }
       setLastScreenshotAt(payload.taken_at)
     }
     window.electron?.ipcRenderer?.on('screenshot:captured', onCaptured)
@@ -135,12 +183,20 @@ function DashboardShell({ user, onSignOut }: DashboardShellProps) {
   useEffect(() => {
     window.electron?.ipcRenderer
       .invoke('sync:status')
-      .then((s) => setSyncStatus(s as { pending: number }))
+      .then((s) =>
+        setSyncStatus(
+          s as { pending: number; pendingActivity?: number; pendingScreenshots?: number }
+        )
+      )
     const id = setInterval(
       () =>
         window.electron?.ipcRenderer
           .invoke('sync:status')
-          .then((s) => setSyncStatus(s as { pending: number })),
+          .then((s) =>
+            setSyncStatus(
+              s as { pending: number; pendingActivity?: number; pendingScreenshots?: number }
+            )
+          ),
       10_000
     )
     return () => clearInterval(id)
@@ -225,6 +281,13 @@ function DashboardShell({ user, onSignOut }: DashboardShellProps) {
             <span>🔥</span>
             <span className="tabular-nums font-medium">{streak}</span>
           </span>
+          <ConnectJira
+            theme={theme}
+            compact
+            onConnected={() => setJiraConnected(true)}
+            onDisconnected={() => setJiraConnected(false)}
+            onRefresh={refreshJiraIssues}
+          />
           <button
             type="button"
             onClick={() => setSummaryOpen((o) => !o)}
@@ -252,6 +315,46 @@ function DashboardShell({ user, onSignOut }: DashboardShellProps) {
         </div>
       </header>
 
+      {/* Primary navigation — Timer, Reports, Screenshots, Settings */}
+      <nav
+        className={`flex items-center gap-0.5 px-4 sm:px-6 py-1.5 shrink-0 border-b ${
+          theme === 'dark'
+            ? 'border-white/[0.06] bg-[#050508]/40'
+            : 'border-slate-200/80 bg-white/50'
+        }`}
+        aria-label="Main"
+      >
+        {(
+          [
+            { id: 'timer' as const, label: 'Timer', Icon: Clock },
+            { id: 'reports' as const, label: 'Reports', Icon: BarChart3 },
+            { id: 'screenshots' as const, label: 'Screenshots', Icon: Camera },
+            { id: 'settings' as const, label: 'Settings', Icon: Settings },
+          ] as const
+        ).map(({ id, label, Icon }) => {
+          const on = activePage === id
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setActivePage(id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${
+                on
+                  ? theme === 'dark'
+                    ? 'bg-white/[0.08] text-indigo-300'
+                    : 'bg-indigo-50 text-indigo-700'
+                  : theme === 'dark'
+                    ? 'text-white/45 hover:text-white/75 hover:bg-white/[0.04]'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100/80'
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden />
+              {label}
+            </button>
+          )
+        })}
+      </nav>
+
       {/* Summary panel overlay */}
       <SummaryPanel
         isOpen={summaryOpen}
@@ -265,7 +368,21 @@ function DashboardShell({ user, onSignOut }: DashboardShellProps) {
 
       {/* Main content */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        <Timer />
+        {activePage === 'timer' ? (
+          <Timer
+            jiraConnected={jiraConnected}
+            jiraIssues={jiraIssues}
+            onJiraConnected={() => setJiraConnected(true)}
+            onJiraDisconnected={() => setJiraConnected(false)}
+            refreshJiraIssues={refreshJiraIssues}
+          />
+        ) : activePage === 'reports' ? (
+          <ReportsPage />
+        ) : activePage === 'screenshots' ? (
+          <ScreenshotsPage />
+        ) : (
+          <AppSettingsPage />
+        )}
       </div>
 
       {/* Footer — soft, minimal */}
@@ -289,22 +406,43 @@ function DashboardShell({ user, onSignOut }: DashboardShellProps) {
               {lastScreenshotAt ? formatLastCaptured(lastScreenshotAt) : 'Never'}
             </span>
           </span>
-          <span className="flex items-center gap-2">
-            <Clock className={`h-3 w-3 ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`} />
-            <span className="tabular-nums font-medium">{formatDurationLong(todayTotalSec)}</span>
-          </span>
+          <label
+            className={`flex items-center gap-2 cursor-pointer select-none ${
+              theme === 'dark'
+                ? 'text-white/45 hover:text-white/65'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+            title="Show a system notification each time a screenshot is saved while the timer runs"
+          >
+            <input
+              type="checkbox"
+              className="rounded border-white/20 bg-white/5 accent-indigo-500 h-3.5 w-3.5 shrink-0"
+              checked={notifyScreenshotCapture}
+              onChange={(e) => {
+                const on = e.target.checked
+                setNotifyScreenshotCapture(on)
+                window.electron?.ipcRenderer.invoke('prefs:set-notify-screenshot-capture', on)
+              }}
+            />
+            <span className="tabular-nums">Screenshot alerts</span>
+          </label>
         </div>
         <div className="flex items-center gap-5">
-          <span
-            className={`flex items-center gap-1.5 text-[11px] cursor-pointer transition-colors duration-300 ${
+          <button
+            type="button"
+            className={`flex items-center gap-1.5 text-[11px] font-normal cursor-pointer transition-colors duration-300 bg-transparent border-0 p-0 ${
               theme === 'dark'
                 ? 'text-white/50 hover:text-white/80'
                 : 'text-slate-500 hover:text-slate-700'
             }`}
+            title="Open your TrackSync home in the browser"
+            onClick={() => {
+              window.electron?.ipcRenderer.invoke('landing:open-myhome', user.id)
+            }}
           >
-            <ExternalLink className="h-3 w-3" />
+            <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
             View Online
-          </span>
+          </button>
           <div className="flex items-center gap-2">
             <AvatarBlock src={avatarSrc} initials={initials} name={user.name} theme={theme} />
             <span
@@ -335,31 +473,30 @@ export default function App() {
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
 
   useEffect(() => {
-    const ipc = window.electron?.ipcRenderer
-    if (!ipc) {
+    const electron = window.electron
+    if (!electron?.ipcRenderer) {
       setIsAuthenticated(false)
       setOnboardingDone(true)
       return
     }
+    const ipcRenderer = electron.ipcRenderer
 
     const AUTH_RETRIES = 3
     const AUTH_RETRY_DELAY_MS = 1500
 
     async function checkAuthWithRetry(): Promise<{ authenticated: boolean; user?: User }> {
       for (let i = 0; i < AUTH_RETRIES; i++) {
-        const res = await ipc
-          .invoke('auth:check')
-          .catch(() => ({ authenticated: false, user: null }))
+        const res = await ipcRenderer.invoke('auth:check').catch(() => ({ authenticated: false }))
         const auth = res as { authenticated: boolean; user?: User }
         if (auth.authenticated) return auth
         if (i < AUTH_RETRIES - 1) await new Promise((r) => setTimeout(r, AUTH_RETRY_DELAY_MS))
       }
-      return { authenticated: false, user: null }
+      return { authenticated: false }
     }
 
     Promise.all([
       checkAuthWithRetry(),
-      ipc.invoke('onboarding:status').catch(() => ({ done: true })),
+      ipcRenderer.invoke('onboarding:status').catch(() => ({ done: true })),
     ]).then(([authRes, onboardingRes]) => {
       const auth = authRes as { authenticated: boolean; user?: User }
       const onboarding = onboardingRes as { done: boolean }
@@ -368,25 +505,54 @@ export default function App() {
       if (auth.user) setUser(auth.user)
     })
     const onSessionExpired = () => {
+      useTimerStore.getState().reset()
       setIsAuthenticated(false)
       setUser(null)
     }
-    ipc.on('auth:session-expired', onSessionExpired)
-    return () => ipc.off('auth:session-expired', onSessionExpired)
+    ipcRenderer.on('auth:session-expired', onSessionExpired)
+    return () => ipcRenderer.off('auth:session-expired', onSessionExpired)
   }, [])
 
   const handleSignOut = () => {
     window.electron?.ipcRenderer
       .invoke('auth:logout')
       .then(() => {
+        useTimerStore.getState().reset()
         setIsAuthenticated(false)
         setUser(null)
       })
       .catch(() => {
+        useTimerStore.getState().reset()
         setIsAuthenticated(false)
         setUser(null)
       })
   }
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    const ipc = window.electron?.ipcRenderer
+    if (!ipc) return
+
+    const onFocus = () => {
+      ipc.invoke('auth:check').then((res) => {
+        const auth = res as {
+          authenticated: boolean
+          user?: User
+          offline?: boolean
+          reason?: string
+        }
+        if (!auth.authenticated && auth.reason !== 'network') {
+          useTimerStore.getState().reset()
+          setIsAuthenticated(false)
+          setUser(null)
+        } else if (auth.authenticated && auth.user) {
+          setUser(auth.user)
+        }
+      })
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [isAuthenticated])
 
   if (isAuthenticated === null || onboardingDone === null) {
     return (

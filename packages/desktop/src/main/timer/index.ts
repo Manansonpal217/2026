@@ -97,13 +97,23 @@ export function stopTimer(): { session: Record<string, unknown> } | null {
   const durationSec = Math.floor((endedAt.getTime() - session.startedAt.getTime()) / 1000)
 
   const db = getDb()
+  // Persist project/task from the live session so the closed row matches what was
+  // tracked (and sync sends the same IDs to the server). INSERT may not reflect
+  // mid-session corrections in edge cases; this keeps SQLite authoritative on stop.
   db.prepare(
     `
     UPDATE local_sessions
-    SET ended_at = ?, duration_sec = ?, notes = ?, synced = 0
+    SET ended_at = ?, duration_sec = ?, notes = ?, project_id = ?, task_id = ?, synced = 0
     WHERE id = ?
   `
-  ).run(endedAt.toISOString(), durationSec, session.notes, session.id)
+  ).run(
+    endedAt.toISOString(),
+    durationSec,
+    session.notes,
+    session.projectId,
+    session.taskId,
+    session.id
+  )
 
   const row = db.prepare('SELECT * FROM local_sessions WHERE id = ?').get(session.id)
 

@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-const listenerMap = new Map<string, Map<(...args: unknown[]) => void, (...args: unknown[]) => void>>()
+const listenerMap = new Map<
+  string,
+  Map<(...args: unknown[]) => void, (...args: unknown[]) => void>
+>()
 
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,
@@ -21,4 +24,13 @@ contextBridge.exposeInMainWorld('electron', {
       }
     },
   },
+})
+
+contextBridge.exposeInMainWorld('trackysnc', {
+  connectJira: () => ipcRenderer.invoke('jira:connect'),
+  disconnectJira: () => ipcRenderer.invoke('jira:disconnect'),
+  isConnected: () => ipcRenderer.invoke('jira:is-connected'),
+  getIssues: () => ipcRenderer.invoke('jira:get-issues'),
+  logWork: (key: string, secs: number, desc: string) =>
+    ipcRenderer.invoke('jira:log-work', key, secs, desc),
 })

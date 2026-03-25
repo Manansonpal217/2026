@@ -21,10 +21,10 @@ function prevDayInTz(dateStr: string, timezone: string): string {
 }
 
 /**
- * Compute streak from local_sessions.
+ * Compute streak from local_sessions for a single authenticated user.
  * Uses device timezone (Intl default) for date bucketing.
  */
-export function computeStreakFromLocalSessions(db: Database.Database): number {
+export function computeStreakFromLocalSessions(db: Database.Database, userId: string): number {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
   const cutoff = new Date()
@@ -34,11 +34,11 @@ export function computeStreakFromLocalSessions(db: Database.Database): number {
   const rows = db
     .prepare(
       `SELECT ended_at FROM local_sessions
-       WHERE ended_at IS NOT NULL AND duration_sec > 0
+       WHERE user_id = ? AND ended_at IS NOT NULL AND duration_sec > 0
        AND started_at >= ?
        ORDER BY started_at DESC`
     )
-    .all(cutoffIso) as { ended_at: string }[]
+    .all(userId, cutoffIso) as { ended_at: string }[]
 
   const activeDates = new Set<string>()
   for (const r of rows) {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { BarChart3, Clock, RefreshCw, Calendar, TrendingUp } from 'lucide-react'
+import { BarChart3, Clock, RefreshCw, Calendar, TrendingUp, Ticket, Edit3 } from 'lucide-react'
+import { formatNotesForDisplay, isJiraTask } from '../lib/format'
 
 interface LocalSession {
   id: string
@@ -21,10 +22,6 @@ function formatDuration(sec: number): string {
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 interface DaySummary {
@@ -49,9 +46,7 @@ function groupByDay(sessions: LocalSession[]): DaySummary[] {
       })
     }
   }
-  return [...map.entries()]
-    .sort(([a], [b]) => b.localeCompare(a))
-    .map(([, v]) => v)
+  return [...map.entries()].sort(([a], [b]) => b.localeCompare(a)).map(([, v]) => v)
 }
 
 export default function ReportsPage() {
@@ -61,7 +56,9 @@ export default function ReportsPage() {
   useEffect(() => {
     async function load() {
       try {
-        const rows = await window.electron?.ipcRenderer.invoke('sessions:list-all-local') as LocalSession[] | undefined
+        const rows = (await window.electron?.ipcRenderer.invoke('sessions:list-all-local')) as
+          | LocalSession[]
+          | undefined
         setSessions(rows ?? [])
       } catch {
         setSessions([])
@@ -103,19 +100,23 @@ export default function ReportsPage() {
             <div className="rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.03)] p-3 space-y-2">
               <div className="flex items-center gap-1.5">
                 <TrendingUp className="h-3 w-3 text-indigo-400" />
-                <span className="text-[10px] text-[#6b7280] uppercase tracking-wider font-semibold">This Week</span>
+                <span className="text-[10px] text-[#6b7280] uppercase tracking-wider font-semibold">
+                  This Week
+                </span>
               </div>
-              <p className="text-xl font-bold text-[#f9fafb] tabular-nums">{formatDuration(totalThisWeek)}</p>
+              <p className="text-xl font-bold text-[#f9fafb] tabular-nums">
+                {formatDuration(totalThisWeek)}
+              </p>
             </div>
             <div className="rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.03)] p-3 space-y-2">
               <div className="flex items-center gap-1.5">
                 <Clock className="h-3 w-3 text-indigo-400" />
-                <span className="text-[10px] text-[#6b7280] uppercase tracking-wider font-semibold">Sessions</span>
+                <span className="text-[10px] text-[#6b7280] uppercase tracking-wider font-semibold">
+                  Sessions
+                </span>
               </div>
               <p className="text-xl font-bold text-[#f9fafb] tabular-nums">{sessions.length}</p>
-              {pending > 0 && (
-                <p className="text-[10px] text-amber-400">{pending} pending sync</p>
-              )}
+              {pending > 0 && <p className="text-[10px] text-amber-400">{pending} pending sync</p>}
             </div>
           </div>
 
@@ -125,7 +126,9 @@ export default function ReportsPage() {
               <Calendar className="h-8 w-8 text-[#4b5563]" />
               <div>
                 <p className="text-sm font-semibold text-[#9ca3af]">No sessions recorded</p>
-                <p className="text-xs text-[#4b5563] mt-1">Start the timer to begin tracking time.</p>
+                <p className="text-xs text-[#4b5563] mt-1">
+                  Start the timer to begin tracking time.
+                </p>
               </div>
             </div>
           ) : (
@@ -144,12 +147,14 @@ export default function ReportsPage() {
                         key={s.id}
                         className="flex items-center gap-3 px-3 py-2 rounded-lg bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.05)]"
                       >
-                        <div className="text-[10px] text-[#6b7280] tabular-nums shrink-0 w-10">
-                          {formatTime(s.started_at)}
-                        </div>
+                        {isJiraTask(s.notes) ? (
+                          <Ticket className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                        ) : (
+                          <Edit3 className="h-3.5 w-3.5 text-[#6b7280] shrink-0" />
+                        )}
                         <div className="flex-1 min-w-0">
                           <p className="text-xs text-[#d1d5db] truncate">
-                            {s.notes || 'No notes'}
+                            {formatNotesForDisplay(s.notes) || 'No notes'}
                           </p>
                         </div>
                         <div className="flex items-center gap-1.5">
@@ -157,9 +162,15 @@ export default function ReportsPage() {
                             {formatDuration(s.duration_sec)}
                           </span>
                           {s.synced === 0 ? (
-                            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" title="Pending sync" />
+                            <span
+                              className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0"
+                              title="Pending sync"
+                            />
                           ) : (
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" title="Synced" />
+                            <span
+                              className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0"
+                              title="Synced"
+                            />
                           )}
                         </div>
                       </div>

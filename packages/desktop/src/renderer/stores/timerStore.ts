@@ -1,5 +1,15 @@
 import { create } from 'zustand'
 
+/** Strip Electron IPC wrapper so users see the real message. */
+function unwrapIpcError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err)
+  const m = msg.match(/^Error invoking remote method '[^']+':\s*(.+)$/s)
+  if (m?.[1]) {
+    return m[1].replace(/^Error:\s*/i, '').trim()
+  }
+  return msg
+}
+
 export interface TimerSession {
   id: string
   startedAt: string
@@ -29,12 +39,22 @@ interface TimerState {
 
   // Actions
   initialize: () => Promise<void>
-  start: (args: { projectId?: string | null; taskId?: string | null; notes?: string | null }) => Promise<void>
+  start: (args: {
+    projectId?: string | null
+    taskId?: string | null
+    notes?: string | null
+  }) => Promise<void>
   stop: () => Promise<void>
-  switchTask: (args: { projectId?: string | null; taskId?: string | null; notes?: string | null }) => Promise<void>
+  switchTask: (args: {
+    projectId?: string | null
+    taskId?: string | null
+    notes?: string | null
+  }) => Promise<void>
   refreshTodaySessions: () => Promise<void>
   setElapsed: (seconds: number) => void
   setError: (error: string | null) => void
+  /** Clear timer UI state — call on sign-out so the next user never sees prior sessions. */
+  reset: () => void
 }
 
 export const useTimerStore = create<TimerState>((set, get) => ({
@@ -48,7 +68,7 @@ export const useTimerStore = create<TimerState>((set, get) => ({
   initialize: async () => {
     set({ isLoading: true, error: null })
     try {
-      const status = await window.electron?.ipcRenderer.invoke('timer:status') as {
+      const status = (await window.electron?.ipcRenderer.invoke('timer:status')) as {
         running: boolean
         elapsed: number
         session: TimerSession | null
@@ -60,7 +80,7 @@ export const useTimerStore = create<TimerState>((set, get) => ({
       })
       await get().refreshTodaySessions()
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : 'Failed to initialize timer' })
+      set({ error: unwrapIpcError(err) || 'Failed to initialize timer' })
     } finally {
       set({ isLoading: false })
     }
@@ -69,11 +89,11 @@ export const useTimerStore = create<TimerState>((set, get) => ({
   start: async ({ projectId, taskId, notes }) => {
     set({ isLoading: true, error: null })
     try {
-      const status = await window.electron?.ipcRenderer.invoke('timer:start', {
+      const status = (await window.electron?.ipcRenderer.invoke('timer:start', {
         projectId: projectId ?? null,
         taskId: taskId ?? null,
         notes: notes ?? null,
-      }) as { running: boolean; elapsed: number; session: TimerSession | null }
+      })) as { running: boolean; elapsed: number; session: TimerSession | null }
       set({
         isRunning: status.running,
         elapsedSeconds: status.elapsed,
@@ -81,7 +101,7 @@ export const useTimerStore = create<TimerState>((set, get) => ({
       })
       await get().refreshTodaySessions()
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : 'Failed to start timer' })
+      set({ error: unwrapIpcError(err) || 'Failed to start timer' })
     } finally {
       set({ isLoading: false })
     }
@@ -91,7 +111,9 @@ export const useTimerStore = create<TimerState>((set, get) => ({
     set({ isLoading: true, error: null })
     try {
       await window.electron?.ipcRenderer.invoke('timer:stop')
-      const sessions = (await window.electron?.ipcRenderer.invoke('sessions:list-local')) as LocalSessionRow[]
+      const sessions = (await window.electron?.ipcRenderer.invoke(
+        'sessions:list-local'
+      )) as LocalSessionRow[]
       set({
         isRunning: false,
         elapsedSeconds: 0,
@@ -99,7 +121,7 @@ export const useTimerStore = create<TimerState>((set, get) => ({
         todaySessions: sessions ?? [],
       })
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : 'Failed to stop timer' })
+      set({ error: unwrapIpcError(err) || 'Failed to stop timer' })
     } finally {
       set({ isLoading: false })
     }
@@ -108,18 +130,18 @@ export const useTimerStore = create<TimerState>((set, get) => ({
   switchTask: async ({ projectId, taskId, notes }) => {
     set({ isLoading: true, error: null })
     try {
-      const status = await window.electron?.ipcRenderer.invoke('timer:switch-task', {
+      const status = (await window.electron?.ipcRenderer.invoke('timer:switch-task', {
         projectId: projectId ?? null,
         taskId: taskId ?? null,
         notes: notes ?? null,
-      }) as { running: boolean; elapsed: number; session: TimerSession | null }
+      })) as { running: boolean; elapsed: number; session: TimerSession | null }
       set({
         isRunning: status.running,
         elapsedSeconds: status.elapsed,
         currentSession: status.session,
       })
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : 'Failed to switch task' })
+      set({ error: unwrapIpcError(err) || 'Failed to switch task' })
     } finally {
       set({ isLoading: false })
     }
@@ -127,7 +149,9 @@ export const useTimerStore = create<TimerState>((set, get) => ({
 
   refreshTodaySessions: async () => {
     try {
-      const sessions = await window.electron?.ipcRenderer.invoke('sessions:list-local') as LocalSessionRow[]
+      const sessions = (await window.electron?.ipcRenderer.invoke(
+        'sessions:list-local'
+      )) as LocalSessionRow[]
       set({ todaySessions: sessions ?? [] })
     } catch {
       // silent
@@ -136,6 +160,15 @@ export const useTimerStore = create<TimerState>((set, get) => ({
 
   setElapsed: (seconds) => set({ elapsedSeconds: seconds }),
   setError: (error) => set({ error }),
+  reset: () =>
+    set({
+      isRunning: false,
+      elapsedSeconds: 0,
+      currentSession: null,
+      todaySessions: [],
+      isLoading: false,
+      error: null,
+    }),
 }))
 
 /** Format elapsed seconds as HH:MM:SS */

@@ -1,6 +1,8 @@
+import { validate as isUuid } from 'uuid'
 import { getDb } from '../db/index.js'
 import { ensureValidSession } from '../auth/handlers.js'
 import { getBackoffMinutes } from './resilience.js'
+import { getActiveSession } from '../timer/store.js'
 
 const API_URL = process.env.VITE_API_URL || 'http://localhost:3001'
 const BATCH_SIZE = 100
@@ -36,6 +38,14 @@ export interface LocalSession {
 }
 
 const nowIso = () => new Date().toISOString()
+
+/** Backend batch API requires RFC-4122 UUIDs; drop anything else so sync still succeeds. */
+function apiNullableUuid(value: string | null | undefined): string | null {
+  if (value == null) return null
+  const t = String(value).trim()
+  if (!t) return null
+  return isUuid(t) ? t : null
+}
 
 /**
  * Sync all unsynced local sessions to the backend.
@@ -76,12 +86,26 @@ export async function syncPendingSessions(): Promise<{
     return { synced: 0, errors: 0, skipped: unsynced.length }
   }
 
-  const payload = unsynced.map((s) => ({
-    id: s.id,
+  const stmtBadSessionId = db.prepare(
+    `UPDATE local_sessions SET sync_attempts = sync_attempts + 1, last_sync_error = ?, last_sync_attempt_at = ? WHERE id = ?`
+  )
+  const invalidIdReason = 'Invalid local session id (expected UUID)'
+  const syncable = unsynced.filter((s) => {
+    if (isUuid(String(s.id).trim())) return true
+    stmtBadSessionId.run(invalidIdReason, nowIso(), s.id)
+    return false
+  })
+
+  if (syncable.length === 0) {
+    return { synced: 0, errors: unsynced.length, skipped: 0 }
+  }
+
+  const payload = syncable.map((s) => ({
+    id: String(s.id).trim(),
     device_id: s.device_id,
     device_name: s.device_name,
-    project_id: s.project_id || null,
-    task_id: s.task_id || null,
+    project_id: apiNullableUuid(s.project_id),
+    task_id: apiNullableUuid(s.task_id),
     started_at: s.started_at,
     ended_at: s.ended_at,
     duration_sec: s.duration_sec,
@@ -114,7 +138,7 @@ export async function syncPendingSessions(): Promise<{
       const stmtPermanent = db.prepare(
         `UPDATE local_sessions SET sync_attempts = sync_attempts + 1, last_sync_error = ?, last_sync_attempt_at = ? WHERE id = ?`
       )
-      for (const s of unsynced) {
+      for (const s of syncable) {
         if (isTransient) stmtTransient.run(nowIso(), reason, s.id)
         else stmtPermanent.run(reason, nowIso(), s.id)
       }
@@ -159,15 +183,21 @@ export async function syncRunningSessionToBackend(sessionId: string): Promise<bo
 
   if (!row) return false
 
+  const localId = String(row.id).trim()
+  if (!isUuid(localId)) {
+    console.warn('[syncRunningSessionToBackend] Local session id is not a valid UUID:', row.id)
+    return false
+  }
+
   const token = await ensureValidSession().catch(() => null)
   if (!token) return false
 
   const payload = {
-    id: row.id,
+    id: localId,
     device_id: row.device_id,
     device_name: row.device_name,
-    project_id: row.project_id || null,
-    task_id: row.task_id || null,
+    project_id: apiNullableUuid(row.project_id),
+    task_id: apiNullableUuid(row.task_id),
     started_at: row.started_at,
     ended_at: null as string | null,
     duration_sec: 0,
@@ -202,6 +232,28 @@ export async function syncRunningSessionToBackend(sessionId: string): Promise<bo
   } catch (err) {
     console.warn('[syncRunningSessionToBackend] Error:', err)
     return false
+  }
+}
+
+let lastRunningSessionSyncWarnAt = 0
+const RUNNING_SESSION_WARN_INTERVAL_MS = 5 * 60 * 1000
+
+/**
+ * Re-register the current open session on the server on each sync tick so a failed
+ * start-time sync (network, 5xx, etc.) does not leave the web dashboard empty until stop.
+ */
+export async function syncActiveRunningSessionIfAny(): Promise<void> {
+  const active = getActiveSession()
+  if (!active) return
+  const ok = await syncRunningSessionToBackend(active.id)
+  if (!ok) {
+    const now = Date.now()
+    if (now - lastRunningSessionSyncWarnAt >= RUNNING_SESSION_WARN_INTERVAL_MS) {
+      lastRunningSessionSyncWarnAt = now
+      console.warn(
+        '[sync] Open session still not on server; check VITE_API_URL matches web NEXT_PUBLIC_API_URL, task/project UUIDs exist in org, and main-process logs for [syncRunningSessionToBackend].'
+      )
+    }
   }
 }
 

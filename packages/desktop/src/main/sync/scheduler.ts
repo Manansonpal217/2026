@@ -1,7 +1,7 @@
 import { net } from 'electron'
 import { getDb } from '../db/index.js'
 import { resetStaleSyncAttempts } from './resilience.js'
-import { syncPendingSessions } from './sessionSync.js'
+import { syncPendingSessions, syncActiveRunningSessionIfAny } from './sessionSync.js'
 import { syncPendingScreenshots } from './screenshotSync.js'
 import { syncPendingActivityLogs } from './activitySync.js'
 import { getApiBase } from './sessionSync.js'
@@ -49,6 +49,7 @@ async function runSync(): Promise<number> {
       syncPendingSessions(),
       syncPendingScreenshots(),
       syncPendingActivityLogs(),
+      syncActiveRunningSessionIfAny(),
     ])
     if (sessionsResult.status === 'fulfilled' && sessionsResult.value?.rateLimited)
       rateLimited = true

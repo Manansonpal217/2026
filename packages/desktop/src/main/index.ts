@@ -1,14 +1,21 @@
+import 'dotenv/config'
 import {
   app,
   BrowserWindow,
   ipcMain,
   Notification,
   powerMonitor,
+  shell,
   systemPreferences,
 } from 'electron'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { authHandlers, ensureValidSession } from './auth/handlers.js'
+import { decodeJwt } from 'jose'
+import { authHandlers, ensureValidSession, ensureValidSessionDetailed } from './auth/handlers.js'
+import { loadTokens } from './auth/keychain.js'
+import { registerJiraHandlers } from './jira/ipcHandlers.js'
+import { handleJiraProtocolUrl } from './jira/auth.js'
+import { initJiraApi } from './jira/api.js'
 import { openDb, closeDb } from './db/index.js'
 import {
   startTimer,
@@ -22,9 +29,13 @@ import {
   type SessionContext,
 } from './timer/index.js'
 import { startSyncScheduler, stopSyncScheduler, triggerImmediateSync } from './sync/scheduler.js'
-import { getPendingSyncCount } from './sync/sessionSync.js'
+import {
+  drainPendingSyncQueue,
+  getPendingSyncBreakdown,
+  markLocalDataForFullResync,
+} from './sync/repairResync.js'
 import { startScreenshotScheduler, stopScreenshotScheduler } from './screenshot/scheduler.js'
-import { syncRunningSessionToBackend } from './sync/sessionSync.js'
+import { getApiBase, syncRunningSessionToBackend } from './sync/sessionSync.js'
 import { startWindowBuffer, stopWindowBuffer } from './activity/windowBuffer.js'
 import {
   startInputMonitor,
@@ -36,8 +47,11 @@ import { startActiveWindowPolling, stopActiveWindowPolling } from './activity/ac
 import { startIdleManager, stopIdleManager, type StopReason } from './idle/idleManager.js'
 import { getDb } from './db/index.js'
 import { computeStreakFromLocalSessions } from './streak.js'
+import { readUserPrefs, writeUserPrefs } from './userPrefs.js'
 
 const API_URL = process.env.VITE_API_URL || 'http://localhost:3001'
+/** Next.js landing (my home dashboard). Override in production, e.g. https://tracksync.dev */
+const LANDING_URL = (process.env.VITE_LANDING_URL || 'http://localhost:3002').replace(/\/$/, '')
 
 // In-memory project cache: { orgId -> { projects, fetchedAt } }
 const projectCache = new Map<string, { projects: unknown[]; fetchedAt: number }>()
@@ -47,9 +61,11 @@ const PROJECT_CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
 let savedAutoStopContext: SessionContext | null = null
 let isAutoRestarting = false
 let resumePollIntervalId: ReturnType<typeof setInterval> | null = null
+let lastAutoRestartFailedAt = 0
 
 const ACTIVITY_THRESHOLD_SEC = 5
 const RESUME_POLL_MS = 2000
+const AUTO_RESTART_COOLDOWN_MS = 60_000
 
 function clearResumePolling(): void {
   if (resumePollIntervalId) {
@@ -105,7 +121,7 @@ function showTrackingStoppedNotification(reason: StopReason): void {
   const notif = new Notification({
     title: 'TrackSync',
     body: `Tracking stopped — ${reasonText}`,
-    silent: false,
+    silent: true,
   })
   notificationRefs.push(notif)
   notif.on('close', () => clearNotification(notif))
@@ -122,7 +138,7 @@ function showTrackingStartedNotification(): void {
   const notif = new Notification({
     title: 'TrackSync',
     body: 'Tracking started',
-    silent: false,
+    silent: true,
   })
   notificationRefs.push(notif)
   notif.on('close', () => clearNotification(notif))
@@ -139,6 +155,7 @@ function handleAutoStop(reason: StopReason): void {
   stopActiveWindowPolling()
   stopTimer()
   savedAutoStopContext = context
+  lastAutoRestartFailedAt = 0
 
   clearResumePolling()
 
@@ -175,7 +192,7 @@ function handleAutoStop(reason: StopReason): void {
       const notif = new Notification({
         title: 'TrackSync',
         body: 'Tracking stopped. Click this app to restart, or enable Accessibility for auto-restart.',
-        silent: false,
+        silent: true,
       })
       notificationRefs.push(notif)
       notif.on('close', () => clearNotification(notif))
@@ -189,17 +206,30 @@ function handleAutoStop(reason: StopReason): void {
 
 async function performAutoRestart(): Promise<void> {
   if (!savedAutoStopContext || isAutoRestarting) return
+  if (Date.now() - lastAutoRestartFailedAt < AUTO_RESTART_COOLDOWN_MS) {
+    savedAutoStopContext = null
+    clearResumePolling()
+    return
+  }
   console.log('[idleManager] Performing auto-restart')
   isAutoRestarting = true
   try {
-    const token = await ensureValidSession(mainWindow ?? undefined)
-    if (!token) {
-      console.warn('[idleManager] Auto-restart failed: not authenticated')
+    const session = await ensureValidSessionDetailed(mainWindow ?? undefined)
+    if (!session.ok) {
+      console.warn('[idleManager] Auto-restart failed:', session.reason)
+      lastAutoRestartFailedAt = Date.now()
+      savedAutoStopContext = null
       if (Notification.isSupported()) {
+        const body =
+          session.reason === 'network'
+            ? 'Could not auto-restart — no connection. Reconnect, then start manually.'
+            : session.reason === 'storage_unreadable'
+              ? 'Could not auto-restart — saved sign-in could not be read. Sign in again, then start manually.'
+              : 'Could not auto-restart — please sign in and start manually.'
         const notif = new Notification({
           title: 'TrackSync',
-          body: 'Could not auto-restart — please start manually.',
-          silent: false,
+          body,
+          silent: true,
         })
         notificationRefs.push(notif)
         notif.on('close', () => clearNotification(notif))
@@ -208,6 +238,7 @@ async function performAutoRestart(): Promise<void> {
       }
       return
     }
+    const token = session.token
     const payload = JSON.parse(atob(token.split('.')[1])) as { sub: string; org_id: string }
     const deviceId = getDeviceId()
     const deviceName = `${app.getName()} on ${process.platform}`
@@ -227,7 +258,12 @@ async function performAutoRestart(): Promise<void> {
 
     const sessionId = (result as { session?: { id: string } }).session?.id
     if (sessionId) {
-      syncRunningSessionToBackend(sessionId).catch(() => {})
+      const sessionOnServer = await syncRunningSessionToBackend(sessionId)
+      if (!sessionOnServer) {
+        console.warn(
+          '[timer] Running session not registered on server yet; screenshots will retry sync until it succeeds.'
+        )
+      }
       const orgSettings = await fetchOrgSettings()
       const screenshotIntervalSec = orgSettings?.screenshot_interval_seconds ?? 60
       console.log(
@@ -249,11 +285,13 @@ async function performAutoRestart(): Promise<void> {
     })
   } catch (err) {
     console.warn('[idleManager] Auto-restart failed:', err)
+    lastAutoRestartFailedAt = Date.now()
+    savedAutoStopContext = null
     if (Notification.isSupported()) {
       const notif = new Notification({
         title: 'TrackSync',
         body: 'Could not auto-restart — please start manually.',
-        silent: false,
+        silent: true,
       })
       notificationRefs.push(notif)
       notif.on('close', () => clearNotification(notif))
@@ -314,7 +352,36 @@ function createWindow(): void {
   })
 }
 
+function handleProtocolUrl(url: string): void {
+  if (handleJiraProtocolUrl(url)) {
+    mainWindow?.focus()
+  }
+}
+
 app.whenReady().then(async () => {
+  app.setAsDefaultProtocolClient('tracksync')
+
+  const protocolUrl = process.argv.find((arg) => arg.startsWith('tracksync://'))
+  if (protocolUrl) {
+    setTimeout(() => handleProtocolUrl(protocolUrl), 1000)
+  }
+
+  const gotTheLock = app.requestSingleInstanceLock()
+  if (!gotTheLock) {
+    app.quit()
+    return
+  }
+  app.on('second-instance', (_event, commandLine) => {
+    const url = commandLine.find((arg) => arg.startsWith('tracksync://'))
+    if (url) handleProtocolUrl(url)
+    mainWindow?.focus()
+  })
+
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    handleProtocolUrl(url)
+  })
+
   // Open SQLite database (async — must await before registering handlers that use DB)
   await openDb()
 
@@ -328,10 +395,28 @@ app.whenReady().then(async () => {
     () => projectCache.clear()
   )
 
+  // Register Jira IPC handlers
+  registerJiraHandlers(ipcMain)
+  initJiraApi(() => mainWindow)
+
   // Theme: sync window background with app theme (hides title bar seam in light mode)
   ipcMain.handle('theme:set-background', (_e, theme: 'light' | 'dark') => {
     const color = theme === 'light' ? '#f8fafc' : '#050508'
     mainWindow?.setBackgroundColor(color)
+  })
+
+  ipcMain.handle('landing:open-myhome', async (_e, userId: unknown) => {
+    if (
+      typeof userId !== 'string' ||
+      userId.length === 0 ||
+      userId.length > 200 ||
+      /[/\\?#]/.test(userId)
+    ) {
+      return { ok: false as const, error: 'invalid user id' }
+    }
+    const url = `${LANDING_URL}/myhome/${encodeURIComponent(userId)}`
+    await shell.openExternal(url)
+    return { ok: true as const }
   })
 
   // Register timer IPC handlers (must run before createWindow so handlers are ready)
@@ -389,8 +474,43 @@ function registerTimerHandlers(): void {
   // auth:check — compatibility alias (used by renderer App.tsx)
   // Fetches user from /me so we get name/email for avatar (JWT only has sub, org_id, role)
   ipcMain.handle('auth:check', async () => {
-    const token = await ensureValidSession(mainWindow ?? undefined).catch(() => null)
-    if (!token) return { authenticated: false, user: null }
+    const result = await ensureValidSessionDetailed(mainWindow ?? undefined).catch(() => null)
+
+    if (!result?.ok) {
+      if (result?.reason === 'network') {
+        const tokens = await loadTokens()
+        if (tokens) {
+          try {
+            const payload = decodeJwt(tokens.accessToken) as {
+              sub?: string
+              org_id?: string
+              role?: string
+            }
+            return {
+              authenticated: true,
+              offline: true,
+              user: {
+                id: payload.sub ?? '',
+                org_id: payload.org_id ?? '',
+                role: payload.role ?? '',
+                email: '',
+                name: '',
+              },
+              reason: 'network' as const,
+            }
+          } catch {
+            // fall through
+          }
+        }
+      }
+      return {
+        authenticated: false,
+        user: null,
+        reason: result?.reason ?? 'unknown',
+      }
+    }
+
+    const token = result.token
     try {
       const payload = JSON.parse(atob(token.split('.')[1])) as {
         sub: string
@@ -459,8 +579,22 @@ function registerTimerHandlers(): void {
         notes?: string | null
       }
     ) => {
-      const token = await ensureValidSession(mainWindow ?? undefined)
-      if (!token) throw new Error('Not authenticated')
+      const session = await ensureValidSessionDetailed(mainWindow ?? undefined)
+      if (!session.ok) {
+        if (session.reason === 'network') {
+          throw new Error('Unable to reach TrackSync. Check your connection, then try again.')
+        }
+        if (session.reason === 'storage_unreadable') {
+          throw new Error(
+            'Saved sign-in could not be decrypted (e.g. after reinstall or a keychain change). Please sign in again.'
+          )
+        }
+        if (session.reason === 'missing') {
+          mainWindow?.webContents.send('auth:session-expired')
+        }
+        throw new Error('Your session has expired. Please sign in again.')
+      }
+      const token = session.token
 
       savedAutoStopContext = null
 
@@ -485,8 +619,12 @@ function registerTimerHandlers(): void {
       // Start activity monitoring + screenshot scheduler + idle manager
       const sessionId = (result as { session: { id: string } }).session?.id
       if (sessionId) {
-        // Create session on backend so screenshot uploads can succeed
-        syncRunningSessionToBackend(sessionId).catch(() => {})
+        const sessionOnServer = await syncRunningSessionToBackend(sessionId)
+        if (!sessionOnServer) {
+          console.warn(
+            '[timer] Running session not registered on server yet; screenshots will retry sync until it succeeds.'
+          )
+        }
         const orgSettings = await fetchOrgSettings()
         const idleTimeoutIntervals = orgSettings?.idle_timeout_intervals ?? 3
         const idleDetectionEnabled = orgSettings?.idle_detection_enabled ?? true
@@ -537,9 +675,18 @@ function registerTimerHandlers(): void {
     return result
   })
 
-  ipcMain.handle('activity:current-stats', () => {
+  ipcMain.handle('activity:current-stats', async () => {
     try {
-      const score = getActivityPercentForTrackedTime()
+      let userSub: string | null = null
+      const token = await ensureValidSession(mainWindow ?? undefined).catch(() => null)
+      if (token) {
+        try {
+          userSub = (JSON.parse(atob(token.split('.')[1])) as { sub: string }).sub
+        } catch {
+          userSub = null
+        }
+      }
+      const score = userSub ? getActivityPercentForTrackedTime(userSub) : 0
       const inputAvailable = isInputMonitorAvailable()
       return { score, monitoring: true, inputAvailable }
     } catch (err) {
@@ -580,13 +727,44 @@ function registerTimerHandlers(): void {
   })
 
   ipcMain.handle('sync:status', () => {
-    return { pending: getPendingSyncCount() }
+    const b = getPendingSyncBreakdown()
+    return {
+      pending: b.sessions,
+      pendingActivity: b.activityLogs,
+      pendingScreenshots: b.screenshots,
+    }
+  })
+
+  ipcMain.handle('sync:repair-and-resync', async () => {
+    const marked = markLocalDataForFullResync()
+    const drain = await drainPendingSyncQueue()
+    let sampleSyncErrors: string[] = []
+    try {
+      const db = getDb()
+      const rows = db
+        .prepare(
+          `SELECT DISTINCT last_sync_error as e FROM local_sessions
+           WHERE synced = 0 AND ended_at IS NOT NULL AND last_sync_error IS NOT NULL AND trim(last_sync_error) != ''
+           LIMIT 5`
+        )
+        .all() as { e: string }[]
+      sampleSyncErrors = rows.map((r) => r.e).filter(Boolean)
+    } catch {
+      sampleSyncErrors = []
+    }
+    return { marked, drain, desktopApiBase: getApiBase(), sampleSyncErrors }
   })
 
   ipcMain.handle('streak:get', async () => {
     let backendStreak = 0
+    let userSub: string | null = null
     const token = await ensureValidSession(mainWindow ?? undefined).catch(() => null)
     if (token) {
+      try {
+        userSub = (JSON.parse(atob(token.split('.')[1])) as { sub: string }).sub
+      } catch {
+        userSub = null
+      }
       try {
         const res = await fetch(`${API_URL}/v1/app/auth/me`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -600,11 +778,13 @@ function registerTimerHandlers(): void {
       }
     }
     let localStreak = 0
-    try {
-      const db = getDb()
-      localStreak = computeStreakFromLocalSessions(db)
-    } catch {
-      // Ignore
+    if (userSub) {
+      try {
+        const db = getDb()
+        localStreak = computeStreakFromLocalSessions(db, userSub)
+      } catch {
+        // Ignore
+      }
     }
     return Math.max(backendStreak, localStreak)
   })
@@ -621,7 +801,7 @@ function registerTimerHandlers(): void {
       const db = getDb()
       return db
         .prepare(
-          `SELECT id, session_id, local_path, taken_at, activity_score, file_size_bytes, synced, created_at
+          `SELECT id, session_id, local_path, taken_at, activity_score, file_size_bytes, synced, last_sync_error, created_at
          FROM local_screenshots ORDER BY taken_at DESC LIMIT 100`
         )
         .all()
@@ -633,15 +813,31 @@ function registerTimerHandlers(): void {
   // Last screenshot capture time (for footer display)
   ipcMain.handle('screenshots:last-captured', async () => {
     try {
+      const token = await ensureValidSession(mainWindow ?? undefined).catch(() => null)
+      if (!token) return null
+      let userId: string
+      try {
+        userId = (JSON.parse(atob(token.split('.')[1])) as { sub: string }).sub
+      } catch {
+        return null
+      }
       const db = getDb()
       const row = db
-        .prepare('SELECT taken_at FROM local_screenshots ORDER BY taken_at DESC LIMIT 1')
-        .get() as { taken_at: string } | undefined
+        .prepare(
+          `SELECT ss.taken_at FROM local_screenshots ss
+           INNER JOIN local_sessions ls ON ls.id = ss.session_id
+           WHERE ls.user_id = ?
+           ORDER BY ss.taken_at DESC LIMIT 1`
+        )
+        .get(userId) as { taken_at: string } | undefined
       return row?.taken_at ?? null
     } catch {
       return null
     }
   })
+
+  /** For Screenshots UI: confirm desktop points at same API as web (VITE_API_URL). */
+  ipcMain.handle('sync:debug-info', () => ({ apiBase: getApiBase() }))
 
   // All local sessions (for reports page — beyond just today)
   // Onboarding handlers
@@ -653,6 +849,12 @@ function registerTimerHandlers(): void {
   ipcMain.handle('onboarding:complete', () => {
     getOnboardingStore().markDone()
     return { ok: true }
+  })
+
+  ipcMain.handle('prefs:get', () => readUserPrefs())
+
+  ipcMain.handle('prefs:set-notify-screenshot-capture', (_, enabled: unknown) => {
+    return writeUserPrefs({ notifyOnScreenshotCapture: enabled === true })
   })
 
   // macOS permissions

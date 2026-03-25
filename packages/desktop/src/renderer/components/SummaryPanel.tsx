@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { X, Clock, Folder, Edit3 } from 'lucide-react'
+import { X, Clock, Folder, Edit3, Ticket } from 'lucide-react'
 import type { LocalSessionRow, TimerSession } from '../stores/timerStore'
 import type { Project } from './ProjectPicker'
+import { formatNotesForDisplay, isJiraTask } from '../lib/format'
 
 interface SummaryPanelProps {
   isOpen: boolean
@@ -11,11 +12,6 @@ interface SummaryPanelProps {
   isRunning: boolean
   elapsedSeconds: number
   theme: 'light' | 'dark'
-}
-
-function formatTime(iso: string) {
-  const d = new Date(iso)
-  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 }
 
 function formatDuration(sec: number) {
@@ -86,7 +82,9 @@ export function SummaryPanel({
             type="button"
             onClick={onClose}
             className={`p-2 rounded-xl transition-colors ${
-              isDark ? 'text-white/50 hover:text-white hover:bg-white/10' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
+              isDark
+                ? 'text-white/50 hover:text-white hover:bg-white/10'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/50'
             }`}
             aria-label="Close"
           >
@@ -105,52 +103,73 @@ export function SummaryPanel({
               isDark ? 'bg-white/5 border border-white/10' : 'bg-white border border-slate-200'
             }`}
           >
-            <div className={`text-sm ${isDark ? 'text-white/60' : 'text-slate-600'}`}>Total today</div>
-            <div className={`text-2xl font-semibold tabular-nums ${isDark ? 'text-white' : 'text-slate-900'}`}>
+            <div className={`text-sm ${isDark ? 'text-white/60' : 'text-slate-600'}`}>
+              Total today
+            </div>
+            <div
+              className={`text-2xl font-semibold tabular-nums ${isDark ? 'text-white' : 'text-slate-900'}`}
+            >
               {formatDuration(totalSec)}
             </div>
           </div>
 
           {/* Entries list */}
-          <div className={`text-sm font-medium mb-3 ${isDark ? 'text-white/70' : 'text-slate-700'}`}>
+          <div
+            className={`text-sm font-medium mb-3 ${isDark ? 'text-white/70' : 'text-slate-700'}`}
+          >
             Entries ({completedSessions.length + (isRunning ? 1 : 0)})
           </div>
           <div className="space-y-2">
             {completedSessions.map((s) => {
               const project = s.project_id ? projectMap.get(s.project_id) : null
               const isManual = !s.project_id && s.notes
-              const displayLabel = s.notes || project?.name || 'No project'
+              const isJira = isJiraTask(s.notes)
+              const displayLabel = formatNotesForDisplay(s.notes) || project?.name || 'No project'
               return (
                 <div
                   key={s.id}
                   className={`flex items-center justify-between gap-4 rounded-xl px-4 py-3 ${
-                    isDark ? 'bg-white/5 border border-white/10' : 'bg-white border border-slate-200'
+                    isDark
+                      ? 'bg-white/5 border border-white/10'
+                      : 'bg-white border border-slate-200'
                   }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div
                       className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
                       style={{
-                        backgroundColor: project?.color ? `${project.color}30` : isDark ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.15)',
+                        backgroundColor: project?.color
+                          ? `${project.color}30`
+                          : isDark
+                            ? 'rgba(99,102,241,0.2)'
+                            : 'rgba(99,102,241,0.15)',
                       }}
                     >
-                      {isManual ? (
-                        <Edit3 className={`h-4 w-4 ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`} />
+                      {isJira ? (
+                        <Ticket
+                          className={`h-4 w-4 ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}
+                        />
+                      ) : isManual ? (
+                        <Edit3
+                          className={`h-4 w-4 ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}
+                        />
                       ) : (
-                        <Folder className={`h-4 w-4 ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`} />
+                        <Folder
+                          className={`h-4 w-4 ${isDark ? 'text-indigo-400' : 'text-indigo-600'}`}
+                        />
                       )}
                     </div>
                     <div className="min-w-0">
-                      <div className={`font-medium truncate ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                      <div
+                        className={`font-medium truncate ${isDark ? 'text-white' : 'text-slate-900'}`}
+                      >
                         {displayLabel}
-                      </div>
-                      <div className={`text-xs truncate ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                        {formatTime(s.started_at)}
-                        {s.ended_at && ` – ${formatTime(s.ended_at)}`}
                       </div>
                     </div>
                   </div>
-                  <div className={`tabular-nums font-medium shrink-0 ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`}>
+                  <div
+                    className={`tabular-nums font-medium shrink-0 ${isDark ? 'text-indigo-300' : 'text-indigo-600'}`}
+                  >
                     {formatDuration(s.duration_sec)}
                   </div>
                 </div>
@@ -159,7 +178,9 @@ export function SummaryPanel({
             {isRunning && (
               <div
                 className={`flex items-center justify-between gap-4 rounded-xl px-4 py-3 ${
-                  isDark ? 'bg-indigo-500/10 border border-indigo-500/20' : 'bg-indigo-50 border border-indigo-200'
+                  isDark
+                    ? 'bg-indigo-500/10 border border-indigo-500/20'
+                    : 'bg-indigo-50 border border-indigo-200'
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
@@ -171,7 +192,9 @@ export function SummaryPanel({
                         : 'rgba(99,102,241,0.2)',
                     }}
                   >
-                    {currentSession?.notes && !currentSession?.projectId ? (
+                    {isJiraTask(currentSession?.notes) ? (
+                      <Ticket className="h-4 w-4 text-indigo-400 animate-pulse" />
+                    ) : currentSession?.notes && !currentSession?.projectId ? (
                       <Edit3 className="h-4 w-4 text-indigo-400 animate-pulse" />
                     ) : (
                       <Clock className="h-4 w-4 text-indigo-400 animate-pulse" />
@@ -179,12 +202,10 @@ export function SummaryPanel({
                   </div>
                   <div className="min-w-0">
                     <div className={`font-medium ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                      {currentSession?.notes || (currentSession?.projectId
-                        ? projectMap.get(currentSession.projectId)?.name ?? 'In progress...'
-                        : 'In progress...')}
-                    </div>
-                    <div className={`text-xs ${isDark ? 'text-white/50' : 'text-slate-500'}`}>
-                      Started {currentSession ? formatTime(currentSession.startedAt) : '—'}
+                      {formatNotesForDisplay(currentSession?.notes) ||
+                        (currentSession?.projectId
+                          ? (projectMap.get(currentSession.projectId)?.name ?? 'In progress...')
+                          : 'In progress...')}
                     </div>
                   </div>
                 </div>

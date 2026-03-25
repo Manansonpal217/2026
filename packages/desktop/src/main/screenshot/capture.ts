@@ -7,6 +7,7 @@ import screenshotDesktop from 'screenshot-desktop'
 import sharp from 'sharp'
 import { getDb } from '../db/index.js'
 import { getDbEncryptionKey } from '../db/key.js'
+import { shouldNotifyOnScreenshotCapture } from '../userPrefs.js'
 
 /**
  * AES-256-GCM wire format:
@@ -36,9 +37,15 @@ export async function captureAndStore(
       .webp({ quality: 75 })
       .toBuffer()
 
+    const thumbWebpBuffer = await sharp(imgBuffer)
+      .resize({ width: 320, withoutEnlargement: true })
+      .webp({ quality: 65 })
+      .toBuffer()
+
     // Encrypt
     const keyHex = await getDbEncryptionKey()
     const encrypted = await encryptBuffer(webpBuffer, keyHex)
+    const thumbEncrypted = await encryptBuffer(thumbWebpBuffer, keyHex)
 
     // Write to userData/screenshots/
     const screenshotsDir = join(app.getPath('userData'), 'screenshots')
@@ -46,29 +53,33 @@ export async function captureAndStore(
 
     const id = uuidv4()
     const filename = `${id}.enc`
+    const thumbFilename = `${id}.thumb.enc`
     const localPath = join(screenshotsDir, filename)
+    const thumbLocalPath = join(screenshotsDir, thumbFilename)
     writeFileSync(localPath, encrypted)
+    writeFileSync(thumbLocalPath, thumbEncrypted)
 
     // Persist to local SQLite
     const db = getDb()
     db.prepare(
       `
       INSERT INTO local_screenshots
-        (id, session_id, local_path, taken_at, activity_score, file_size_bytes, synced, sync_attempts, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)
+        (id, session_id, local_path, thumb_local_path, taken_at, activity_score, file_size_bytes, thumb_file_size_bytes, synced, sync_attempts, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
     `
     ).run(
       id,
       sessionId,
       localPath,
+      thumbLocalPath,
       new Date().toISOString(),
       activityScore,
       encrypted.length,
+      thumbEncrypted.length,
       new Date().toISOString()
     )
 
-    // OS notification (silent — no sound)
-    if (Notification.isSupported()) {
+    if (shouldNotifyOnScreenshotCapture() && Notification.isSupported()) {
       const notif = new Notification({
         title: 'TrackSync',
         body: 'Screenshot captured',
@@ -78,6 +89,8 @@ export async function captureAndStore(
     }
 
     console.log('[screenshot] Captured successfully, id:', id)
+    const { requestSyncSoonAfterCapture } = await import('../sync/immediateSync.js')
+    requestSyncSoonAfterCapture()
     return id
   } catch (err) {
     console.error('[captureAndStore] Failed:', err)
