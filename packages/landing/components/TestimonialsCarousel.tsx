@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Quote, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const testimonials = [
@@ -86,30 +86,87 @@ const testimonials = [
   },
 ]
 
+function chunk<T>(items: T[], size: number): T[][] {
+  const pages: T[][] = []
+  for (let i = 0; i < items.length; i += size) {
+    pages.push(items.slice(i, i + size))
+  }
+  return pages
+}
+
+function TestimonialCard({ quote, name, avatar, role, company }: (typeof testimonials)[number]) {
+  return (
+    <div className="h-full rounded-2xl border border-border bg-card/70 p-6 backdrop-blur-sm transition-all hover:border-primary/25 hover:bg-card">
+      <Quote className="h-8 w-8 text-primary/50" />
+      <p className="mt-4 text-[15px] leading-relaxed text-foreground/85">&ldquo;{quote}&rdquo;</p>
+      <div className="mt-6 flex items-center gap-3">
+        <img
+          src={avatar}
+          alt=""
+          className="h-12 w-12 shrink-0 rounded-full object-cover ring-2 ring-border"
+          loading="lazy"
+        />
+        <div className="min-w-0">
+          <p className="truncate font-medium text-foreground">{name}</p>
+          <p className="truncate text-sm text-muted-foreground">
+            {role}, {company}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function useCardsPerView(): number {
+  const [n, setN] = useState(3)
+
+  useEffect(() => {
+    const update = () => {
+      const w = window.innerWidth
+      if (w < 640) setN(1)
+      else if (w < 1024) setN(2)
+      else setN(3)
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
+
+  return n
+}
+
 export function TestimonialsCarousel() {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const cardsPerView = useCardsPerView()
+  const pages = useMemo(() => chunk(testimonials, cardsPerView), [cardsPerView])
+
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(true)
 
-  const checkScroll = () => {
+  const checkScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
-    setCanScrollLeft(el.scrollLeft > 0)
-    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 10)
-  }
-
-  useEffect(() => {
-    checkScroll()
-    window.addEventListener('resize', checkScroll)
-    return () => window.removeEventListener('resize', checkScroll)
+    const pad = 8
+    setCanScrollLeft(el.scrollLeft > pad)
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - pad)
   }, [])
 
-  const scroll = (dir: 'left' | 'right') => {
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el) el.scrollLeft = 0
+    checkScroll()
+  }, [cardsPerView, pages.length, checkScroll])
+
+  useEffect(() => {
+    window.addEventListener('resize', checkScroll)
+    return () => window.removeEventListener('resize', checkScroll)
+  }, [checkScroll])
+
+  const scrollByPage = (dir: 'left' | 'right') => {
     const el = scrollRef.current
     if (!el) return
-    const amount = el.clientWidth * 0.8
-    el.scrollBy({ left: dir === 'left' ? -amount : amount, behavior: 'smooth' })
-    setTimeout(checkScroll, 300)
+    el.scrollBy({ left: dir === 'left' ? -el.clientWidth : el.clientWidth, behavior: 'smooth' })
+    window.setTimeout(checkScroll, 350)
   }
 
   return (
@@ -117,53 +174,43 @@ export function TestimonialsCarousel() {
       <div
         ref={scrollRef}
         onScroll={checkScroll}
-        className="flex gap-6 overflow-x-auto pb-4 scroll-smooth scrollbar-hide sm:gap-8"
-        style={{ scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' }}
+        className="flex snap-x snap-mandatory gap-0 overflow-x-auto scroll-smooth pb-2 scrollbar-hide"
+        style={{ WebkitOverflowScrolling: 'touch' }}
       >
-        {testimonials.map((t) => (
+        {pages.map((group, pageIdx) => (
           <div
-            key={t.name}
-            className="min-w-[280px] shrink-0 sm:min-w-[320px] lg:min-w-[360px]"
-            style={{ scrollSnapAlign: 'start' }}
+            key={pageIdx}
+            className="grid w-full min-w-full shrink-0 snap-start grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
           >
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 backdrop-blur-sm transition-all hover:border-primary/20 hover:bg-white/[0.05]">
-              <Quote className="h-8 w-8 text-primary/40" />
-              <p className="mt-4 leading-relaxed text-muted">&ldquo;{t.quote}&rdquo;</p>
-              <div className="mt-6 flex items-center gap-3">
-                <img
-                  src={t.avatar}
-                  alt={t.name}
-                  className="h-12 w-12 shrink-0 rounded-full object-cover ring-2 ring-white/10"
-                />
-                <div>
-                  <p className="font-medium text-white">{t.name}</p>
-                  <p className="text-sm text-muted">
-                    {t.role}, {t.company}
-                  </p>
-                </div>
-              </div>
-            </div>
+            {group.map((t) => (
+              <TestimonialCard key={t.name} {...t} />
+            ))}
           </div>
         ))}
       </div>
-      <div className="mt-6 flex justify-center gap-2">
-        <button
-          onClick={() => scroll('left')}
-          disabled={!canScrollLeft}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-muted transition-all hover:bg-white/10 hover:text-white disabled:opacity-30 disabled:hover:bg-white/5"
-          aria-label="Previous testimonial"
-        >
-          <ChevronLeft className="h-5 w-5" />
-        </button>
-        <button
-          onClick={() => scroll('right')}
-          disabled={!canScrollRight}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-muted transition-all hover:bg-white/10 hover:text-white disabled:opacity-30 disabled:hover:bg-white/5"
-          aria-label="Next testimonial"
-        >
-          <ChevronRight className="h-5 w-5" />
-        </button>
-      </div>
+
+      {pages.length > 1 ? (
+        <div className="mt-8 flex items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => scrollByPage('left')}
+            disabled={!canScrollLeft}
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-muted/50 text-foreground/85 transition-all hover:border-border hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-25"
+            aria-label="Previous testimonials"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollByPage('right')}
+            disabled={!canScrollRight}
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-muted/50 text-foreground/85 transition-all hover:border-border hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-25"
+            aria-label="Next testimonials"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }

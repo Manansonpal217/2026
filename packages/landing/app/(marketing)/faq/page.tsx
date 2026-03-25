@@ -6,7 +6,7 @@ import { ChevronDown } from 'lucide-react'
 const faqs = [
   {
     q: 'How does time tracking work?',
-    a: "TrackSync uses task-based time tracking. Connect Jira, Asana, or Atlassian—time is automatically attributed to the tickets and tasks you're working on. No manual timers required.",
+    a: "TrackSync uses task-based time tracking. Connect your project tools—time is automatically attributed to the tickets and tasks you're working on. No manual timers required.",
   },
   {
     q: 'Can users disable screenshots?',
@@ -18,7 +18,7 @@ const faqs = [
   },
   {
     q: 'What integrations do you support?',
-    a: 'We integrate with Jira, Asana, Atlassian, Linear, and other project management tools. Time is automatically linked to tasks and tickets. More integrations are coming soon.',
+    a: 'We integrate with the major project-management platforms your team already uses—Jira, Asana, Linear, Atlassian, and more—with more connectors on the way. Time is automatically linked to tasks and tickets.',
   },
   {
     q: 'What are automatic daily standups?',
@@ -41,30 +41,30 @@ export default function FAQPage() {
     <main className="min-h-screen">
       <section className="px-4 pt-24 pb-16 sm:px-6 sm:pt-32 sm:pb-28">
         <div className="mx-auto max-w-3xl">
-          <h1 className="font-display text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
+          <h1 className="font-display text-3xl font-bold text-foreground sm:text-4xl lg:text-5xl">
             Frequently asked questions
           </h1>
-          <p className="mt-4 text-muted">Everything you need to know about TrackSync.</p>
+          <p className="mt-4 text-muted-foreground">Everything you need to know about TrackSync.</p>
           <div className="mt-10 space-y-2 sm:mt-12">
             {faqs.map((faq, i) => (
               <div
                 key={i}
-                className="rounded-xl border border-white/5 bg-white/[0.03] backdrop-blur-sm transition-colors hover:border-white/10"
+                className="rounded-xl border border-border bg-card/70 backdrop-blur-sm transition-colors hover:border-border"
               >
                 <button
                   onClick={() => setOpenIndex(openIndex === i ? null : i)}
                   className="flex w-full items-center justify-between px-6 py-4 text-left"
                 >
-                  <span className="font-medium text-white">{faq.q}</span>
+                  <span className="font-medium text-foreground">{faq.q}</span>
                   <ChevronDown
-                    className={`h-5 w-5 shrink-0 text-muted transition-transform ${
+                    className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform ${
                       openIndex === i ? 'rotate-180' : ''
                     }`}
                   />
                 </button>
                 {openIndex === i && (
-                  <div className="border-t border-white/5 px-6 py-4">
-                    <p className="text-sm text-muted">{faq.a}</p>
+                  <div className="border-t border-border px-6 py-4">
+                    <p className="text-sm text-muted-foreground">{faq.a}</p>
                   </div>
                 )}
               </div>

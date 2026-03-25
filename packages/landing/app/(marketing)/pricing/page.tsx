@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { PricingCard } from '../../components/PricingCard'
+import { PricingCard } from '@/components/PricingCard'
 
 export const metadata = {
   title: 'Pricing — TrackSync',
@@ -11,10 +11,10 @@ export default function PricingPage() {
     <main className="min-h-screen">
       <section className="px-4 pt-24 pb-12 sm:px-6 sm:pt-32 sm:pb-16">
         <div className="mx-auto max-w-6xl">
-          <h1 className="font-display text-center text-3xl font-bold text-white sm:text-4xl lg:text-5xl">
+          <h1 className="font-display text-center text-3xl font-bold text-foreground sm:text-4xl lg:text-5xl">
             Simple, transparent pricing
           </h1>
-          <p className="mx-auto mt-4 max-w-2xl text-center text-muted">
+          <p className="mx-auto mt-4 max-w-2xl text-center text-muted-foreground">
             Per user, per month. No hidden fees. Scale as your team grows.
           </p>
           <div className="mt-12 grid gap-6 sm:mt-16 sm:gap-8 lg:grid-cols-3">
@@ -25,7 +25,7 @@ export default function PricingPage() {
               features={[
                 'Up to 10 users',
                 'Task-based time tracking',
-                'Jira & Asana integration',
+                'Integrations with your project tools',
                 'Basic reports',
                 'Desktop app',
                 'Email support',
@@ -39,7 +39,7 @@ export default function PricingPage() {
               description="For growing teams that need more"
               features={[
                 'Unlimited users',
-                'Task-based tracking + Jira, Asana, Atlassian',
+                'Task-based tracking + stack-wide integrations',
                 'Automatic daily standups',
                 'Screenshots with privacy controls',
                 'Activity heatmaps',
@@ -66,7 +66,7 @@ export default function PricingPage() {
               href="/contact"
             />
           </div>
-          <p className="mt-12 text-center text-sm text-muted">
+          <p className="mt-12 text-center text-sm text-muted-foreground">
             Need a custom plan?{' '}
             <Link href="/contact" className="text-primary hover:underline">
               Contact us

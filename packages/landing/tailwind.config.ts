@@ -5,12 +5,34 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: '#0c0c0e',
-        surface: '#16161a',
-        foreground: '#f8fafc',
-        primary: '#6366f1',
-        accent: '#8b5cf6',
-        muted: '#64748b',
+        background: 'hsl(var(--background) / <alpha-value>)',
+        surface: 'hsl(var(--surface) / <alpha-value>)',
+        foreground: 'hsl(var(--foreground) / <alpha-value>)',
+        card: {
+          DEFAULT: 'hsl(var(--card) / <alpha-value>)',
+          foreground: 'hsl(var(--card-foreground) / <alpha-value>)',
+        },
+        primary: {
+          DEFAULT: 'hsl(var(--primary) / <alpha-value>)',
+          foreground: 'hsl(var(--primary-foreground) / <alpha-value>)',
+        },
+        accent: {
+          DEFAULT: 'hsl(var(--accent) / <alpha-value>)',
+          foreground: 'hsl(var(--accent-foreground) / <alpha-value>)',
+        },
+        muted: {
+          DEFAULT: 'hsl(var(--muted) / <alpha-value>)',
+          foreground: 'hsl(var(--muted-foreground) / <alpha-value>)',
+        },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive) / <alpha-value>)',
+          foreground: 'hsl(var(--destructive-foreground) / <alpha-value>)',
+        },
+        success: 'hsl(var(--success) / <alpha-value>)',
+        warning: 'hsl(var(--warning) / <alpha-value>)',
+        border: 'hsl(var(--border) / <alpha-value>)',
+        input: 'hsl(var(--input) / <alpha-value>)',
+        ring: 'hsl(var(--ring) / <alpha-value>)',
       },
       fontFamily: {
         sans: ['var(--font-geist-sans)', 'system-ui', 'sans-serif'],
@@ -18,9 +40,14 @@ const config: Config = {
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
-        'gradient-primary': 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+        'gradient-primary': 'linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))',
         'gradient-mesh':
-          'linear-gradient(135deg, rgba(99,102,241,0.15) 0%, transparent 50%, rgba(139,92,246,0.1) 100%)',
+          'linear-gradient(135deg, hsl(var(--primary) / 0.15) 0%, transparent 50%, hsl(var(--accent) / 0.1) 100%)',
+      },
+      boxShadow: {
+        'glow-sm': '0 0 12px -2px rgba(99, 102, 241, 0.25)',
+        'glow-indigo': '0 0 20px -2px rgba(99, 102, 241, 0.35)',
+        'glow-violet': '0 0 20px -2px rgba(139, 92, 246, 0.35)',
       },
       animation: {
         'fade-in-up': 'fade-in-up 0.5s ease-out forwards',
@@ -35,8 +62,13 @@ const config: Config = {
         'gradient-flow': 'gradient-flow 6s ease-in-out infinite',
         shimmer: 'shimmer 2s ease-in-out infinite',
         'gradient-text': 'gradient-text 4s ease-in-out infinite',
+        'marquee-logos': 'marquee-logos 28s linear infinite',
       },
       keyframes: {
+        'marquee-logos': {
+          '0%': { transform: 'translateX(0)' },
+          '100%': { transform: 'translateX(-50%)' },
+        },
         'fade-in-up': {
           '0%': { opacity: '0', transform: 'translateY(20px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },

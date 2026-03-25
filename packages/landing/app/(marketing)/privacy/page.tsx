@@ -7,19 +7,19 @@ export default function PrivacyPage() {
   return (
     <main className="min-h-screen">
       <article className="mx-auto max-w-3xl px-4 pt-24 pb-16 sm:px-6 sm:pt-32 sm:pb-28">
-        <h1 className="font-display text-3xl font-bold text-white sm:text-4xl">
+        <h1 className="font-display text-3xl font-bold text-foreground sm:text-4xl">
           TrackSync Privacy Policy
         </h1>
-        <p className="mt-4 text-muted">
+        <p className="mt-4 text-muted-foreground">
           Effective Date: March 18, 2026 | Last Updated: March 18, 2026
         </p>
-        <p className="mt-2 text-muted">
+        <p className="mt-2 text-muted-foreground">
           <a href="https://tracksync.dev/privacy" className="text-primary hover:underline">
             https://tracksync.dev/privacy
           </a>
         </p>
 
-        <div className="mt-12 space-y-8 text-muted">
+        <div className="mt-12 space-y-8 text-muted-foreground">
           <p>
             Welcome to TrackSync. We are committed to protecting your personal information and being
             transparent about how we collect, use, and share data. This Privacy Policy applies to
@@ -27,7 +27,7 @@ export default function PrivacyPage() {
           </p>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">1. Who We Are</h2>
+            <h2 className="text-xl font-semibold text-foreground">1. Who We Are</h2>
             <p className="mt-2">
               TrackSync is a desktop-based automatic time tracking and productivity tool developed
               by Track Sync (&quot;we&quot;, &quot;us&quot;, or &quot;our&quot;). Our product helps
@@ -38,8 +38,8 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">2. Information We Collect</h2>
-            <h3 className="mt-4 text-lg font-medium text-white">
+            <h2 className="text-xl font-semibold text-foreground">2. Information We Collect</h2>
+            <h3 className="mt-4 text-lg font-medium text-foreground">
               2.1 Account & Identity Information
             </h3>
             <ul className="mt-2 list-disc space-y-1 pl-6">
@@ -48,7 +48,7 @@ export default function PrivacyPage() {
               <li>Profile information provided during onboarding</li>
             </ul>
 
-            <h3 className="mt-4 text-lg font-medium text-white">2.2 Work Activity Data</h3>
+            <h3 className="mt-4 text-lg font-medium text-foreground">2.2 Work Activity Data</h3>
             <ul className="mt-2 list-disc space-y-1 pl-6">
               <li>
                 Mouse and keyboard activity signals (active/inactive — not keystrokes or content)
@@ -58,7 +58,7 @@ export default function PrivacyPage() {
               <li>Optional descriptions you enter when logging time</li>
             </ul>
 
-            <h3 className="mt-4 text-lg font-medium text-white">2.3 Screenshots</h3>
+            <h3 className="mt-4 text-lg font-medium text-foreground">2.3 Screenshots</h3>
             <ul className="mt-2 list-disc space-y-1 pl-6">
               <li>
                 Periodic screenshots captured every 5 minutes while active tracking is enabled
@@ -70,7 +70,7 @@ export default function PrivacyPage() {
               <li>Users and administrators can configure or disable screenshot capture</li>
             </ul>
 
-            <h3 className="mt-4 text-lg font-medium text-white">2.4 Integration Data</h3>
+            <h3 className="mt-4 text-lg font-medium text-foreground">2.4 Integration Data</h3>
             <ul className="mt-2 list-disc space-y-1 pl-6">
               <li>
                 OAuth access tokens for connected platforms (Jira, Asana, Slack, Microsoft Teams)
@@ -79,7 +79,7 @@ export default function PrivacyPage() {
               <li>Project and task metadata from your connected project management tools</li>
             </ul>
 
-            <h3 className="mt-4 text-lg font-medium text-white">2.5 Technical & Usage Data</h3>
+            <h3 className="mt-4 text-lg font-medium text-foreground">2.5 Technical & Usage Data</h3>
             <ul className="mt-2 list-disc space-y-1 pl-6">
               <li>App version, operating system, and device type</li>
               <li>Error logs and crash reports (no personal content included)</li>
@@ -88,7 +88,9 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">3. How We Use Your Information</h2>
+            <h2 className="text-xl font-semibold text-foreground">
+              3. How We Use Your Information
+            </h2>
             <p className="mt-2">We use the data we collect to:</p>
             <ul className="mt-2 list-disc space-y-1 pl-6">
               <li>
@@ -104,18 +106,18 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">4. Data Sharing & Disclosure</h2>
+            <h2 className="text-xl font-semibold text-foreground">4. Data Sharing & Disclosure</h2>
             <p className="mt-2">
               We do not sell your personal data. We may share data only in the following limited
               circumstances:
             </p>
-            <h3 className="mt-4 text-lg font-medium text-white">4.1 With Your Organization</h3>
+            <h3 className="mt-4 text-lg font-medium text-foreground">4.1 With Your Organization</h3>
             <p className="mt-2">
               Time logs, activity summaries, and standup updates are shared with your team/manager
               as part of the product&apos;s core functionality. Administrators can access team-level
               reports.
             </p>
-            <h3 className="mt-4 text-lg font-medium text-white">
+            <h3 className="mt-4 text-lg font-medium text-foreground">
               4.2 With Third-Party Integrations
             </h3>
             <p className="mt-2">
@@ -123,19 +125,21 @@ export default function PrivacyPage() {
               you (e.g., posting a worklog or standup). We access these platforms using OAuth tokens
               with the minimum required permissions.
             </p>
-            <h3 className="mt-4 text-lg font-medium text-white">4.3 With Service Providers</h3>
+            <h3 className="mt-4 text-lg font-medium text-foreground">4.3 With Service Providers</h3>
             <p className="mt-2">
               We use trusted sub-processors (e.g., cloud hosting, analytics) who are contractually
               bound to protect your data and use it only to provide services to us.
             </p>
-            <h3 className="mt-4 text-lg font-medium text-white">4.4 Legal Requirements</h3>
+            <h3 className="mt-4 text-lg font-medium text-foreground">4.4 Legal Requirements</h3>
             <p className="mt-2">
               We may disclose information if required by law, regulation, or valid legal process.
             </p>
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">5. Screenshots & Sensitive Data</h2>
+            <h2 className="text-xl font-semibold text-foreground">
+              5. Screenshots & Sensitive Data
+            </h2>
             <p className="mt-2">
               Screenshots are a sensitive feature. We are committed to the following protections:
             </p>
@@ -152,7 +156,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">6. Data Retention</h2>
+            <h2 className="text-xl font-semibold text-foreground">6. Data Retention</h2>
             <p className="mt-2">
               We retain your data for as long as your account is active or as needed to provide
               services. Specifically:
@@ -169,7 +173,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">7. Your Rights & Controls</h2>
+            <h2 className="text-xl font-semibold text-foreground">7. Your Rights & Controls</h2>
             <p className="mt-2">Depending on your location, you may have the following rights:</p>
             <ul className="mt-2 list-disc space-y-1 pl-6">
               <li>Access: Request a copy of your personal data</li>
@@ -185,7 +189,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">8. Security</h2>
+            <h2 className="text-xl font-semibold text-foreground">8. Security</h2>
             <p className="mt-2">
               We take the security of your data seriously. Our measures include:
             </p>
@@ -200,7 +204,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">9. Third-Party Integrations</h2>
+            <h2 className="text-xl font-semibold text-foreground">9. Third-Party Integrations</h2>
             <p className="mt-2">
               TrackSync connects to third-party platforms via their official APIs. When you connect
               an integration, you are also subject to that platform&apos;s privacy policy:
@@ -254,7 +258,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">10. Children&apos;s Privacy</h2>
+            <h2 className="text-xl font-semibold text-foreground">10. Children&apos;s Privacy</h2>
             <p className="mt-2">
               TrackSync is intended for professional use by individuals aged 18 and older. We do not
               knowingly collect data from children under 13. If you believe we have inadvertently
@@ -263,7 +267,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">11. Changes to This Policy</h2>
+            <h2 className="text-xl font-semibold text-foreground">11. Changes to This Policy</h2>
             <p className="mt-2">
               We may update this Privacy Policy from time to time. We will notify you of material
               changes via email or an in-app notification at least 14 days before the change takes
@@ -273,13 +277,13 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-white">12. Contact Us</h2>
+            <h2 className="text-xl font-semibold text-foreground">12. Contact Us</h2>
             <p className="mt-2">
               If you have questions, concerns, or requests regarding this Privacy Policy, please
               reach out:
             </p>
             <p className="mt-4">
-              <strong className="text-white">Track Sync</strong>
+              <strong className="text-foreground">Track Sync</strong>
               <br />
               Email:{' '}
               <a href="mailto:support@tracksync.dev" className="text-primary hover:underline">
