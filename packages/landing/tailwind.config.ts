@@ -48,6 +48,10 @@ const config: Config = {
         'glow-sm': '0 0 12px -2px rgba(99, 102, 241, 0.25)',
         'glow-indigo': '0 0 20px -2px rgba(99, 102, 241, 0.35)',
         'glow-violet': '0 0 20px -2px rgba(139, 92, 246, 0.35)',
+        'auth-card':
+          '0 22px 50px -14px rgba(79, 70, 229, 0.16), 0 0 0 1px rgba(99, 102, 241, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04)',
+        'auth-card-dark':
+          '0 24px 48px -12px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.06)',
       },
       animation: {
         'fade-in-up': 'fade-in-up 0.5s ease-out forwards',

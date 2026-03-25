@@ -7,6 +7,7 @@ import {
   meRoutes,
   signupRoutes,
   verifyEmailRoutes,
+  passwordResetRoutes,
   inviteRoutes,
   mfaRoutes,
 } from './auth/index.js'
@@ -48,6 +49,7 @@ export async function v1Routes(fastify: FastifyInstance, opts: { config: Config 
   // ── Auth ──────────────────────────────────────────────────────────────────────
   fastify.register(signupRoutes, { prefix: '/public/auth', config })
   fastify.register(verifyEmailRoutes, { prefix: '/public/auth', config })
+  fastify.register(passwordResetRoutes, { prefix: '/public/auth', config })
   fastify.register(inviteRoutes, { prefix: '/public/auth', config })
   fastify.register(loginRoutes, { prefix: '/app/auth', config })
   fastify.register(refreshRoutes, { prefix: '/app/auth', config })

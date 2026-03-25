@@ -58,17 +58,17 @@ export default function Home() {
           </p>
           <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
             <Link
-              href="/login?tab=signup"
+              href="/contact"
               className="group inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-primary to-accent px-6 py-3 font-medium text-primary-foreground shadow-lg shadow-primary/25 transition-all duration-300 hover:scale-105 hover:shadow-primary/40"
             >
-              Get started free
+              Request access
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
             </Link>
             <Link
-              href="/contact"
+              href="/login"
               className="inline-flex items-center gap-2 rounded-lg border border-border px-6 py-3 font-medium text-foreground/85 transition-all duration-300 hover:border-border hover:text-foreground"
             >
-              Request a demo
+              Sign in
             </Link>
           </div>
         </div>

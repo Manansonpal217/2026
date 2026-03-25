@@ -15,12 +15,7 @@ function createTransporter(config: Config) {
   return nodemailer.createTransport({ jsonTransport: true })
 }
 
-async function sendMail(
-  config: Config,
-  to: string,
-  subject: string,
-  html: string
-): Promise<void> {
+async function sendMail(config: Config, to: string, subject: string, html: string): Promise<void> {
   const transporter = createTransporter(config)
   const info = await transporter.sendMail({
     from: config.SMTP_FROM,
@@ -37,7 +32,7 @@ async function sendMail(
 
 export async function sendEmail(
   config: Config,
-  opts: { to: string; subject: string; text?: string; html?: string },
+  opts: { to: string; subject: string; text?: string; html?: string }
 ): Promise<void> {
   const transporter = createTransporter(config)
   const info = await transporter.sendMail({
@@ -72,6 +67,32 @@ export async function sendVerificationEmail(
       </a>
       <p style="margin-top:16px;color:#6b7280;font-size:13px">
         This link expires in 24 hours. If you did not create a TrackSync account, you can ignore this email.
+      </p>
+    </div>
+    `
+  )
+}
+
+export async function sendPasswordResetEmail(
+  config: Config,
+  to: string,
+  token: string
+): Promise<void> {
+  const base = config.APP_URL.replace(/\/$/, '')
+  const link = `${base}/reset-password?token=${encodeURIComponent(token)}`
+  await sendMail(
+    config,
+    to,
+    'Reset your TrackSync password',
+    `
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+      <h2>Password reset</h2>
+      <p>We received a request to reset the password for your TrackSync account.</p>
+      <a href="${link}" style="display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">
+        Choose a new password
+      </a>
+      <p style="margin-top:16px;color:#6b7280;font-size:13px">
+        This link expires in 1 hour. If you did not request a reset, you can ignore this email.
       </p>
     </div>
     `

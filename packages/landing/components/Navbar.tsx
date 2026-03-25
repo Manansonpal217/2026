@@ -113,7 +113,7 @@ export function Navbar() {
                 aria-current={onLogin ? 'page' : undefined}
                 className={cn('hidden sm:block', loginCtaClass)}
               >
-                Login / Sign up
+                Login
               </Link>
             </>
           )}
@@ -279,7 +279,7 @@ export function Navbar() {
                     onClick={closeMobile}
                     className={cn('block text-center', loginCtaClass)}
                   >
-                    Login / Sign up
+                    Login
                   </Link>
                 </div>
               )}

@@ -15,20 +15,20 @@
 
 @layer base {
   :root {
-    --background: 240 20% 98%;
-    --surface: 240 16% 96%;
-    --foreground: 240 15% 9%;
+    --background: 235 24% 97%;
+    --surface: 240 18% 95%;
+    --foreground: 240 18% 11%;
 
     --card: 0 0% 100%;
-    --card-foreground: 240 15% 9%;
+    --card-foreground: 240 18% 11%;
 
-    --primary: 238 76% 54%;
+    --primary: 238 72% 52%;
     --primary-foreground: 0 0% 100%;
 
-    --muted: 240 12% 93%;
-    --muted-foreground: 240 8% 42%;
+    --muted: 240 14% 93%;
+    --muted-foreground: 240 10% 38%;
 
-    --accent: 263 62% 52%;
+    --accent: 263 58% 50%;
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84% 55%;
@@ -37,9 +37,9 @@
     --success: 158 58% 38%;
     --warning: 38 88% 44%;
 
-    --border: 240 10% 88%;
-    --input: 240 10% 90%;
-    --ring: 238 76% 54%;
+    --border: 240 12% 86%;
+    --input: 240 14% 92%;
+    --ring: 238 72% 52%;
 
     --radius: 0.625rem;
   }
@@ -117,7 +117,14 @@
   }
 
   .text-gradient {
-    background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 45%, #6d28d9 100%);
+    background: linear-gradient(
+      125deg,
+      #3730a3 0%,
+      #4f46e5 28%,
+      #7c3aed 58%,
+      #6d28d9 100%
+    );
+    background-size: 120% 120%;
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -159,8 +166,9 @@
 /* Subtle gradient accent — tuned per theme */
 .gradient-mesh {
   background:
-    radial-gradient(ellipse 70% 45% at 50% 0%, rgba(99, 102, 241, 0.18), transparent 72%),
-    radial-gradient(ellipse 55% 35% at 85% 15%, rgba(139, 92, 246, 0.1), transparent 58%);
+    radial-gradient(ellipse 85% 55% at 50% -15%, rgba(99, 102, 241, 0.28), transparent 62%),
+    radial-gradient(ellipse 65% 45% at 92% 8%, rgba(139, 92, 246, 0.18), transparent 52%),
+    radial-gradient(ellipse 55% 40% at 5% 85%, rgba(79, 70, 229, 0.12), transparent 55%);
 }
 
 .dark .gradient-mesh {

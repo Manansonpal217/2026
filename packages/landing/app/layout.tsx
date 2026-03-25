@@ -39,13 +39,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             {/* Hero-style background across entire site */}
             <div className="fixed inset-0 -z-10 bg-background" aria-hidden />
             <div className="gradient-mesh fixed inset-0 -z-10" aria-hidden />
-            <div className="fixed inset-0 -z-10 bg-grid-pattern opacity-80" aria-hidden />
             <div
-              className="fixed -top-40 -right-40 -z-10 h-80 w-80 animate-float rounded-full bg-primary/15 blur-3xl"
+              className="fixed inset-0 -z-10 bg-grid-pattern opacity-[0.72] dark:opacity-80"
               aria-hidden
             />
             <div
-              className="fixed -bottom-40 -left-40 -z-10 h-80 w-80 animate-float-slow rounded-full bg-accent/15 blur-3xl"
+              className="fixed -top-40 -right-40 -z-10 h-80 w-80 animate-float rounded-full bg-primary/20 blur-3xl dark:bg-primary/15"
+              aria-hidden
+            />
+            <div
+              className="fixed -bottom-40 -left-40 -z-10 h-80 w-80 animate-float-slow rounded-full bg-accent/22 blur-3xl dark:bg-accent/15"
               aria-hidden
             />
             {children}
