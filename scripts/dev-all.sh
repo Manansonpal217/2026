@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Run backend, web (admin panel), and desktop app in parallel
+# Run backend, landing (marketing + dashboard), and desktop app in parallel
 
 set -e
 cd "$(dirname "$0")/.."
 
-# Free ports 3000 and 3001 if already in use (e.g. from previous run)
+# Free ports 3001 and 3002 if already in use (e.g. from previous run)
 free_port() {
   local port=$1
   local pid
@@ -15,8 +15,8 @@ free_port() {
     sleep 1
   fi
 }
-free_port 3000
 free_port 3001
+free_port 3002
 
 cleanup() {
   echo ""
@@ -28,15 +28,15 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 echo "Starting TrackSync development environment..."
-echo "  - Backend:     http://localhost:3001"
-echo "  - Admin panel: http://localhost:3000"
-echo "  - Desktop:    Electron app"
+echo "  - Backend:  http://localhost:3001"
+echo "  - Landing:  http://localhost:3002"
+echo "  - Desktop:  Electron app"
 echo ""
 echo "Press Ctrl+C to stop all"
 echo "----------------------------------------"
 
 pnpm run dev:backend &
-pnpm run dev:web &
+pnpm run dev:landing &
 pnpm run dev:desktop &
 
 wait

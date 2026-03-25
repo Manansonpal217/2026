@@ -7,18 +7,18 @@
 
 ## Overview
 
-| Phase | Name | Duration | Deliverable |
-|-------|------|----------|-------------|
-| 0 | Project Setup & DevOps | Week 1–2 | Repo, CI/CD, infra skeleton |
-| 1 | Auth + Org Foundation | Week 3–6 | Login works end-to-end on all 3 layers |
-| 2 | Time Tracking Core | Week 7–10 | Employee can track time, sessions saved locally + server |
-| 3 | Screenshot + Activity | Week 11–14 | Screenshots captured, encrypted, uploaded; activity scored |
-| 4 | Integration Engine | Week 15–18 | Jira + Asana connected; tasks sync; work logged |
-| 5 | Admin Panels V1 | Week 19–22 | Org admin sees all data; super admin manages orgs |
-| 6 | Billing + Feature Flags | Week 23–25 | Stripe billing live; org suspension works; settings push |
-| 7 | GDPR + Security Hardening | Week 26–27 | Consent, data export, MFA, rate limits, CSP |
-| 8 | Polish + Beta | Week 28–30 | Dark mode, shortcuts, employee portal, manual time entry |
-| 9 | Scale + Launch | Week 31–36 | More integrations, self-serve signup, DR, observability |
+| Phase | Name                      | Duration   | Deliverable                                                |
+| ----- | ------------------------- | ---------- | ---------------------------------------------------------- |
+| 0     | Project Setup & DevOps    | Week 1–2   | Repo, CI/CD, infra skeleton                                |
+| 1     | Auth + Org Foundation     | Week 3–6   | Login works end-to-end on all 3 layers                     |
+| 2     | Time Tracking Core        | Week 7–10  | Employee can track time, sessions saved locally + server   |
+| 3     | Screenshot + Activity     | Week 11–14 | Screenshots captured, encrypted, uploaded; activity scored |
+| 4     | Integration Engine        | Week 15–18 | Jira + Asana connected; tasks sync; work logged            |
+| 5     | Admin Panels V1           | Week 19–22 | Org admin sees all data; super admin manages orgs          |
+| 6     | Billing + Feature Flags   | Week 23–25 | Stripe billing live; org suspension works; settings push   |
+| 7     | GDPR + Security Hardening | Week 26–27 | Consent, data export, MFA, rate limits, CSP                |
+| 8     | Polish + Beta             | Week 28–30 | Dark mode, shortcuts, employee portal, manual time entry   |
+| 9     | Scale + Launch            | Week 31–36 | More integrations, self-serve signup, DR, observability    |
 
 ---
 
@@ -27,6 +27,7 @@
 > **Goal:** Every developer can clone, run, and deploy in under 30 minutes. CI/CD runs on every PR.
 
 ### Backend
+
 - [ ] Initialize monorepo structure: `packages/backend`, `packages/desktop`, `packages/web`
 - [ ] Fastify app scaffold with TypeScript, `tsx` for hot-reload
 - [ ] Prisma setup with initial empty schema + `DATABASE_URL` env
@@ -36,6 +37,7 @@
 - [ ] Husky pre-commit hooks (lint-staged)
 
 ### Desktop App
+
 - [ ] Electron 32 app scaffold: `electron-vite` (Vite + Electron + React + TypeScript)
 - [ ] `electron-builder.yml` configured (mac + win + linux targets)
 - [ ] Context isolation + preload script setup (secure IPC bridge)
@@ -43,12 +45,14 @@
 - [ ] `keytar` installed and verified on macOS/Windows
 
 ### Web Admin Panel
+
 - [ ] Next.js 14 app scaffold with App Router + TypeScript
 - [ ] TailwindCSS + shadcn/ui initialized
 - [ ] React Query (TanStack Query) + Axios configured
 - [ ] `next.config.js` with all security headers (CSP, HSTS, X-Frame-Options)
 
 ### DevOps / CI
+
 - [ ] GitHub repository + branch protection (main requires PR + passing CI)
 - [ ] GitHub Actions CI: lint → type-check → test on every PR
 - [ ] GitHub Actions Release: electron-builder builds on version tag push
@@ -65,6 +69,7 @@
 > **Goal:** A super admin can log in, create an org, invite an employee, and the employee can log into the desktop app.
 
 ### Backend — Auth & Org APIs
+
 - [ ] **Database schema** — Prisma migrations for: `organizations`, `users`, `org_settings`, `refresh_tokens`, `audit_logs`
 - [ ] `POST /v1/public/auth/signup` — org self-serve signup (email verification flow)
 - [ ] `POST /v1/app/auth/login` — email/password login (bcrypt, rate limit 5/5min/IP)
@@ -81,6 +86,7 @@
 - [ ] Org settings defaults seeded on org creation
 
 ### Desktop App — Auth & Onboarding
+
 - [ ] Login screen UI (email + password form)
 - [ ] IPC handler: `auth:login` → calls backend, stores `access_token` + `refresh_token` in `keytar`
 - [ ] Token refresh interceptor (auto-refresh before 15-min expiry)
@@ -91,6 +97,7 @@
 - [ ] "What TrackSync Sees" screen (Settings → Privacy)
 
 ### Web Admin Panel — Auth
+
 - [ ] NextAuth.js configured with Credentials provider (calls `/v1/web/auth/login`)
 - [ ] Login page (`/auth/login`) — email + password form
 - [ ] Protected route middleware (`middleware.ts`) — redirect to login if unauthenticated
@@ -106,6 +113,7 @@
 > **Goal:** Employee can start a timer on a task, pause/resume, and stop. Session is saved locally and synced to the server.
 
 ### Backend — Sessions & Tasks
+
 - [ ] **Migrations:** `projects`, `tasks`, `time_sessions`, `local_sessions` structure aligned
 - [ ] `GET /v1/app/projects` — list org's projects (with task counts)
 - [ ] `GET /v1/app/projects/:id/tasks` — list tasks for a project (assignee filter)
@@ -116,6 +124,7 @@
 - [ ] Session deduplication: `UNIQUE(user_id, device_id, started_at)`
 
 ### Desktop App — Time Tracking
+
 - [ ] **local SQLite schema** — `local_sessions` table created on DB open
 - [ ] Project selector screen — list projects from local cache or API
 - [ ] Task selector screen — search + filter tasks, show recent tasks
@@ -129,6 +138,7 @@
 - [ ] Sync engine skeleton — detect online/offline, push `pending` sessions to server
 
 ### Desktop App — Offline Sync Engine
+
 - [ ] `openLocalDb()` — `better-sqlite3-sqlcipher`, WAL mode, all PRAGMAs set
 - [ ] `getDbEncryptionKey()` — `keytar` integration
 - [ ] Sync loop: every 30s when online, push all `sync_status = 'pending'` sessions
@@ -144,6 +154,7 @@
 > **Goal:** Screenshots captured, AES-encrypted, uploaded to S3 with grace-period deletion. Activity score computed per minute.
 
 ### Backend — Screenshots & Activity
+
 - [ ] **Migrations:** `screenshots`, `activity_logs`, `user_baselines` tables
 - [ ] `POST /v1/app/screenshots/upload` — accept multipart, store to S3 with KMS SSE, record in DB
   - Rate limit: 30 uploads / 10 min per user
@@ -156,6 +167,7 @@
 - [ ] Signed URL generation for screenshot viewing (CloudFront signed, 1h expiry)
 
 ### Desktop App — Screenshot Capture
+
 - [ ] `screenshot:capture` IPC handler — `screenshot-desktop` → WebP compress → AES-256-GCM encrypt → write `.enc` file
 - [ ] `screenshot:readForUpload` IPC handler — decrypt `.enc` → return Buffer → stream to S3
 - [ ] `screenshot:delete` IPC handler — delete `.enc` file + mark DB record
@@ -166,6 +178,7 @@
 - [ ] `local_screenshots` SQLite table + sync engine integration (upload queue)
 
 ### Desktop App — Activity Tracking
+
 - [ ] `iohook` setup in main process — keyboard count, mouse click count, mouse distance
 - [ ] `active-win` — detect foreground application name
 - [ ] Browser URL detection (optional, when `track_url = true`) — AppleScript on macOS, COM on Windows
@@ -183,6 +196,7 @@
 > **Goal:** Org admin connects Jira, tasks appear in desktop app, time logged to Jira after session completes.
 
 ### Backend — Integration Engine
+
 - [ ] **Migrations:** `integrations` (global catalog), `org_integrations`, `integration_sync_log`
 - [ ] Plugin interface: `IIntegrationPlugin` — `getProjects()`, `getTasks()`, `logTime()`, `validateCredentials()`
 - [ ] **Jira plugin:** OAuth 2.0 PKCE flow, `GET /v1/admin/integrations/jira/oauth/start`, callback handler
@@ -200,6 +214,7 @@
 - [ ] User mapping: link TrackSync user to external tool user ID
 
 ### Desktop App — Work Log Submission
+
 - [ ] Work Log screen — after Stop: show session summary + integration checkboxes (Jira, Sheets, etc.)
 - [ ] IPC handler calls `POST /v1/app/sessions/:id/log-work`
 - [ ] Success/failure toast per integration
@@ -215,6 +230,7 @@
 > **Goal:** Org admin can view all team activity. Super admin can manage all orgs. Screenshots are viewable.
 
 ### Backend — Reporting & Admin APIs
+
 - [ ] **RDS Read Replica** — `dbRead` Prisma client configured for all report endpoints
 - [ ] `GET /v1/admin/reports/time-summary` — group by user/project/task, date range filter
 - [ ] `GET /v1/admin/reports/activity-heatmap` — per-user, hourly activity grid
@@ -230,9 +246,11 @@
 - [ ] PDF export: `GET /v1/admin/reports/export?format=pdf` (Puppeteer or PDFKit)
 
 ### Web Admin Panel — All Panels
+
 - [ ] **Layout:** Sidebar navigation, role-aware menu items (super_admin vs org_admin vs manager)
 
 #### Super Admin
+
 - [ ] `/super-admin/dashboard` — MRR, active orgs, new orgs this month, recent audit log
 - [ ] `/super-admin/orgs` — searchable org list table (status badge, seats, MRR, last active)
 - [ ] `/super-admin/orgs/:id` — org detail: users tab, settings tab, billing tab, audit log tab
@@ -240,6 +258,7 @@
 - [ ] Override org settings (screenshots, intervals, integrations)
 
 #### Org Admin
+
 - [ ] `/admin/dashboard` — live tracking widget (who's tracking now), team hours today, recent sessions
 - [ ] `/admin/users` — user list: invite, edit role, deactivate, bulk import CSV
 - [ ] `/admin/users/:id` — user detail: sessions, screenshots, activity heatmap
@@ -250,6 +269,7 @@
 - [ ] `/admin/approvals` — time approval queue (if `time_approval_required = true`)
 
 #### Manager
+
 - [ ] `/manager/dashboard` — own team only (same as org admin but scoped)
 - [ ] `/manager/approvals` — approve/reject team sessions
 
@@ -262,6 +282,7 @@
 > **Goal:** Stripe billing is live. Overdue payment suspends all desktop apps in real-time.
 
 ### Backend — Billing & WebSockets
+
 - [ ] **Stripe integration:** `stripe` npm, webhook endpoint `POST /v1/webhooks/stripe`
   - Handle: `invoice.payment_succeeded`, `invoice.payment_failed`, `customer.subscription.deleted`
 - [ ] Org suspension on payment failure: `status = suspended`, broadcast via WebSocket
@@ -276,12 +297,14 @@
 - [ ] `PATCH /v1/super-admin/orgs/:id/settings` — super admin overrides org settings → triggers WebSocket broadcast
 
 ### Desktop App — Real-time Settings & Suspension
+
 - [ ] Socket.io client in renderer — auto-reconnect, re-fetch settings on reconnect
 - [ ] Handle `org:suspended` — show suspension screen, stop all tracking, clear timer
 - [ ] Handle `org:settings_changed` — apply new settings without app restart
 - [ ] Handle `org:trial_expired` — show trial expired screen
 
 ### Web Admin Panel — Billing
+
 - [ ] `/admin/billing` — current plan, seat count, next invoice, payment method
 - [ ] Trial banner — "X days left in trial" with upgrade CTA
 - [ ] Failed payment banner — "Payment failed — update billing to restore access"
@@ -296,6 +319,7 @@
 > **Goal:** Legally compliant. Production security posture. Ready for enterprise evaluation.
 
 ### Backend
+
 - [ ] **MFA module** (`backend/14-mfa.md`): TOTP setup, verify, backup codes
   - `POST /v1/web/auth/mfa/setup` + `POST /v1/web/auth/mfa/verify-setup`
   - `POST /v1/web/auth/mfa/validate` (after password login)
@@ -312,10 +336,12 @@
 - [ ] Penetration testing checklist: SSRF, IDOR, XSS, CSRF, rate limit bypass
 
 ### Desktop App
+
 - [ ] Re-consent flow — detect settings hash change → show consent screen before tracking resumes
 - [ ] "What TrackSync Sees" screen fully implemented (dynamic based on current `org_settings`)
 
 ### Web Admin Panel
+
 - [ ] MFA setup page (`/settings/security/mfa`) — QR code + backup codes display
 - [ ] MFA login step (`/auth/mfa`) — TOTP input with backup code fallback
 - [ ] GDPR admin view: pending deletion requests, process/acknowledge
@@ -329,6 +355,7 @@
 > **Goal:** App feels professional. 3 pilot organizations onboarded. Feedback incorporated.
 
 ### Desktop App
+
 - [ ] **Dark mode** — `better-sqlite3` theme pref storage, system theme detection via `matchMedia`
 - [ ] **Global keyboard shortcuts** — `Cmd+Shift+T` (toggle), `Cmd+Shift+P` (pause), `Cmd+Shift+M` (manual)
 - [ ] **Manual time entry** screen — date picker, start/end or duration, overlap detection
@@ -340,6 +367,7 @@
 - [ ] Auto-update — `electron-updater` configured, update notification in settings
 
 ### Web Admin Panel
+
 - [ ] **Dark mode** — `next-themes`, `ThemeToggle` component in header
 - [ ] **Employee web portal** (`/employee/*`) — own sessions, screenshots, privacy controls
 - [ ] **Self-serve signup** — `/signup` page (5-step onboarding wizard)
@@ -350,6 +378,7 @@
 - [ ] Responsive layout polish (admin panel usable on tablet)
 
 ### Backend
+
 - [ ] **Self-serve signup API** (`backend/13`) — disposable email block, data region assignment
 - [ ] **Time approval APIs** (`backend/15`) — approve, reject, bulk-approve, auto-approve cron
 - [ ] Project budget alert system — 80%/100% threshold emails
@@ -363,6 +392,7 @@
 > **Goal:** Public launch. Infrastructure can handle 100 orgs / 2,000 employees without degradation.
 
 ### Additional Integrations
+
 - [ ] **Linear plugin** — OAuth, issues as tasks, time tracking via API
 - [ ] **ClickUp plugin** — OAuth, spaces/lists/tasks, time log
 - [ ] **GitHub plugin** — OAuth, issues as tasks (no time log — GitHub has no native time tracking)
@@ -370,6 +400,7 @@
 - [ ] **Trello plugin** — API key, boards/cards as tasks
 
 ### Infrastructure & Observability
+
 - [ ] **RDS Proxy** — configure in AWS, update `DATABASE_URL` to proxy endpoint
 - [ ] **RDS Read Replica** — provision, configure `DATABASE_READ_URL`
 - [ ] **OpenTelemetry SDK** — install + configure in backend, BullMQ workers (`backend/18`)
@@ -381,6 +412,7 @@
 - [ ] **Disaster Recovery drill** — test RDS failover, S3 restore, region failover runbook
 
 ### Public Launch Checklist
+
 - [ ] Security audit (internal or third-party pen test)
 - [ ] GDPR DPA (Data Processing Agreement) published
 - [ ] Privacy Policy v1.0 published
@@ -423,42 +455,43 @@ Phase 1 (Auth)          ← BLOCKS everything
 
 ## Tech Stack Quick Reference
 
-| Layer | Package | Purpose |
-|-------|---------|---------|
-| Desktop framework | `electron` 32+ | Cross-platform desktop shell |
-| Desktop bundler | `electron-vite` | Vite + Electron + React + TS |
-| Desktop packager | `electron-builder` | macOS DMG, Windows NSIS, Linux AppImage |
-| Desktop local DB | `better-sqlite3-sqlcipher` | Encrypted SQLite, WAL mode |
-| Desktop keychain | `keytar` | OS keychain (mac/win/linux) |
-| Desktop screenshots | `screenshot-desktop` | Cross-platform screen capture |
-| Desktop input monitor | `iohook` | Global keyboard/mouse hooks |
-| Desktop active window | `active-win` | Foreground app name + window title |
-| Desktop auto-start | `electron-auto-launch` | Launch at login |
-| Desktop auto-update | `electron-updater` | Signed delta updates |
-| Desktop notifications | `electron` `Notification` | OS-native notifications |
-| Desktop global shortcuts | `electron` `globalShortcut` | System-wide hotkeys |
-| Backend runtime | `node` 22 + `fastify` 5 | HTTP server |
-| Backend ORM | `prisma` + PostgreSQL 15 | Type-safe DB access |
-| Backend queue | `bullmq` + Redis | Background jobs |
-| Backend WebSocket | `socket.io` + Redis adapter | Real-time push |
-| Backend auth | `jose` (JWT) + `bcrypt` | RS256 JWTs + password hashing |
-| Backend storage | `@aws-sdk/client-s3` | S3 presigned URLs + KMS SSE |
-| Backend secrets | `@aws-sdk/client-secrets-manager` | No plaintext secrets in env |
-| Backend circuit breaker | `opossum` | External API failure isolation |
-| Backend observability | `@opentelemetry/sdk-node` | Distributed tracing |
-| Backend error tracking | `@sentry/node` | Error reporting |
-| Web framework | `next.js` 14 App Router | Admin + Employee portal |
-| Web auth | `next-auth` | Session management |
-| Web UI | `tailwindcss` + `shadcn/ui` | Component library |
-| Web state | `@tanstack/react-query` | Server state management |
-| Web charts | `recharts` | Activity charts + MRR graphs |
-| Web theme | `next-themes` | Dark/light/system mode |
+| Layer                    | Package                           | Purpose                                 |
+| ------------------------ | --------------------------------- | --------------------------------------- |
+| Desktop framework        | `electron` 32+                    | Cross-platform desktop shell            |
+| Desktop bundler          | `electron-vite`                   | Vite + Electron + React + TS            |
+| Desktop packager         | `electron-builder`                | macOS DMG, Windows NSIS, Linux AppImage |
+| Desktop local DB         | `better-sqlite3-sqlcipher`        | Encrypted SQLite, WAL mode              |
+| Desktop keychain         | `keytar`                          | OS keychain (mac/win/linux)             |
+| Desktop screenshots      | `screenshot-desktop`              | Cross-platform screen capture           |
+| Desktop input monitor    | `iohook`                          | Global keyboard/mouse hooks             |
+| Desktop active window    | `active-win`                      | Foreground app name + window title      |
+| Desktop auto-start       | `electron-auto-launch`            | Launch at login                         |
+| Desktop auto-update      | `electron-updater`                | Signed delta updates                    |
+| Desktop notifications    | `electron` `Notification`         | OS-native notifications                 |
+| Desktop global shortcuts | `electron` `globalShortcut`       | System-wide hotkeys                     |
+| Backend runtime          | `node` 22 + `fastify` 5           | HTTP server                             |
+| Backend ORM              | `prisma` + PostgreSQL 15          | Type-safe DB access                     |
+| Backend queue            | `bullmq` + Redis                  | Background jobs                         |
+| Backend WebSocket        | `socket.io` + Redis adapter       | Real-time push                          |
+| Backend auth             | `jose` (JWT) + `bcrypt`           | RS256 JWTs + password hashing           |
+| Backend storage          | `@aws-sdk/client-s3`              | S3 presigned URLs + KMS SSE             |
+| Backend secrets          | `@aws-sdk/client-secrets-manager` | No plaintext secrets in env             |
+| Backend circuit breaker  | `opossum`                         | External API failure isolation          |
+| Backend observability    | `@opentelemetry/sdk-node`         | Distributed tracing                     |
+| Backend error tracking   | `@sentry/node`                    | Error reporting                         |
+| Web framework            | `next.js` 14 App Router           | Admin + Employee portal                 |
+| Web auth                 | `next-auth`                       | Session management                      |
+| Web UI                   | `tailwindcss` + `shadcn/ui`       | Component library                       |
+| Web state                | `@tanstack/react-query`           | Server state management                 |
+| Web charts               | `recharts`                        | Activity charts + MRR graphs            |
+| Web theme                | `next-themes`                     | Dark/light/system mode                  |
 
 ---
 
 ## Environment Variables Checklist
 
 ### Backend (`.env`)
+
 ```bash
 # Database
 DATABASE_URL=                    # via AWS Secrets Manager in prod
@@ -495,16 +528,19 @@ APP_VERSION=0.1.0
 ```
 
 ### Desktop App (`.env`)
+
 ```bash
 VITE_API_URL=http://localhost:3001
 VITE_WS_URL=ws://localhost:3001
 ```
 
-### Web Admin Panel (`.env.local`)
+### Landing + dashboard (`.env.local` in `packages/landing`)
+
 ```bash
-NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_URL=http://localhost:3002
 NEXTAUTH_SECRET=                 # random 32-char secret
 NEXT_PUBLIC_API_URL=http://localhost:3001
+NEXTAUTH_API_URL=http://localhost:3001
 CLOUDFRONT_DOMAIN=dXXX.cloudfront.net
 CLOUDFRONT_KEY_PAIR_ID=
 CLOUDFRONT_PRIVATE_KEY=          # for signed URLs
@@ -514,16 +550,16 @@ CLOUDFRONT_PRIVATE_KEY=          # for signed URLs
 
 ## Testing Strategy Per Phase
 
-| Phase | Unit Tests | Integration Tests | E2E Tests |
-|-------|-----------|-------------------|-----------|
-| 1 (Auth) | JWT utils, password hash | Login flow, token refresh | Login → dashboard (Playwright) |
-| 2 (Time) | Session dedup logic | Sync endpoint | Start timer → see on web |
-| 3 (SS) | Encryption round-trip | Upload + signed URL | Capture → view in admin |
-| 4 (Integrations) | Plugin interface mocks | OAuth callback | Connect Jira → see tasks |
-| 5 (Admin) | Report aggregations | Screenshot browser | Admin views employee session |
-| 6 (Billing) | Stripe webhook handlers | Suspension flow | Fail payment → app suspended |
-| 7 (Security) | Rate limiter | MFA flow | OWASP ZAP scan |
-| 8–9 | Regression suite | Full smoke test | Full user journey E2E |
+| Phase            | Unit Tests               | Integration Tests         | E2E Tests                      |
+| ---------------- | ------------------------ | ------------------------- | ------------------------------ |
+| 1 (Auth)         | JWT utils, password hash | Login flow, token refresh | Login → dashboard (Playwright) |
+| 2 (Time)         | Session dedup logic      | Sync endpoint             | Start timer → see on web       |
+| 3 (SS)           | Encryption round-trip    | Upload + signed URL       | Capture → view in admin        |
+| 4 (Integrations) | Plugin interface mocks   | OAuth callback            | Connect Jira → see tasks       |
+| 5 (Admin)        | Report aggregations      | Screenshot browser        | Admin views employee session   |
+| 6 (Billing)      | Stripe webhook handlers  | Suspension flow           | Fail payment → app suspended   |
+| 7 (Security)     | Rate limiter             | MFA flow                  | OWASP ZAP scan                 |
+| 8–9              | Regression suite         | Full smoke test           | Full user journey E2E          |
 
 ---
 

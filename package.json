@@ -9,7 +9,6 @@
     "dev:all": "./scripts/dev-all.sh",
     "dev:backend": "pnpm --filter backend dev",
     "dev:desktop": "pnpm --filter desktop dev",
-    "dev:web": "pnpm --filter web dev",
     "dev:landing": "pnpm --filter landing dev",
     "build": "pnpm -r run build",
     "lint": "pnpm -r run lint",
@@ -43,7 +42,9 @@
   "packageManager": "pnpm@9.0.0",
   "pnpm": {
     "overrides": {
-      "tailwindcss": "^3.4.0"
+      "tailwindcss": "^3.4.0",
+      "next": "14.2.35",
+      "lucide-react": "0.577.0"
     }
   },
   "engines": {
