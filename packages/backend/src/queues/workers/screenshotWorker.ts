@@ -7,6 +7,8 @@ interface ScreenshotJobData {
   screenshotId: string
   s3Key: string
   orgId: string
+  /** Manual blur from dashboard — blur even if OrgSettings.blur_screenshots is false */
+  forceBlur?: boolean
 }
 
 export function screenshotWorker(config: Config): Worker {
@@ -19,12 +21,13 @@ export function screenshotWorker(config: Config): Worker {
         where: { org_id: orgId },
       })
 
-      if (!orgSettings?.blur_screenshots) {
+      const forceBlur = job.data.forceBlur === true
+      if (!forceBlur && !orgSettings?.blur_screenshots) {
         return { skipped: true, reason: 'blur_screenshots is disabled' }
       }
 
       // Dynamic S3 import to avoid circular deps at module load time
-      const { getS3Client } = await import('../../lib/s3.js')
+      const { getS3Client, isR2 } = await import('../../lib/s3.js')
       const { GetObjectCommand, PutObjectCommand } = await import('@aws-sdk/client-s3')
 
       const s3 = getS3Client(config)
@@ -46,17 +49,43 @@ export function screenshotWorker(config: Config): Worker {
       // Blur using sharp (Gaussian blur radius 20)
       const blurred = await sharp(originalBuffer).blur(20).toBuffer()
 
-      // Re-upload blurred image
+      const kmsPut = !isR2(config)
+        ? ({
+            ServerSideEncryption: 'aws:kms' as const,
+            ...(config.KMS_SCREENSHOT_KEY_ID && { SSEKMSKeyId: config.KMS_SCREENSHOT_KEY_ID }),
+          } as const)
+        : ({} as const)
+
+      // Re-upload blurred image (omit KMS for R2)
       await s3.send(
         new PutObjectCommand({
           Bucket: bucket,
           Key: s3Key,
           Body: blurred,
           ContentType: getResult.ContentType ?? 'image/webp',
-          ServerSideEncryption: 'aws:kms',
-          ...(config.KMS_SCREENSHOT_KEY_ID && { SSEKMSKeyId: config.KMS_SCREENSHOT_KEY_ID }),
+          ...kmsPut,
         })
       )
+
+      const row = await prisma.screenshot.findUnique({
+        where: { id: screenshotId },
+        select: { thumb_s3_key: true },
+      })
+      if (row?.thumb_s3_key) {
+        const thumbBuf = await sharp(blurred)
+          .resize({ width: 320, withoutEnlargement: true })
+          .webp({ quality: 65 })
+          .toBuffer()
+        await s3.send(
+          new PutObjectCommand({
+            Bucket: bucket,
+            Key: row.thumb_s3_key,
+            Body: thumbBuf,
+            ContentType: 'image/webp',
+            ...kmsPut,
+          })
+        )
+      }
 
       // Mark as blurred in DB
       await prisma.screenshot.update({

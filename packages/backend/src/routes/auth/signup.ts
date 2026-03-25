@@ -4,6 +4,10 @@ import { prisma } from '../../db/prisma.js'
 import { getRedis } from '../../db/redis.js'
 import { hashPassword } from '../../lib/password.js'
 import { sendVerificationEmail } from '../../lib/email.js'
+import {
+  createOrgWithSuperAdmin,
+  isDisposableSignupEmail,
+} from '../../lib/create-org-with-super-admin.js'
 import type { Config } from '../../config.js'
 
 const signupSchema = {
@@ -20,8 +24,6 @@ const signupSchema = {
     },
   },
 }
-
-const DISPOSABLE_DOMAINS = ['mailinator.com', 'guerrillamail.com', 'tempmail.com', 'throwam.com', 'yopmail.com']
 
 export async function signupRoutes(fastify: FastifyInstance, opts: { config: Config }) {
   const { config } = opts
@@ -56,8 +58,7 @@ export async function signupRoutes(fastify: FastifyInstance, opts: { config: Con
     ) => {
       const { org_name, slug, full_name, email, password, data_region } = request.body
 
-      const emailDomain = email.split('@')[1]?.toLowerCase()
-      if (emailDomain && DISPOSABLE_DOMAINS.includes(emailDomain)) {
+      if (isDisposableSignupEmail(email)) {
         return reply.status(400).send({
           code: 'DISPOSABLE_EMAIL',
           message: 'Please use a work email address',
@@ -79,32 +80,26 @@ export async function signupRoutes(fastify: FastifyInstance, opts: { config: Con
       let userId: string = ''
 
       try {
-      await prisma.$transaction(async (tx) => {
-        const org = await tx.organization.create({
-          data: {
-            name: org_name,
-            slug: slug.toLowerCase(),
-            data_region: data_region || 'us-east-1',
-          },
-        })
-        await tx.orgSettings.create({
-          data: { org_id: org.id },
-        })
-        const user = await tx.user.create({
-          data: {
-            org_id: org.id,
-            email: email.toLowerCase(),
+        await prisma.$transaction(async (tx) => {
+          const { userId: createdUserId } = await createOrgWithSuperAdmin(tx, {
+            org_name,
+            slug,
+            full_name,
+            email,
             password_hash,
-            name: full_name,
-            role: 'super_admin',
-            status: 'active',
-          },
+            data_region,
+          })
+          userId = createdUserId
         })
-        userId = user.id
-      })
       } catch (err: unknown) {
-        const prismaErr = err as { code?: string }
-        if (prismaErr?.code === 'P2002') {
+        const errObj = err as { code?: string }
+        if (errObj?.code === 'DISPOSABLE_EMAIL') {
+          return reply.status(400).send({
+            code: 'DISPOSABLE_EMAIL',
+            message: 'Please use a work email address',
+          })
+        }
+        if (errObj?.code === 'P2002') {
           return reply.status(400).send({
             code: 'SLUG_TAKEN',
             message: 'Organization slug is already taken',

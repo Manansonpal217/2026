@@ -11,6 +11,7 @@ export interface AuthenticatedUser {
   email: string
   name: string
   role: string
+  is_platform_admin: boolean
 }
 
 export interface AuthenticatedRequest extends FastifyRequest {
@@ -21,7 +22,7 @@ export interface AuthenticatedRequest extends FastifyRequest {
 // Cache key for user+org status (avoids DB hit on every request)
 // TTL: 60 seconds — deactivations take effect within 1 minute
 const USER_STATUS_TTL = 60
-const USER_STATUS_PREFIX = 'user:status:'
+const USER_STATUS_PREFIX = 'user:status:v2:'
 
 interface CachedStatus {
   userStatus: string
@@ -29,15 +30,13 @@ interface CachedStatus {
   orgName: string
   userName: string
   userEmail: string
+  isPlatformAdmin: boolean
 }
 
 export function createAuthenticateMiddleware(config: Config) {
   const redis = getRedis(config)
 
-  return async function authenticate(
-    request: FastifyRequest,
-    reply: FastifyReply
-  ): Promise<void> {
+  return async function authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     const auth = request.headers.authorization
     const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null
 
@@ -64,6 +63,7 @@ export function createAuthenticateMiddleware(config: Config) {
       let orgName: string
       let userName: string
       let userEmail: string
+      let isPlatformAdmin: boolean
 
       if (cachedRaw) {
         // Cache hit — no DB query needed (fast path)
@@ -73,6 +73,7 @@ export function createAuthenticateMiddleware(config: Config) {
         orgName = cached.orgName
         userName = cached.userName
         userEmail = cached.userEmail
+        isPlatformAdmin = cached.isPlatformAdmin
       } else {
         // Cache miss — query DB with minimal columns (no full include)
         const user = await prisma.user.findUnique({
@@ -82,12 +83,15 @@ export function createAuthenticateMiddleware(config: Config) {
             status: true,
             name: true,
             email: true,
+            is_platform_admin: true,
             organization: { select: { id: true, name: true, status: true } },
           },
         })
 
         if (!user) {
-          return reply.status(401).send({ code: 'USER_INACTIVE', message: 'User not found or inactive' })
+          return reply
+            .status(401)
+            .send({ code: 'USER_INACTIVE', message: 'User not found or inactive' })
         }
 
         userStatus = user.status
@@ -95,23 +99,37 @@ export function createAuthenticateMiddleware(config: Config) {
         orgName = user.organization.name
         userName = user.name
         userEmail = user.email
+        isPlatformAdmin = user.is_platform_admin
 
         // Populate cache asynchronously — don't block the response
-        const toCache: CachedStatus = { userStatus, orgStatus, orgName, userName, userEmail }
-        redis.set(
-          `${USER_STATUS_PREFIX}${payload.sub}`,
-          JSON.stringify(toCache),
-          'EX',
-          USER_STATUS_TTL
-        ).catch(() => {}) // fire-and-forget
+        const toCache: CachedStatus = {
+          userStatus,
+          orgStatus,
+          orgName,
+          userName,
+          userEmail,
+          isPlatformAdmin,
+        }
+        redis
+          .set(
+            `${USER_STATUS_PREFIX}${payload.sub}`,
+            JSON.stringify(toCache),
+            'EX',
+            USER_STATUS_TTL
+          )
+          .catch(() => {}) // fire-and-forget
       }
 
       if (userStatus !== 'active') {
-        return reply.status(401).send({ code: 'USER_INACTIVE', message: 'User not found or inactive' })
+        return reply
+          .status(401)
+          .send({ code: 'USER_INACTIVE', message: 'User not found or inactive' })
       }
 
       if (orgStatus === 'suspended') {
-        return reply.status(402).send({ code: 'ORG_SUSPENDED', message: 'Organization access has been suspended' })
+        return reply
+          .status(402)
+          .send({ code: 'ORG_SUSPENDED', message: 'Organization access has been suspended' })
       }
 
       // Attach to request — role comes from JWT (cryptographically signed)
@@ -121,6 +139,7 @@ export function createAuthenticateMiddleware(config: Config) {
         email: userEmail,
         name: userName,
         role: payload.role,
+        is_platform_admin: isPlatformAdmin,
       }
       ;(request as AuthenticatedRequest).org = {
         id: payload.org_id,
@@ -141,6 +160,20 @@ export function requireRole(...roles: string[]) {
     }
     if (!roles.includes(user.role)) {
       return reply.status(403).send({ code: 'FORBIDDEN', message: 'Insufficient permissions' })
+    }
+  }
+}
+
+export function requirePlatformAdmin() {
+  return async function (request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const user = (request as AuthenticatedRequest).user
+    if (!user) {
+      return reply.status(401).send({ code: 'UNAUTHORIZED' })
+    }
+    if (!user.is_platform_admin) {
+      return reply
+        .status(403)
+        .send({ code: 'FORBIDDEN', message: 'Platform administrator access required' })
     }
   }
 }

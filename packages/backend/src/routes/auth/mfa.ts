@@ -108,6 +108,7 @@ export async function mfaRoutes(fastify: FastifyInstance, opts: { config: Config
           role: user.role,
           org_id: user.org_id,
           org_name: user.organization.name,
+          is_platform_admin: user.is_platform_admin,
         },
       })
     }

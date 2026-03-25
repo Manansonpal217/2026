@@ -39,6 +39,7 @@ export async function meRoutes(fastify: FastifyInstance, opts: { config: Config 
           role: fullUser.role,
           org_id: fullUser.organization.id,
           org_name: fullUser.organization.name,
+          is_platform_admin: fullUser.is_platform_admin,
           streak,
         },
         org: {
@@ -56,6 +57,7 @@ export async function meRoutes(fastify: FastifyInstance, opts: { config: Config 
               idle_detection_enabled: orgSettings.idle_detection_enabled,
               idle_timeout_minutes: orgSettings.idle_timeout_minutes,
               idle_timeout_intervals: orgSettings.idle_timeout_intervals,
+              expected_daily_work_minutes: orgSettings.expected_daily_work_minutes,
             }
           : null,
       }

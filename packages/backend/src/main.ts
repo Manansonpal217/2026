@@ -7,6 +7,7 @@ import { loadConfig } from './config.js'
 import { initJwtKeys } from './lib/jwt.js'
 import { getRedis } from './db/redis.js'
 import { prisma } from './db/prisma.js'
+import { initQueues, startWorkers } from './queues/index.js'
 import { v1Routes } from './routes/v1.js'
 
 async function main() {
@@ -14,6 +15,7 @@ async function main() {
   const isDev = config.NODE_ENV === 'development'
 
   await initJwtKeys(config.JWT_PRIVATE_KEY, config.JWT_PUBLIC_KEY)
+  initQueues(config)
 
   const fastify = Fastify({
     // Disable logger in dev for speed; use structured logging in prod
@@ -43,12 +45,21 @@ async function main() {
   await fastify.register(cors, {
     // Explicit allowlist instead of origin: true (security + slight perf gain)
     origin: isDev
-      ? ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:5174']
+      ? [
+          'http://localhost:3000',
+          'http://localhost:3002',
+          'http://localhost:5173',
+          'http://localhost:5174',
+        ]
       : [config.APP_URL],
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   })
 
   await fastify.register(helmet, {
+    // SPA on another origin (e.g. :3002) must be able to read API responses from :3001
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {
@@ -73,12 +84,13 @@ async function main() {
   })
 
   // Never leak internal error details to clients (security + UX)
-  fastify.setErrorHandler((error, request, reply) => {
+  fastify.setErrorHandler((err, request, reply) => {
     if (reply.sent) return
+    const error = err as { statusCode?: number; message?: string; code?: string }
     const statusCode = error.statusCode ?? 500
     // For 5xx or unknown, always return generic message — never expose stack traces or internal details
     if (statusCode >= 500 || !Number.isInteger(statusCode)) {
-      fastify.log?.warn({ err: error }, 'Unhandled error')
+      fastify.log?.warn({ err }, 'Unhandled error')
       return reply.status(500).send({
         code: 'INTERNAL_ERROR',
         message: 'Something went wrong. Please try again.',
@@ -103,6 +115,8 @@ async function main() {
 
   const redis = getRedis(config)
   await redis.ping()
+
+  await startWorkers(config)
 
   const port = config.PORT
   await fastify.listen({ port, host: '0.0.0.0' })

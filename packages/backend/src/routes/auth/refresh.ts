@@ -72,6 +72,7 @@ export async function refreshRoutes(fastify: FastifyInstance, _opts: { config: C
       return reply.send({
         access_token: newAccessToken,
         refresh_token: newRefreshToken,
+        is_platform_admin: user.is_platform_admin,
       })
     }
   )

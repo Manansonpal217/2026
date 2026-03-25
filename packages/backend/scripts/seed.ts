@@ -28,13 +28,14 @@ async function main() {
     where: {
       email_org_id: { email: 'admin@demo.com', org_id: org.id },
     },
-    update: {},
+    update: { is_platform_admin: true },
     create: {
       org_id: org.id,
       email: 'admin@demo.com',
       password_hash: passwordHash,
       name: 'Demo Admin',
       role: 'super_admin',
+      is_platform_admin: true,
     },
   })
 
@@ -145,7 +146,11 @@ async function main() {
     }
   }
 
-  console.log('Seed complete. Login with:', { email: 'admin@demo.com', password: 'demo1234', org_slug: 'demo' })
+  console.log('Seed complete. Login with:', {
+    email: 'admin@demo.com',
+    password: 'demo1234',
+    org_slug: 'demo',
+  })
 }
 
 main()

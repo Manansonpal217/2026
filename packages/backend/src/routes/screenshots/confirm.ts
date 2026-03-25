@@ -36,7 +36,20 @@ export async function screenshotConfirmRoutes(fastify: FastifyInstance, opts: { 
       if (!exists) {
         return reply
           .status(422)
-          .send({ code: 'S3_OBJECT_NOT_FOUND', message: 'File not found in S3 — upload may have failed' })
+          .send({
+            code: 'S3_OBJECT_NOT_FOUND',
+            message: 'File not found in S3 — upload may have failed',
+          })
+      }
+
+      if (screenshot.thumb_s3_key) {
+        const thumbExists = await objectExists(opts.config, screenshot.thumb_s3_key)
+        if (!thumbExists) {
+          return reply.status(422).send({
+            code: 'S3_THUMB_NOT_FOUND',
+            message: 'Thumbnail not found in S3 — upload may have failed',
+          })
+        }
       }
 
       // Mark confirmed — no separate confirmed flag needed since we verified S3
@@ -57,7 +70,7 @@ export async function screenshotConfirmRoutes(fastify: FastifyInstance, opts: { 
         await queue.add(
           'process-screenshot',
           { screenshotId: screenshot.id, s3Key: screenshot.s3_key, orgId: user.org_id },
-          { jobId: `screenshot-${screenshot.id}`, attempts: 3 },
+          { jobId: `screenshot-${screenshot.id}`, attempts: 3 }
         )
       }
 

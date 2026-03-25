@@ -104,6 +104,7 @@ export async function loginRoutes(fastify: FastifyInstance, _opts: { config: Con
           role: user.role,
           org_id: org.id,
           org_name: org.name,
+          is_platform_admin: user.is_platform_admin,
         },
         org_settings: orgSettings
           ? {
@@ -114,6 +115,7 @@ export async function loginRoutes(fastify: FastifyInstance, _opts: { config: Con
               idle_detection_enabled: orgSettings.idle_detection_enabled,
               idle_timeout_minutes: orgSettings.idle_timeout_minutes,
               idle_timeout_intervals: orgSettings.idle_timeout_intervals,
+              expected_daily_work_minutes: orgSettings.expected_daily_work_minutes,
             }
           : null,
       })

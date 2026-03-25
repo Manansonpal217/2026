@@ -19,7 +19,7 @@ export async function integrationCallbackRoutes(
 
       if (query.error) {
         return reply.redirect(
-          `${opts.config.APP_URL}/admin/integrations?error=${encodeURIComponent(query.error_description ?? query.error)}`
+          `${opts.config.APP_URL}/admin?error=${encodeURIComponent(query.error_description ?? query.error)}`
         )
       }
 
@@ -103,13 +103,11 @@ export async function integrationCallbackRoutes(
           { jobId: `integrationSync:${integration.id}`, attempts: 3 }
         )
 
-        return reply.redirect(
-          `${opts.config.APP_URL}/admin/integrations?connected=${oauthState.provider}`
-        )
+        return reply.redirect(`${opts.config.APP_URL}/admin?connected=${oauthState.provider}`)
       } catch (err) {
         console.error('[OAuth callback] Error:', err)
         return reply.redirect(
-          `${opts.config.APP_URL}/admin/integrations?error=${encodeURIComponent('Failed to connect integration')}`
+          `${opts.config.APP_URL}/admin?error=${encodeURIComponent('Failed to connect integration')}`
         )
       }
     },

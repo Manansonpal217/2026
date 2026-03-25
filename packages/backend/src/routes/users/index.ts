@@ -85,6 +85,7 @@ export async function userRoutes(fastify: FastifyInstance, opts: { config: Confi
           role: true,
           status: true,
           created_at: true,
+          can_add_offline_time: true,
         },
       })
 
@@ -92,7 +93,91 @@ export async function userRoutes(fastify: FastifyInstance, opts: { config: Confi
         return reply.status(404).send({ code: 'NOT_FOUND', message: 'User not found' })
       }
 
-      return { user }
+      const orgSettings = await prisma.orgSettings.findUnique({
+        where: { org_id: caller.org_id },
+        select: {
+          expected_daily_work_minutes: true,
+          allow_employee_offline_time: true,
+        },
+      })
+
+      const now = new Date()
+      const [latestShot, recentSessions, openSession] = await Promise.all([
+        prisma.screenshot.findFirst({
+          where: { user_id: id, org_id: caller.org_id, deleted_at: null },
+          orderBy: { taken_at: 'desc' },
+          select: { taken_at: true },
+        }),
+        prisma.timeSession.findMany({
+          where: { user_id: id, org_id: caller.org_id },
+          select: { started_at: true, ended_at: true },
+          orderBy: { updated_at: 'desc' },
+          take: 800,
+        }),
+        prisma.timeSession.findFirst({
+          where: { user_id: id, org_id: caller.org_id, ended_at: null },
+          select: { id: true },
+        }),
+      ])
+
+      let lastMs = 0
+      for (const s of recentSessions) {
+        const t = Math.max(s.started_at.getTime(), (s.ended_at ?? now).getTime())
+        if (t > lastMs) lastMs = t
+      }
+      if (latestShot) lastMs = Math.max(lastMs, latestShot.taken_at.getTime())
+      const last_active = lastMs > 0 ? new Date(lastMs).toISOString() : null
+
+      return {
+        user: {
+          ...user,
+          last_active,
+          is_tracking: Boolean(openSession),
+        },
+        expected_daily_work_minutes: orgSettings?.expected_daily_work_minutes ?? 480,
+        allow_employee_offline_time: orgSettings?.allow_employee_offline_time ?? false,
+      }
+    },
+  })
+
+  const patchUserPermissionsSchema = z.object({
+    can_add_offline_time: z.boolean().nullable(),
+  })
+
+  fastify.patch<{ Params: { id: string } }>('/:id/permissions', {
+    preHandler: [authenticate, requireRole('super_admin', 'admin', 'manager')],
+    handler: async (request, reply) => {
+      const req = request as AuthenticatedRequest
+      const caller = req.user!
+      const { id } = request.params
+
+      const body = patchUserPermissionsSchema.safeParse(request.body)
+      if (!body.success) {
+        return reply.status(400).send({ code: 'VALIDATION_ERROR', errors: body.error.flatten() })
+      }
+
+      const target = await prisma.user.findFirst({
+        where: { id, org_id: caller.org_id },
+        select: { id: true, role: true },
+      })
+      if (!target) {
+        return reply.status(404).send({ code: 'NOT_FOUND', message: 'User not found' })
+      }
+
+      if (target.role === 'super_admin' && caller.role !== 'super_admin') {
+        return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+      }
+
+      const updated = await prisma.user.update({
+        where: { id },
+        data: { can_add_offline_time: body.data.can_add_offline_time },
+        select: {
+          id: true,
+          can_add_offline_time: true,
+        },
+      })
+
+      return { user: updated }
     },
   })
 }

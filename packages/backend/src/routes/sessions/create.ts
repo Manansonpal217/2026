@@ -56,12 +56,10 @@ export async function sessionCreateRoutes(fastify: FastifyInstance, opts: { conf
         const validProjectSet = new Set(validProjects.map((p) => p.id))
         const invalid = referencedProjectIds.find((id) => !validProjectSet.has(id))
         if (invalid) {
-          return reply
-            .status(400)
-            .send({
-              code: 'INVALID_PROJECT',
-              message: `Project ${invalid} not found in your organization`,
-            })
+          return reply.status(400).send({
+            code: 'INVALID_PROJECT',
+            message: `Project ${invalid} not found in your organization`,
+          })
         }
       }
 
@@ -75,12 +73,10 @@ export async function sessionCreateRoutes(fastify: FastifyInstance, opts: { conf
         for (const s of sessions) {
           if (!s.task_id) continue
           if (!validTaskMap.has(s.task_id)) {
-            return reply
-              .status(400)
-              .send({
-                code: 'INVALID_TASK',
-                message: `Task ${s.task_id} not found in your organization`,
-              })
+            return reply.status(400).send({
+              code: 'INVALID_TASK',
+              message: `Task ${s.task_id} not found in your organization`,
+            })
           }
           // Cross-validate: task must belong to the session's project
           if (s.project_id && validTaskMap.get(s.task_id) !== s.project_id) {
@@ -114,7 +110,36 @@ export async function sessionCreateRoutes(fastify: FastifyInstance, opts: { conf
             continue
           }
 
-          // Upsert with conflict on (user_id, device_id, started_at)
+          /**
+           * Prefer update by primary id so repair/re-sync always hits the same row the
+           * desktop knows about. Compound unique (user_id, device_id, started_at) can miss
+           * when restarted_at parsing differs slightly, causing a failed create instead of
+           * updating project/task on the existing session.
+           */
+          const existingById = await prisma.timeSession.findFirst({
+            where: { id: s.id, user_id: userId, org_id: orgId },
+            select: { id: true },
+          })
+
+          const updateData = {
+            ended_at: s.ended_at ? new Date(s.ended_at) : null,
+            duration_sec: s.duration_sec,
+            notes: s.notes ?? null,
+            device_id: s.device_id,
+            device_name: s.device_name,
+            ...(s.project_id != null ? { project_id: s.project_id } : {}),
+            ...(s.task_id != null ? { task_id: s.task_id } : {}),
+          }
+
+          if (existingById) {
+            await prisma.timeSession.update({
+              where: { id: s.id },
+              data: updateData,
+            })
+            synced.push({ id: s.id, server_id: s.id })
+            continue
+          }
+
           const session = await prisma.timeSession.upsert({
             where: {
               user_id_device_id_started_at: {
@@ -138,11 +163,13 @@ export async function sessionCreateRoutes(fastify: FastifyInstance, opts: { conf
               notes: s.notes ?? null,
             },
             update: {
-              ended_at: s.ended_at ? new Date(s.ended_at) : undefined,
-              duration_sec: s.duration_sec,
-              notes: s.notes ?? undefined,
-              project_id: s.project_id ?? undefined,
-              task_id: s.task_id ?? undefined,
+              ended_at: updateData.ended_at ?? undefined,
+              duration_sec: updateData.duration_sec,
+              notes: updateData.notes,
+              device_id: updateData.device_id,
+              device_name: updateData.device_name,
+              ...(s.project_id != null ? { project_id: s.project_id } : {}),
+              ...(s.task_id != null ? { task_id: s.task_id } : {}),
             },
           })
 

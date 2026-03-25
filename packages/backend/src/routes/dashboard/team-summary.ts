@@ -1,0 +1,233 @@
+import type { FastifyInstance } from 'fastify'
+import { subDays } from 'date-fns'
+import { prisma } from '../../db/prisma.js'
+import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
+import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
+import type { Config } from '../../config.js'
+import { generateSignedUrl } from '../../lib/s3.js'
+import {
+  aggregateOfflineTimeForUser,
+  aggregateSessionsForUser,
+  getZonedBucketBounds,
+} from '../../lib/zoned-buckets.js'
+
+const ONLINE_WINDOW_MS = 5 * 60 * 1000
+
+type SessionRow = {
+  id: string
+  user_id: string
+  started_at: Date
+  ended_at: Date | null
+}
+
+export async function dashboardTeamSummaryRoutes(
+  fastify: FastifyInstance,
+  opts: { config: Config }
+) {
+  const authenticate = createAuthenticateMiddleware(opts.config)
+
+  fastify.get('/team-summary', {
+    preHandler: [authenticate],
+    handler: async (request, _reply) => {
+      const req = request as AuthenticatedRequest
+      const user = req.user!
+
+      const canViewOthers = ['admin', 'super_admin', 'manager'].includes(user.role)
+      const whereUsers = {
+        org_id: user.org_id,
+        ...(canViewOthers ? {} : { id: user.id }),
+      }
+
+      const users = await prisma.user.findMany({
+        where: whereUsers,
+        orderBy: [{ role: 'asc' }, { name: 'asc' }],
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          status: true,
+          timezone: true,
+        },
+      })
+
+      const userIds = users.map((u) => u.id)
+      const now = new Date()
+
+      let minRangeStart = now.getTime()
+      for (const u of users) {
+        const b = getZonedBucketBounds(now, u.timezone)
+        minRangeStart = Math.min(
+          minRangeStart,
+          b.monthStart.getTime(),
+          b.weekStart.getTime(),
+          b.yesterdayStart.getTime(),
+          b.todayStart.getTime()
+        )
+      }
+
+      const queryFrom = subDays(new Date(minRangeStart), 1)
+      const openSessionCutoff = subDays(queryFrom, 45)
+
+      const [sessions, latestShotsRaw, offlineRows] = await Promise.all([
+        prisma.timeSession.findMany({
+          where: {
+            org_id: user.org_id,
+            user_id: { in: userIds },
+            started_at: { lt: now },
+            OR: [
+              { ended_at: { gt: queryFrom } },
+              { AND: [{ ended_at: null }, { started_at: { gte: openSessionCutoff } }] },
+            ],
+          },
+          select: {
+            id: true,
+            user_id: true,
+            started_at: true,
+            ended_at: true,
+          },
+        }),
+        Promise.all(
+          userIds.map((uid) =>
+            prisma.screenshot.findFirst({
+              where: { org_id: user.org_id, user_id: uid, deleted_at: null },
+              orderBy: { taken_at: 'desc' },
+              select: {
+                id: true,
+                user_id: true,
+                taken_at: true,
+                activity_score: true,
+                s3_key: true,
+                thumb_s3_key: true,
+              },
+            })
+          )
+        ),
+        prisma.offlineTime.findMany({
+          where: {
+            org_id: user.org_id,
+            user_id: { in: userIds },
+            end_time: { gt: queryFrom },
+            start_time: { lt: now },
+          },
+          select: {
+            user_id: true,
+            start_time: true,
+            end_time: true,
+          },
+        }),
+      ])
+
+      const sessionRows = sessions as SessionRow[]
+      const sessionIds = sessionRows.map((s) => s.id)
+      const deductionRows = await prisma.sessionTimeDeduction.findMany({
+        where: { session_id: { in: sessionIds } },
+        select: { session_id: true, range_start: true, range_end: true },
+      })
+      const deductionsBySession = new Map<string, { range_start: Date; range_end: Date }[]>()
+      for (const d of deductionRows) {
+        const list = deductionsBySession.get(d.session_id) ?? []
+        list.push({ range_start: d.range_start, range_end: d.range_end })
+        deductionsBySession.set(d.session_id, list)
+      }
+
+      const latestByUser = new Map<
+        string,
+        {
+          id: string
+          taken_at: Date
+          activity_score: number
+          s3_key: string
+          thumb_s3_key: string | null
+        }
+      >()
+      for (const s of latestShotsRaw) {
+        if (s) {
+          latestByUser.set(s.user_id, {
+            id: s.id,
+            taken_at: s.taken_at,
+            activity_score: s.activity_score,
+            s3_key: s.s3_key,
+            thumb_s3_key: s.thumb_s3_key,
+          })
+        }
+      }
+
+      const results = await Promise.all(
+        users.map(async (u) => {
+          const bounds = getZonedBucketBounds(now, u.timezone)
+          const agg = aggregateSessionsForUser({
+            sessions: sessionRows,
+            userId: u.id,
+            now,
+            bounds,
+            deductionsBySession,
+          })
+          const offAgg = aggregateOfflineTimeForUser({
+            entries: offlineRows,
+            userId: u.id,
+            now,
+            bounds,
+          })
+
+          const shot = latestByUser.get(u.id)
+          const shotMs = shot ? shot.taken_at.getTime() : 0
+          const sessionMs = agg.lastInstantMs
+          const lastMs = Math.max(sessionMs, shotMs, offAgg.lastInstantMs)
+
+          let latest_screenshot: {
+            id: string
+            taken_at: string
+            signed_url: string | null
+            thumb_signed_url: string | null
+            activity_score: number
+          } | null = null
+          if (shot) {
+            let signed_url: string | null = null
+            let thumb_signed_url: string | null = null
+            try {
+              signed_url = await generateSignedUrl(opts.config, shot.s3_key, 900)
+            } catch {
+              signed_url = null
+            }
+            if (shot.thumb_s3_key) {
+              try {
+                thumb_signed_url = await generateSignedUrl(opts.config, shot.thumb_s3_key, 900)
+              } catch {
+                thumb_signed_url = null
+              }
+            }
+            latest_screenshot = {
+              id: shot.id,
+              taken_at: shot.taken_at.toISOString(),
+              signed_url,
+              thumb_signed_url,
+              activity_score: shot.activity_score,
+            }
+          }
+
+          const last = lastMs > 0 ? new Date(lastMs) : null
+          const is_online = lastMs > 0 && now.getTime() - lastMs < ONLINE_WINDOW_MS
+
+          return {
+            id: u.id,
+            name: u.name,
+            email: u.email,
+            role: u.role,
+            status: u.status,
+            timezone: u.timezone,
+            last_active: last ? last.toISOString() : null,
+            is_online,
+            today_seconds: agg.today_seconds + offAgg.today_seconds,
+            yesterday_seconds: agg.yesterday_seconds + offAgg.yesterday_seconds,
+            this_week_seconds: agg.this_week_seconds + offAgg.this_week_seconds,
+            this_month_seconds: agg.this_month_seconds + offAgg.this_month_seconds,
+            latest_screenshot,
+          }
+        })
+      )
+
+      return { users: results }
+    },
+  })
+}

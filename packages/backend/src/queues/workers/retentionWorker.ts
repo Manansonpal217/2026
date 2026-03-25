@@ -28,13 +28,27 @@ export function retentionWorker(config: Config): Worker {
             taken_at: { lt: cutoff },
             deleted_at: null,
           },
-          select: { id: true, s3_key: true },
+          select: { id: true, s3_key: true, thumb_s3_key: true },
           take: 1000,
         })
 
         for (const screenshot of expired) {
           try {
-            await deleteFromS3(config, screenshot.s3_key)
+            let lastErr: unknown
+            for (let attempt = 0; attempt < 3; attempt++) {
+              try {
+                if (screenshot.thumb_s3_key) {
+                  await deleteFromS3(config, screenshot.thumb_s3_key).catch(() => {})
+                }
+                await deleteFromS3(config, screenshot.s3_key)
+                lastErr = undefined
+                break
+              } catch (e) {
+                lastErr = e
+                if (attempt < 2) await new Promise((r) => setTimeout(r, 1000))
+              }
+            }
+            if (lastErr) throw lastErr
             await prisma.screenshot.update({
               where: { id: screenshot.id },
               data: { deleted_at: new Date() },
@@ -42,7 +56,7 @@ export function retentionWorker(config: Config): Worker {
             deleted++
           } catch (err) {
             errors.push(
-              `Failed to delete screenshot ${screenshot.id}: ${err instanceof Error ? err.message : String(err)}`,
+              `Failed to delete screenshot ${screenshot.id}: ${err instanceof Error ? err.message : String(err)}`
             )
           }
         }
@@ -53,6 +67,6 @@ export function retentionWorker(config: Config): Worker {
     {
       connection: { url: config.REDIS_URL },
       concurrency: 1,
-    },
+    }
   )
 }

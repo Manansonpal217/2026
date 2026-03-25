@@ -22,6 +22,7 @@ import { userRoutes } from './users/index.js'
 import { screenshotUploadRoutes } from './screenshots/upload.js'
 import { screenshotConfirmRoutes } from './screenshots/confirm.js'
 import { screenshotListRoutes } from './screenshots/list.js'
+import { screenshotFileRoutes } from './screenshots/file.js'
 import { activitySyncRoutes } from './activity/sync.js'
 // Phase 4
 import { integrationConnectRoutes } from './integrations/connect.js'
@@ -37,6 +38,9 @@ import { adminUserRoutes } from './admin/users.js'
 import { adminSettingsRoutes } from './admin/settings.js'
 import { adminAuditLogRoutes } from './admin/audit-log.js'
 import { adminStreaksRoutes } from './admin/streaks.js'
+import { dashboardTeamSummaryRoutes } from './dashboard/team-summary.js'
+import { platformOrgRoutes } from './platform/orgs.js'
+import { offlineTimeRoutes } from './offline-time.js'
 
 export async function v1Routes(fastify: FastifyInstance, opts: { config: Config }) {
   const { config } = opts
@@ -65,10 +69,15 @@ export async function v1Routes(fastify: FastifyInstance, opts: { config: Config 
   // ── Users ─────────────────────────────────────────────────────────────────────
   fastify.register(userRoutes, { prefix: '/users', config })
 
+  // ── Dashboard ────────────────────────────────────────────────────────────────
+  fastify.register(dashboardTeamSummaryRoutes, { prefix: '/dashboard', config })
+
   // ── Phase 3: Screenshots + Activity ──────────────────────────────────────────
   fastify.register(screenshotUploadRoutes, { prefix: '/screenshots', config })
   fastify.register(screenshotConfirmRoutes, { prefix: '/screenshots', config })
+  fastify.register(screenshotFileRoutes, { prefix: '/screenshots', config })
   fastify.register(screenshotListRoutes, { prefix: '/screenshots', config })
+  fastify.register(offlineTimeRoutes, { prefix: '/offline-time', config })
   fastify.register(activitySyncRoutes, { prefix: '/activity', config })
 
   // ── Phase 4: Integrations ─────────────────────────────────────────────────────
@@ -86,4 +95,7 @@ export async function v1Routes(fastify: FastifyInstance, opts: { config: Config 
   fastify.register(adminSettingsRoutes, { prefix: '/admin', config })
   fastify.register(adminAuditLogRoutes, { prefix: '/admin', config })
   fastify.register(adminStreaksRoutes, { prefix: '/admin', config })
+
+  // Platform (cross-tenant): requires User.is_platform_admin
+  fastify.register(platformOrgRoutes, { prefix: '/platform', config })
 }

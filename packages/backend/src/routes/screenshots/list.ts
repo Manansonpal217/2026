@@ -4,7 +4,8 @@ import { prisma } from '../../db/prisma.js'
 import { createAuthenticateMiddleware, requireRole } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
-import { generateSignedUrl } from '../../lib/s3.js'
+import { deleteFromS3, generateSignedUrl } from '../../lib/s3.js'
+import { deductionRangeForDeletedScreenshot } from '../../lib/screenshot-deleted-time.js'
 
 const querySchema = z.object({
   session_id: z.string().uuid().optional(),
@@ -67,7 +68,11 @@ export async function screenshotListRoutes(fastify: FastifyInstance, opts: { con
           activity_score: s.activity_score,
           is_blurred: s.is_blurred,
           file_size_bytes: s.file_size_bytes,
+          thumb_file_size_bytes: s.thumb_file_size_bytes,
           signed_url: await generateSignedUrl(opts.config, s.s3_key, 900),
+          thumb_signed_url: s.thumb_s3_key
+            ? await generateSignedUrl(opts.config, s.thumb_s3_key, 900)
+            : null,
         }))
       )
 
@@ -75,8 +80,8 @@ export async function screenshotListRoutes(fastify: FastifyInstance, opts: { con
     },
   })
 
-  fastify.delete('/:id', {
-    preHandler: [authenticate, requireRole('admin', 'super_admin')],
+  fastify.post('/:id/blur', {
+    preHandler: [authenticate, requireRole('admin', 'super_admin', 'manager')],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const user = req.user!
@@ -89,11 +94,86 @@ export async function screenshotListRoutes(fastify: FastifyInstance, opts: { con
         return reply.status(404).send({ code: 'NOT_FOUND', message: 'Screenshot not found' })
       }
 
-      // Soft delete — physical S3 deletion handled by retention job
-      await prisma.screenshot.update({
-        where: { id },
-        data: { deleted_at: new Date() },
+      const { getScreenshotQueue } = await import('../../queues/index.js')
+      const queue = getScreenshotQueue()
+      await queue.add(
+        'process-screenshot',
+        {
+          screenshotId: screenshot.id,
+          s3Key: screenshot.s3_key,
+          orgId: user.org_id,
+          forceBlur: true,
+        },
+        { jobId: `screenshot-blur-${screenshot.id}-${Date.now()}`, attempts: 3 }
+      )
+
+      return reply.status(202).send({ accepted: true, screenshot_id: screenshot.id })
+    },
+  })
+
+  fastify.delete('/:id', {
+    preHandler: [authenticate, requireRole('admin', 'super_admin', 'manager')],
+    handler: async (request, reply) => {
+      const req = request as AuthenticatedRequest
+      const user = req.user!
+      const { id } = request.params as { id: string }
+
+      const screenshot = await prisma.screenshot.findFirst({
+        where: { id, org_id: user.org_id, deleted_at: null },
       })
+      if (!screenshot) {
+        return reply.status(404).send({ code: 'NOT_FOUND', message: 'Screenshot not found' })
+      }
+
+      const now = new Date()
+      const [session, orgSettings] = await Promise.all([
+        prisma.timeSession.findFirst({
+          where: { id: screenshot.session_id, org_id: user.org_id },
+        }),
+        prisma.orgSettings.findUnique({
+          where: { org_id: user.org_id },
+          select: { screenshot_interval_seconds: true },
+        }),
+      ])
+      const range =
+        session &&
+        deductionRangeForDeletedScreenshot({
+          takenAt: screenshot.taken_at,
+          intervalSeconds: orgSettings?.screenshot_interval_seconds ?? 60,
+          session,
+          now,
+        })
+
+      await prisma.$transaction(async (tx) => {
+        if (range) {
+          await tx.sessionTimeDeduction.create({
+            data: {
+              org_id: user.org_id,
+              session_id: screenshot.session_id,
+              range_start: range.range_start,
+              range_end: range.range_end,
+              reason: 'screenshot_deleted',
+            },
+          })
+        }
+        await tx.screenshot.update({
+          where: { id },
+          data: { deleted_at: now },
+        })
+      })
+
+      if (screenshot.thumb_s3_key) {
+        try {
+          await deleteFromS3(opts.config, screenshot.thumb_s3_key)
+        } catch {
+          /* best-effort */
+        }
+      }
+      try {
+        await deleteFromS3(opts.config, screenshot.s3_key)
+      } catch {
+        /* row already soft-deleted */
+      }
 
       return reply.status(204).send()
     },

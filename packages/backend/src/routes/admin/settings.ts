@@ -20,6 +20,9 @@ const patchSettingsSchema = z.object({
   time_approval_required: z.boolean().optional(),
   mfa_required_for_admins: z.boolean().optional(),
   mfa_required_for_managers: z.boolean().optional(),
+  /** Target minutes per day for progress indicators (e.g. calendar strip). 15m–24h. */
+  expected_daily_work_minutes: z.number().int().min(15).max(1440).optional(),
+  allow_employee_offline_time: z.boolean().optional(),
 })
 
 export async function adminSettingsRoutes(fastify: FastifyInstance, opts: { config: Config }) {
