@@ -25,6 +25,7 @@ model Organization {
   projects     Project[]
   integrations Integration[]
   audit_logs   AuditLog[]
+  offline_times OfflineTime[]
 }
 
 model OrgSettings {
@@ -46,6 +47,10 @@ model OrgSettings {
   idle_detection_enabled       Boolean @default(true)
   idle_timeout_minutes         Int     @default(5)
   idle_timeout_intervals       Int     @default(3)
+  // Expected tracked time per calendar day for progress fill (minutes); default 8h.
+  expected_daily_work_minutes  Int     @default(480)
+  // When true, employees may add their own offline time unless overridden per-user.
+  allow_employee_offline_time  Boolean @default(false)
 
   organization Organization @relation(fields: [org_id], references: [id])
 }
@@ -63,6 +68,9 @@ model User {
   mfa_secret        String?  // Legacy plaintext; prefer mfa_secret_encrypted
   mfa_secret_encrypted Bytes?
   mfa_backup_codes  String[] @default([])
+  is_platform_admin Boolean  @default(false)
+  // null = follow OrgSettings.allow_employee_offline_time; true/false = override
+  can_add_offline_time Boolean?
   created_at       DateTime @default(now())
   updated_at       DateTime @updatedAt
 
@@ -73,6 +81,8 @@ model User {
   activity_logs   ActivityLog[]
   audit_logs      AuditLog[]
   assigned_tasks  Task[]          @relation("AssignedTasks")
+  offline_times   OfflineTime[]   @relation("UserOfflineTime")
+  added_offline_times OfflineTime[] @relation("AddedByOfflineTime")
 
   @@unique([email, org_id])
   @@index([org_id])
@@ -172,6 +182,7 @@ model TimeSession {
   task           Task?        @relation(fields: [task_id], references: [id])
   screenshots    Screenshot[]
   activity_logs  ActivityLog[]
+  time_deductions SessionTimeDeduction[]
 
   @@unique([user_id, device_id, started_at])
   @@index([user_id, started_at])
@@ -180,18 +191,20 @@ model TimeSession {
 }
 
 model Screenshot {
-  id              String    @id @default(uuid())
-  session_id      String
-  user_id         String
-  org_id          String
-  s3_key          String    @unique
-  taken_at        DateTime
-  activity_score  Float     @default(0)
-  is_blurred      Boolean   @default(false)
-  file_size_bytes Int       @default(0)
-  deleted_at      DateTime?
-  created_at      DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
+  id                    String    @id @default(uuid())
+  session_id            String
+  user_id               String
+  org_id                String
+  s3_key                String    @unique
+  thumb_s3_key          String?   @unique
+  taken_at              DateTime
+  activity_score        Float     @default(0)
+  is_blurred            Boolean   @default(false)
+  file_size_bytes       Int       @default(0)
+  thumb_file_size_bytes Int       @default(0)
+  deleted_at            DateTime?
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
 
   session TimeSession @relation(fields: [session_id], references: [id])
   user    User        @relation(fields: [user_id], references: [id])
@@ -200,6 +213,22 @@ model Screenshot {
   @@index([org_id, taken_at])
   @@index([session_id])
   @@index([org_id, deleted_at, taken_at])
+}
+
+// Wall-clock ranges excluded from reported session time (e.g. after screenshot delete).
+model SessionTimeDeduction {
+  id          String   @id @default(uuid())
+  org_id      String
+  session_id  String
+  range_start DateTime
+  range_end   DateTime
+  reason      String   @default("screenshot_deleted")
+  created_at  DateTime @default(now())
+
+  session TimeSession @relation(fields: [session_id], references: [id], onDelete: Cascade)
+
+  @@index([session_id])
+  @@index([org_id, session_id])
 }
 
 model Integration {
@@ -280,4 +309,23 @@ model ActivityLog {
   @@index([user_id, window_start])
   @@index([session_id])
   @@index([org_id, window_start])
+}
+
+model OfflineTime {
+  id           String   @id @default(uuid())
+  org_id       String
+  user_id      String
+  added_by_id  String
+  start_time   DateTime
+  end_time     DateTime
+  description  String
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  organization Organization @relation(fields: [org_id], references: [id])
+  user         User         @relation("UserOfflineTime", fields: [user_id], references: [id])
+  added_by     User         @relation("AddedByOfflineTime", fields: [added_by_id], references: [id])
+
+  @@index([org_id, user_id, start_time])
+  @@index([org_id, start_time])
 }
