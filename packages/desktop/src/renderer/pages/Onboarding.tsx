@@ -17,6 +17,22 @@ interface OnboardingProps {
 
 type Step = 'welcome' | 'permissions' | 'setup'
 
+/** Runtime platform from preload (`darwin` | `win32` | `linux`). */
+function getPlatform(): string {
+  return window.electron?.platform ?? 'darwin'
+}
+
+function permissionsRevokeHint(): string {
+  const p = getPlatform()
+  if (p === 'win32') {
+    return 'You can change or remove permissions in Windows Settings → Privacy & security, or your organization’s device policy.'
+  }
+  if (p === 'linux') {
+    return 'You can revoke access using your desktop environment’s privacy or security settings.'
+  }
+  return 'You can revoke them any time in System Settings → Privacy & Security.'
+}
+
 interface PermissionItem {
   id: string
   icon: typeof Camera
@@ -46,7 +62,11 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
   const features = [
     { icon: Clock, label: 'Time tracking', desc: 'Start a timer for any project or task' },
     { icon: Camera, label: 'Screenshots', desc: 'Automatic periodic captures at your interval' },
-    { icon: Activity, label: 'Activity score', desc: 'Keyboard and mouse activity aggregated privately' },
+    {
+      icon: Activity,
+      label: 'Activity score',
+      desc: 'Keyboard and mouse activity aggregated privately',
+    },
     { icon: Shield, label: 'Encrypted locally', desc: 'All data AES-256 encrypted before syncing' },
   ]
 
@@ -64,11 +84,10 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
       </div>
 
       <div className="space-y-2 mb-8">
-        <h2 className="text-2xl font-bold text-[#f9fafb] leading-tight">
-          Welcome to TrackSync
-        </h2>
+        <h2 className="text-2xl font-bold text-[#f9fafb] leading-tight">Welcome to TrackSync</h2>
         <p className="text-sm text-[#9ca3af] leading-relaxed">
-          Let's get you set up in a few quick steps. Your data is always encrypted and stays in your control.
+          Let's get you set up in a few quick steps. Your data is always encrypted and stays in your
+          control.
         </p>
       </div>
 
@@ -113,7 +132,9 @@ function PermissionsStep({ onNext, onBack }: { onNext: () => void; onBack: () =>
     setRequesting(perm.id)
     try {
       // Request via IPC — the main process will trigger the OS permission dialog
-      const result = await window.electron?.ipcRenderer.invoke('permissions:request', perm.id) as boolean | undefined
+      const result = (await window.electron?.ipcRenderer.invoke('permissions:request', perm.id)) as
+        | boolean
+        | undefined
       setGranted((prev) => ({ ...prev, [perm.id]: result !== false }))
     } catch {
       // If IPC not available (dev mode), simulate success
@@ -136,7 +157,7 @@ function PermissionsStep({ onNext, onBack }: { onNext: () => void; onBack: () =>
       <div className="space-y-1.5 mb-6">
         <h2 className="text-xl font-bold text-[#f9fafb]">Permissions</h2>
         <p className="text-sm text-[#9ca3af]">
-          TrackSync needs these permissions to monitor your work. You can revoke them any time in System Preferences.
+          TrackSync needs these permissions to monitor your work. {permissionsRevokeHint()}
         </p>
       </div>
 
@@ -162,10 +183,7 @@ function PermissionsStep({ onNext, onBack }: { onNext: () => void; onBack: () =>
                   border: `1px solid ${isGranted ? 'rgba(16,185,129,0.2)' : 'rgba(255,255,255,0.06)'}`,
                 }}
               >
-                <Icon
-                  className="h-4 w-4"
-                  style={{ color: isGranted ? '#10b981' : '#6b7280' }}
-                />
+                <Icon className="h-4 w-4" style={{ color: isGranted ? '#10b981' : '#6b7280' }} />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
@@ -186,9 +204,7 @@ function PermissionsStep({ onNext, onBack }: { onNext: () => void; onBack: () =>
                   disabled={isRequesting}
                   className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 hover:bg-indigo-500/15 transition-colors shrink-0 mt-1 disabled:opacity-50"
                 >
-                  {isRequesting ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : null}
+                  {isRequesting ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                   Allow
                 </button>
               )}
@@ -251,10 +267,26 @@ function SetupStep({ onComplete, onBack }: { onComplete: () => void; onBack: () 
 
       <div className="space-y-3 flex-1">
         {[
-          { step: '1', label: 'Sign in', desc: 'Log in with your organization email to get started.' },
-          { step: '2', label: 'Select a project', desc: 'Choose a project or task from your organization.' },
-          { step: '3', label: 'Start the timer', desc: 'Hit Start and TrackSync begins monitoring quietly in the background.' },
-          { step: '4', label: 'Data syncs automatically', desc: 'Sessions, screenshots, and activity logs sync when you\'re online.' },
+          {
+            step: '1',
+            label: 'Sign in',
+            desc: 'Log in with your organization email to get started.',
+          },
+          {
+            step: '2',
+            label: 'Select a project',
+            desc: 'Choose a project or task from your organization.',
+          },
+          {
+            step: '3',
+            label: 'Start the timer',
+            desc: 'Hit Start and TrackSync begins monitoring quietly in the background.',
+          },
+          {
+            step: '4',
+            label: 'Data syncs automatically',
+            desc: "Sessions, screenshots, and activity logs sync when you're online.",
+          },
         ].map((item) => (
           <div key={item.step} className="flex items-start gap-3">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-500/10 border border-indigo-500/20 text-xs font-bold text-indigo-400">

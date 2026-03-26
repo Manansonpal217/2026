@@ -1,49 +1,73 @@
+import { randomUUID } from 'crypto'
 import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import compress from '@fastify/compress'
+import underPressure from '@fastify/under-pressure'
+import * as Sentry from '@sentry/node'
 import { loadConfig } from './config.js'
 import { initJwtKeys } from './lib/jwt.js'
 import { getRedis } from './db/redis.js'
 import { prisma } from './db/prisma.js'
 import { initQueues, startWorkers } from './queues/index.js'
 import { v1Routes } from './routes/v1.js'
+import { getMetricsRegistry, httpRequestDurationSeconds } from './metrics.js'
+
+const reqStartNs = new WeakMap<object, bigint>()
 
 async function main() {
   const config = loadConfig()
   const isDev = config.NODE_ENV === 'development'
+  const isProd = config.NODE_ENV === 'production'
 
-  await initJwtKeys(config.JWT_PRIVATE_KEY, config.JWT_PUBLIC_KEY)
+  if (config.SENTRY_DSN) {
+    Sentry.init({
+      dsn: config.SENTRY_DSN,
+      environment: config.NODE_ENV,
+      tracesSampleRate: isProd ? 0.1 : 0,
+    })
+  }
+
+  await initJwtKeys(config.JWT_PRIVATE_KEY, config.JWT_PUBLIC_KEY, {
+    requirePersistentKeys: isProd,
+  })
   initQueues(config)
 
   const fastify = Fastify({
-    // Disable logger in dev for speed; use structured logging in prod
+    genReqId: () => randomUUID(),
     logger: isDev
       ? false
       : {
-          level: 'warn',
+          level: 'info',
           serializers: {
-            req: (req) => ({ method: req.method, url: req.url }),
+            req: (req) => ({
+              method: req.method,
+              url: req.url,
+              id: req.id,
+            }),
             res: (res) => ({ statusCode: res.statusCode }),
           },
         },
-    // Keep-alive connections for upstream proxies / internal traffic
     keepAliveTimeout: 65_000,
     connectionTimeout: 10_000,
-    // Trust X-Forwarded-* headers if behind a reverse proxy
     trustProxy: true,
   })
 
-  // Gzip/Brotli compression — negligible CPU cost, big bandwidth savings
   await fastify.register(compress, {
     global: true,
-    threshold: 1024, // only compress responses > 1KB
+    threshold: 1024,
     encodings: ['br', 'gzip', 'deflate'],
   })
 
+  await fastify.register(underPressure, {
+    maxEventLoopDelay: 1500,
+    maxHeapUsedBytes: 900 * 1024 * 1024,
+    message: 'Service temporarily overloaded — please retry shortly.',
+    exposeStatusRoute: false,
+  })
+
   await fastify.register(cors, {
-    // Explicit allowlist instead of origin: true (security + slight perf gain)
     origin: isDev
       ? [
           'http://localhost:3000',
@@ -54,12 +78,14 @@ async function main() {
       : [config.APP_URL],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
   })
 
   await fastify.register(helmet, {
-    // SPA on another origin (e.g. :3002) must be able to read API responses from :3001
     crossOriginResourcePolicy: { policy: 'cross-origin' },
+    strictTransportSecurity: isDev
+      ? false
+      : { maxAge: 31536000, includeSubDomains: true, preload: false },
     contentSecurityPolicy: {
       useDefaults: true,
       directives: {
@@ -79,40 +105,107 @@ async function main() {
   await fastify.register(rateLimit, {
     max: 200,
     timeWindow: '1 minute',
-    // Use Redis for distributed rate limiting when scaling horizontally
     redis: getRedis(config),
   })
 
-  // Never leak internal error details to clients (security + UX)
+  fastify.addHook('onRequest', async (request) => {
+    reqStartNs.set(request.raw, process.hrtime.bigint())
+  })
+
+  fastify.addHook('onResponse', async (request, reply) => {
+    const start = reqStartNs.get(request.raw)
+    reqStartNs.delete(request.raw)
+    if (!start) return
+    const seconds = Number(process.hrtime.bigint() - start) / 1e9
+    const routeTemplate =
+      'routeOptions' in request && request.routeOptions && typeof request.routeOptions === 'object'
+        ? String((request.routeOptions as { url?: string }).url ?? request.url.split('?')[0])
+        : (request.url.split('?')[0] ?? 'unknown')
+    try {
+      httpRequestDurationSeconds
+        .labels(request.method, routeTemplate, String(reply.statusCode))
+        .observe(seconds)
+    } catch {
+      /* histogram may throw on label cardinality in edge cases */
+    }
+  })
+
   fastify.setErrorHandler((err, request, reply) => {
     if (reply.sent) return
     const error = err as { statusCode?: number; message?: string; code?: string }
     const statusCode = error.statusCode ?? 500
-    // For 5xx or unknown, always return generic message — never expose stack traces or internal details
     if (statusCode >= 500 || !Number.isInteger(statusCode)) {
+      if (config.SENTRY_DSN) {
+        Sentry.captureException(err, { extra: { url: request.url, method: request.method } })
+      }
       fastify.log?.warn({ err }, 'Unhandled error')
       return reply.status(500).send({
         code: 'INTERNAL_ERROR',
         message: 'Something went wrong. Please try again.',
       })
     }
-    // For 4xx, pass through the error (validation, etc.) but sanitize message
     const message =
       error.message && typeof error.message === 'string' ? error.message : 'Bad request'
     return reply.status(statusCode).send({ code: error.code ?? 'ERROR', message })
   })
 
-  fastify.get('/health', async () => ({
+  async function checkReady(): Promise<{
+    db: 'ok' | 'error'
+    redis: 'ok' | 'error'
+  }> {
+    const db = await prisma.$queryRaw`SELECT 1`
+      .then(() => 'ok' as const)
+      .catch(() => 'error' as const)
+    let redis: 'ok' | 'error' = 'error'
+    try {
+      await getRedis(config).ping()
+      redis = 'ok'
+    } catch {
+      redis = 'error'
+    }
+    return { db, redis }
+  }
+
+  fastify.get('/health/live', async () => ({
     status: 'ok',
     version: config.APP_VERSION,
-    db: await prisma.$queryRaw`SELECT 1`.then(() => 'ok').catch(() => 'error'),
   }))
+
+  fastify.get('/health/ready', async (_request, reply) => {
+    const { db, redis: rs } = await checkReady()
+    if (db !== 'ok' || rs !== 'ok') {
+      return reply.status(503).send({
+        status: 'not_ready',
+        version: config.APP_VERSION,
+        db,
+        redis: rs,
+      })
+    }
+    return { status: 'ok', version: config.APP_VERSION, db, redis: rs }
+  })
+
+  /** @deprecated Prefer /health/ready for probes; kept for older monitors. */
+  fastify.get('/health', async (_request, reply) => {
+    const { db, redis: rs } = await checkReady()
+    if (db !== 'ok' || rs !== 'ok') {
+      return reply.status(503).send({
+        status: 'not_ready',
+        version: config.APP_VERSION,
+        db,
+        redis: rs,
+      })
+    }
+    return { status: 'ok', version: config.APP_VERSION, db, redis: rs }
+  })
+
+  fastify.get('/metrics', async (_request, reply) => {
+    reply.header('Content-Type', getMetricsRegistry().contentType)
+    return reply.send(await getMetricsRegistry().metrics())
+  })
 
   await fastify.register(v1Routes, { prefix: '/v1', config })
 
-  // Warm up database connection pool on startup
   await prisma.$connect()
-
   const redis = getRedis(config)
   await redis.ping()
 

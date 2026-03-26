@@ -1,0 +1,46 @@
+# Build Docker images. Enable push by configuring registry auth (e.g. GHCR) in your repo.
+name: Deploy
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-docker
+  cancel-in-progress: true
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/backend/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/tracksync-backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build landing image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/landing/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/tracksync-landing:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

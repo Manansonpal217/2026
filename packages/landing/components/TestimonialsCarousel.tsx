@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Quote, ChevronLeft, ChevronRight } from 'lucide-react'
 
@@ -100,11 +101,12 @@ function TestimonialCard({ quote, name, avatar, role, company }: (typeof testimo
       <Quote className="h-8 w-8 text-primary/50" />
       <p className="mt-4 text-[15px] leading-relaxed text-foreground/85">&ldquo;{quote}&rdquo;</p>
       <div className="mt-6 flex items-center gap-3">
-        <img
+        <Image
           src={avatar}
           alt=""
+          width={48}
+          height={48}
           className="h-12 w-12 shrink-0 rounded-full object-cover ring-2 ring-border"
-          loading="lazy"
         />
         <div className="min-w-0">
           <p className="truncate font-medium text-foreground">{name}</p>

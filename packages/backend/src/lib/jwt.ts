@@ -22,7 +22,18 @@ export interface MfaPendingPayload {
 let privateKey: jose.KeyLike
 let publicKey: jose.KeyLike
 
-export async function initJwtKeys(privateKeyPem?: string, publicKeyPem?: string): Promise<void> {
+export async function initJwtKeys(
+  privateKeyPem: string | undefined,
+  publicKeyPem: string | undefined,
+  opts?: { requirePersistentKeys?: boolean }
+): Promise<void> {
+  if (opts?.requirePersistentKeys) {
+    if (!privateKeyPem?.trim() || !publicKeyPem?.trim()) {
+      throw new Error(
+        'JWT_PRIVATE_KEY and JWT_PUBLIC_KEY are required in production (RSA PEM). Generate with: pnpm --filter backend exec tsx scripts/generate-keys.ts'
+      )
+    }
+  }
   if (privateKeyPem && publicKeyPem) {
     privateKey = await jose.importPKCS8(privateKeyPem, 'RS256')
     publicKey = await jose.importSPKI(publicKeyPem, 'RS256')

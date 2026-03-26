@@ -14,11 +14,17 @@ import type { Config } from '../../config.js'
 
 const DEV_FALLBACK_KEY_HEX = '0000000000000000000000000000000000000000000000000000000000000001'
 
-async function getLocalKey(_config: Config): Promise<Buffer> {
-  // In dev without KMS, derive a 32-byte key from a hex env var
-  const keyHex = process.env.DB_ENCRYPTION_KEY ?? DEV_FALLBACK_KEY_HEX
-  // Ensure exactly 64 hex chars (32 bytes)
-  const normalised = keyHex
+async function getLocalKey(config: Config): Promise<Buffer> {
+  const keyHex = process.env.DB_ENCRYPTION_KEY
+  if (config.NODE_ENV === 'production') {
+    if (!keyHex?.trim() || keyHex === DEV_FALLBACK_KEY_HEX) {
+      throw new Error(
+        'DB_ENCRYPTION_KEY must be set to a strong random 64-character hex string in production (or use KMS_INTEGRATIONS_KEY_ID for AWS KMS).'
+      )
+    }
+  }
+  const effective = keyHex ?? DEV_FALLBACK_KEY_HEX
+  const normalised = effective
     .replace(/[^0-9a-fA-F]/g, '0')
     .padEnd(64, '0')
     .slice(0, 64)

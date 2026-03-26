@@ -1,5 +1,6 @@
 'use client'
 
+import NextImage from 'next/image'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { EyeOff, Trash2, X, ZoomIn } from 'lucide-react'
 import { getCachedBlob, putCachedBlob } from '@/lib/screenshotThumbCache'
@@ -54,7 +55,7 @@ function prefetchImages(urls: string[]): Promise<void> {
     urls.map(
       (url) =>
         new Promise<void>((resolve) => {
-          const img = new Image()
+          const img = new window.Image()
           img.onload = () => resolve()
           img.onerror = () => resolve()
           img.src = url
@@ -171,11 +172,11 @@ export function ScreenshotGallery({
 
     return () => {
       cancelled = true
-      for (const u of thumbBlobUrlsRef.current) URL.revokeObjectURL(u)
-      thumbBlobUrlsRef.current.clear()
+      const blobUrls = [...thumbBlobUrlsRef.current]
+      thumbBlobUrlsRef.current = new Set()
+      for (const u of blobUrls) URL.revokeObjectURL(u)
     }
-    // idsKey ties this to the current id set; do not depend on screenshots reference alone (presigned URLs churn).
-  }, [cacheScope, idsKey])
+  }, [cacheScope, idsKey]) // eslint-disable-line react-hooks/exhaustive-deps -- idsKey tracks ids; screenshots churns URLs
 
   const openLightbox = async (ss: ScreenshotItem) => {
     if (!cacheScope) {
@@ -240,12 +241,15 @@ export function ScreenshotGallery({
                 onClick={() => void openLightbox(ss)}
               >
                 <div className="relative aspect-video bg-black/10">
-                  <img
+                  <NextImage
                     src={resolvedThumbs[ss.id] ?? gridSrc(ss)}
                     alt=""
-                    className={`h-full w-full object-cover transition-transform duration-200 group-hover:scale-105 ${
+                    fill
+                    className={`object-cover transition-transform duration-200 group-hover:scale-105 ${
                       ss.is_blurred && showBlur ? 'blur-sm' : ''
                     }`}
+                    unoptimized
+                    sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
                   />
                   {ss.is_blurred && showBlur && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/40">
@@ -321,12 +325,15 @@ export function ScreenshotGallery({
           onClick={closeLightbox}
         >
           <div className="relative mx-4 w-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
-            <img
+            <NextImage
               src={lightbox.url}
               alt=""
-              className={`mx-auto block max-h-[80vh] max-w-full rounded-lg object-contain shadow-2xl ${
+              width={1920}
+              height={1080}
+              className={`mx-auto block max-h-[80vh] h-auto w-auto max-w-full rounded-lg object-contain shadow-2xl ${
                 lightbox.is_blurred && showBlur ? 'blur-sm' : ''
               }`}
+              unoptimized
             />
             <div className="absolute right-3 top-3 flex items-center gap-2">
               <ActivityScoreBadge score={Math.round(lightbox.score)} />

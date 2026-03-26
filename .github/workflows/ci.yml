@@ -22,8 +22,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Rebuild better-sqlite3-multiple-ciphers for Node (desktop unit tests)
+        run: pnpm --filter desktop exec npm rebuild better-sqlite3-multiple-ciphers
+
       - name: Lint
         run: pnpm lint
 
       - name: Typecheck
         run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Docker build (backend)
+        run: docker build -f packages/backend/Dockerfile -t tracksync-backend:ci .
+
+      - name: Docker build (landing)
+        run: docker build -f packages/landing/Dockerfile -t tracksync-landing:ci .

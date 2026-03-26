@@ -78,5 +78,7 @@ This phase delivers end-to-end login across backend, desktop app, and web admin 
 packages/
   backend/   # Fastify + Prisma + Redis
   desktop/   # Electron + React
-  web/       # Next.js Admin Panel
+  landing/   # Next.js marketing + /myhome + /admin (port 3002)
 ```
+
+Production notes: [RUNBOOK.md](./RUNBOOK.md) · **Manual cloud setup (step-by-step):** [docs/MANUAL_PRODUCTION_SETUP.md](./docs/MANUAL_PRODUCTION_SETUP.md) · Local dev: [CONTRIBUTING.md](./CONTRIBUTING.md)

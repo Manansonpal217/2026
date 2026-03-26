@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import * as Sentry from '@sentry/electron/main'
 import {
   app,
   BrowserWindow,
@@ -8,6 +9,8 @@ import {
   shell,
   systemPreferences,
 } from 'electron'
+import { autoUpdater } from 'electron-updater'
+import electronLog from 'electron-log'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { decodeJwt } from 'jose'
@@ -48,6 +51,18 @@ import { startIdleManager, stopIdleManager, type StopReason } from './idle/idleM
 import { getDb } from './db/index.js'
 import { computeStreakFromLocalSessions } from './streak.js'
 import { readUserPrefs, writeUserPrefs } from './userPrefs.js'
+
+declare const __TRACKSYNC_UPDATE_BASE_URL__: string
+declare const __SENTRY_DSN__: string
+
+function initSentry(): void {
+  const dsn = typeof __SENTRY_DSN__ !== 'undefined' ? String(__SENTRY_DSN__).trim() : ''
+  if (!dsn) return
+  Sentry.init({
+    dsn,
+    environment: app.isPackaged ? 'production' : 'development',
+  })
+}
 
 const API_URL = process.env.VITE_API_URL || 'http://localhost:3001'
 /** Next.js landing (my home dashboard). Override in production, e.g. https://tracksync.dev */
@@ -358,7 +373,46 @@ function handleProtocolUrl(url: string): void {
   }
 }
 
+let autoUpdaterEnabled = false
+
+function initAutoUpdater(): void {
+  if (!app.isPackaged) return
+  const raw =
+    typeof __TRACKSYNC_UPDATE_BASE_URL__ !== 'undefined' ? __TRACKSYNC_UPDATE_BASE_URL__ : ''
+  const base = raw?.trim()
+  if (!base) {
+    console.log(
+      '[updater] Set AUTO_UPDATE_BASE_URL when building to enable auto-updates (generic feed).'
+    )
+    return
+  }
+  autoUpdaterEnabled = true
+  autoUpdater.logger = electronLog
+  autoUpdater.autoDownload = true
+  try {
+    autoUpdater.setFeedURL({ provider: 'generic', url: base.replace(/\/$/, '') })
+  } catch (e) {
+    console.warn('[updater] setFeedURL failed', e)
+    autoUpdaterEnabled = false
+    return
+  }
+  autoUpdater.on('update-available', (info) => {
+    electronLog.info('[updater] update available', info.version)
+    mainWindow?.webContents.send('updater:available', { version: info.version })
+  })
+  autoUpdater.on('update-downloaded', (info) => {
+    electronLog.info('[updater] update downloaded', info.version)
+    mainWindow?.webContents.send('updater:downloaded', { version: info.version })
+  })
+  autoUpdater.on('error', (err) => electronLog.warn('[updater]', err))
+  setTimeout(() => {
+    void autoUpdater.checkForUpdates().catch((e) => electronLog.warn('[updater] check failed', e))
+  }, 10_000)
+}
+
 app.whenReady().then(async () => {
+  initSentry()
+
   app.setAsDefaultProtocolClient('tracksync')
 
   const protocolUrl = process.argv.find((arg) => arg.startsWith('tracksync://'))
@@ -425,6 +479,18 @@ app.whenReady().then(async () => {
   registerProjectHandlers()
 
   createWindow()
+
+  initAutoUpdater()
+
+  ipcMain.handle('updater:quit-and-install', () => {
+    if (!autoUpdaterEnabled) return { ok: false as const, error: 'updater_disabled' }
+    try {
+      setImmediate(() => autoUpdater.quitAndInstall(false, true))
+      return { ok: true as const }
+    } catch (e) {
+      return { ok: false as const, error: String(e) }
+    }
+  })
 
   startSyncScheduler()
 

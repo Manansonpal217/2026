@@ -1,7 +1,9 @@
 'use client'
 
+import Image from 'next/image'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
+import { cn } from '@/lib/utils'
 
 type Props = {
   screenshotId: string
@@ -42,7 +44,11 @@ export function AuthScreenshotThumb({ screenshotId, className, fallback }: Props
   }, [screenshotId])
 
   if (status === 'ready' && url) {
-    return <img src={url} alt="" className={className} />
+    return (
+      <div className={cn('relative', className)}>
+        <Image src={url} alt="" fill className="object-cover" unoptimized sizes="200px" />
+      </div>
+    )
   }
   return <>{fallback}</>
 }

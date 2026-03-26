@@ -708,7 +708,9 @@ export function Timer({ jiraConnected = false, jiraIssues = [] }: TimerProps = {
                 className="flex items-center justify-center gap-2 shrink-0 mb-4"
                 title={
                   !inputMonitorAvailable && isRunning
-                    ? 'Enable Accessibility in System Settings → Privacy & Security to track keyboard and mouse activity'
+                    ? window.electron?.platform === 'win32'
+                      ? 'Input monitoring could not start. Try restarting the app; on Windows, accessibility toggles are usually not required—check antivirus or run as administrator if this persists.'
+                      : 'Enable Accessibility in System Settings → Privacy & Security to track keyboard and mouse activity'
                     : undefined
                 }
               >

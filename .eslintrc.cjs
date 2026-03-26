@@ -13,6 +13,13 @@ module.exports = {
   },
   plugins: ['@typescript-eslint'],
   ignorePatterns: ['node_modules', 'dist', '.next', 'out', 'build', 'release'],
+  overrides: [
+    {
+      files: ['**/*.cjs'],
+      parserOptions: { sourceType: 'script' },
+      rules: { '@typescript-eslint/no-var-requires': 'off' },
+    },
+  ],
   rules: {
     '@typescript-eslint/no-unused-vars': [
       'error',

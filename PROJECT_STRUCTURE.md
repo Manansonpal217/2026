@@ -6,13 +6,16 @@
 
 ```
 tracksync/
-├── docs/                    # Documentation (phases, modules, architecture)
+├── docs/                    # Documentation (e.g. DEVELOPMENT_PLAN, SCALING)
 ├── packages/
 │   ├── backend/             # Node.js + Fastify API
 │   ├── desktop/             # Electron + React desktop app
-│   └── web/                 # Next.js admin panel
-├── .github/workflows/       # CI and release pipelines
-├── docker-compose.yml       # PostgreSQL + Redis (local dev)
+│   └── landing/             # Next.js marketing + /myhome + /admin (port 3002)
+├── .github/workflows/       # CI, release, optional Docker deploy
+├── docker-compose.yml       # PostgreSQL + Redis + optional backend API
+├── scripts/                 # dev-all.mjs (cross-platform dev orchestration)
+├── RUNBOOK.md               # Production operations
+├── CONTRIBUTING.md          # Local dev (incl. Windows)
 ├── pnpm-workspace.yaml
 └── package.json             # Root scripts
 ```
@@ -88,74 +91,28 @@ desktop/
 
 ---
 
-## Web (`packages/web`)
+## Landing (`packages/landing`)
 
-```
-web/
-├── app/                      # Next.js App Router
-│   ├── layout.tsx            # Root layout
-│   ├── page.tsx              # Landing
-│   ├── providers.tsx         # SessionProvider, QueryClient
-│   ├── globals.css
-│   ├── (auth)/               # Route group — auth layout
-│   │   ├── layout.tsx
-│   │   └── auth/
-│   │       └── login/
-│   │           └── page.tsx   # /auth/login
-│   ├── (dashboard)/          # Route group — dashboard layout
-│   │   ├── layout.tsx
-│   │   └── admin/
-│   │       └── dashboard/
-│   │           └── page.tsx   # /admin/dashboard
-│   └── api/
-│       └── auth/
-│           └── [...nextauth]/
-│               └── route.ts
-├── components/
-│   └── ui/
-├── lib/
-│   ├── api.ts
-│   ├── auth.ts               # NextAuth config
-│   └── utils.ts
-├── types/
-│   └── next-auth.d.ts
-├── middleware.ts             # Protected routes
-├── next.config.js
-└── package.json
-```
+Next.js 14 App Router: marketing pages (`(marketing)`), authenticated `/myhome` (`(dashboard)`), platform `/admin`, NextAuth API route, middleware for protected paths. Dev server default port **3002**. Production: `output: 'standalone'`; see `Dockerfile` in this package.
 
 ---
 
 ## Documentation (`docs/`)
 
-```
-docs/
-├── README.md                 # Docs index
-├── INDEX.md                  # Module index
-├── main.md                   # Product plan
-├── DEVELOPMENT_PLAN.md       # Phase 0–9 plan
-├── PHASE_EXECUTION_PLAN.md
-├── app/                      # Desktop app modules (01–13)
-├── backend/                  # Backend API modules (01–18)
-├── admin-panel/              # Web admin modules (00–11)
-└── phases/                   # Phase implementation guides
-    ├── phase-00-setup.md
-    ├── phase-01-auth.md
-    └── ...
-```
+Primary file today: [docs/DEVELOPMENT_PLAN.md](./docs/DEVELOPMENT_PLAN.md). See also [docs/SCALING.md](./docs/SCALING.md).
 
 ---
 
 ## Scripts
 
-| Command | Description |
-|---------|-------------|
-| `pnpm dev` | Run all packages in parallel |
-| `pnpm dev:backend` | Backend only (port 3001) |
-| `pnpm dev:desktop` | Electron app |
-| `pnpm dev:web` | Next.js (port 3000) |
-| `pnpm build` | Build all packages |
-| `pnpm db:push` | Prisma db push |
-| `pnpm db:seed` | Seed demo org + user |
-| `pnpm lint` | Lint all packages |
-| `pnpm typecheck` | TypeScript check |
+| Command            | Description                  |
+| ------------------ | ---------------------------- |
+| `pnpm dev`         | Run all packages in parallel |
+| `pnpm dev:backend` | Backend only (port 3001)     |
+| `pnpm dev:desktop` | Electron app                 |
+| `pnpm dev:landing` | Next.js landing (port 3002)  |
+| `pnpm build`       | Build all packages           |
+| `pnpm db:push`     | Prisma db push               |
+| `pnpm db:seed`     | Seed demo org + user         |
+| `pnpm lint`        | Lint all packages            |
+| `pnpm typecheck`   | TypeScript check             |

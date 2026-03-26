@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowDown, ArrowUp, Settings } from 'lucide-react'
 import { api } from '@/lib/api'
@@ -191,13 +192,16 @@ export default function MyHomePage() {
                             {u.latest_screenshot?.id ? (
                               u.latest_screenshot.thumb_signed_url ||
                               u.latest_screenshot.signed_url ? (
-                                <img
+                                <Image
                                   src={
                                     u.latest_screenshot.thumb_signed_url ??
                                     u.latest_screenshot.signed_url!
                                   }
                                   alt=""
-                                  className="h-full w-full object-cover"
+                                  fill
+                                  className="object-cover"
+                                  unoptimized
+                                  sizes="140px"
                                 />
                               ) : (
                                 <AuthScreenshotThumb

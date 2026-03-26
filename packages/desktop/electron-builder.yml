@@ -2,6 +2,11 @@ appId: io.tracksync.app
 productName: TrackSync
 directories:
   output: release
+# NSIS / macOS: register tracksync:// for OAuth and deep links
+protocols:
+  - name: TrackSync
+    schemes:
+      - tracksync
 files:
   - dist/**/*
   - package.json

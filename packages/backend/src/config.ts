@@ -8,7 +8,7 @@ const envSchema = z.object({
   JWT_PRIVATE_KEY: z.string().optional(),
   JWT_PUBLIC_KEY: z.string().optional(),
   APP_VERSION: z.string().default('0.1.0'),
-  APP_URL: z.string().default('http://localhost:3000'),
+  APP_URL: z.string().default('http://localhost:3002'),
   SMTP_HOST: z.string().default('localhost'),
   SMTP_PORT: z.coerce.number().default(587),
   SMTP_USER: z.string().optional(),
@@ -35,6 +35,11 @@ const envSchema = z.object({
   JIRA_CLIENT_SECRET: z.string().optional(),
   ASANA_CLIENT_ID: z.string().optional(),
   ASANA_CLIENT_SECRET: z.string().optional(),
+  /** Optional error tracking (https://sentry.io) */
+  SENTRY_DSN: z.preprocess(
+    (v) => (v === '' || v === undefined ? undefined : v),
+    z.string().url().optional()
+  ),
 })
 
 export type Config = z.infer<typeof envSchema>
