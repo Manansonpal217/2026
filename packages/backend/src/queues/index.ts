@@ -6,11 +6,12 @@ import type { Config } from '../config.js'
 
 let config: Config | null = null
 let emailQueue: Queue | null = null
-let syncQueue: Queue | null = null
 let screenshotQueue: Queue | null = null
 let integrationQueue: Queue | null = null
 let budgetAlertQueue: Queue | null = null
 let retentionQueue: Queue | null = null
+let timeLogPushQueue: Queue | null = null
+let agentMaintenanceQueue: Queue | null = null
 
 export function initQueues(cfg: Config): void {
   config = cfg
@@ -29,16 +30,6 @@ export function getEmailQueue(): Queue {
     })
   }
   return emailQueue
-}
-
-export function getSyncQueue(): Queue {
-  if (!syncQueue) {
-    syncQueue = new Queue('sync', {
-      connection: { url: getConfig().REDIS_URL },
-      defaultJobOptions: { attempts: 5, backoff: { type: 'exponential', delay: 2000 } },
-    })
-  }
-  return syncQueue
 }
 
 export function getScreenshotQueue(): Queue {
@@ -81,6 +72,50 @@ export function getRetentionQueue(): Queue {
   return retentionQueue
 }
 
+export function getTimeLogPushQueue(): Queue {
+  if (!timeLogPushQueue) {
+    timeLogPushQueue = new Queue('time-log-push', {
+      connection: { url: getConfig().REDIS_URL },
+      defaultJobOptions: { attempts: 3, backoff: { type: 'exponential', delay: 2000 } },
+    })
+  }
+  return timeLogPushQueue
+}
+
+export function getAgentMaintenanceQueue(): Queue {
+  if (!agentMaintenanceQueue) {
+    agentMaintenanceQueue = new Queue('agent-maintenance', {
+      connection: { url: getConfig().REDIS_URL },
+      defaultJobOptions: { attempts: 2 },
+    })
+  }
+  return agentMaintenanceQueue
+}
+
+/** Register BullMQ repeatable jobs (idempotent jobIds in Redis). */
+export async function scheduleRepeatableJobs(): Promise<void> {
+  const retention = getRetentionQueue()
+  const budget = getBudgetAlertQueue()
+  const agentMaint = getAgentMaintenanceQueue()
+
+  await retention.add(
+    'retention-sweep',
+    {},
+    { repeat: { pattern: '0 2 * * *' }, jobId: 'retention-daily' }
+  )
+  await budget.add('budget-check', {}, { repeat: { pattern: '0 * * * *' }, jobId: 'budget-hourly' })
+  await agentMaint.add(
+    'stale-command-cleanup',
+    {},
+    { repeat: { pattern: '*/5 * * * *' }, jobId: 'agent-stale-cleanup' }
+  )
+  await agentMaint.add(
+    'offline-check',
+    {},
+    { repeat: { pattern: '*/2 * * * *' }, jobId: 'agent-offline-check' }
+  )
+}
+
 /** Start all BullMQ workers. Call once during app startup. */
 export async function startWorkers(cfg: Config): Promise<Worker[]> {
   const { screenshotWorker } = await import('./workers/screenshotWorker.js')
@@ -88,6 +123,8 @@ export async function startWorkers(cfg: Config): Promise<Worker[]> {
   const { integrationSyncWorker } = await import('./workers/integrationSync.js')
   const { timeLogPushWorker } = await import('./workers/timeLogPush.js')
   const { budgetAlertWorker } = await import('./workers/budgetAlert.js')
+  const { emailWorker } = await import('./workers/emailWorker.js')
+  const { agentMaintenanceWorker } = await import('./workers/agentMaintenanceWorker.js')
 
   return [
     screenshotWorker(cfg),
@@ -95,5 +132,7 @@ export async function startWorkers(cfg: Config): Promise<Worker[]> {
     integrationSyncWorker(cfg),
     timeLogPushWorker(cfg),
     budgetAlertWorker(cfg),
+    emailWorker(cfg),
+    agentMaintenanceWorker(cfg),
   ]
 }

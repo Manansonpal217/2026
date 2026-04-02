@@ -4,6 +4,7 @@ import { prisma } from '../../db/prisma.js'
 import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
+import { canAccessOrgUser } from '../../lib/permissions.js'
 import { getS3Client } from '../../lib/s3.js'
 
 export async function screenshotFileRoutes(fastify: FastifyInstance, opts: { config: Config }) {
@@ -24,8 +25,7 @@ export async function screenshotFileRoutes(fastify: FastifyInstance, opts: { con
         return reply.status(404).send({ code: 'NOT_FOUND', message: 'Screenshot not found' })
       }
 
-      const canView =
-        shot.user_id === user.id || ['admin', 'super_admin', 'manager'].includes(user.role)
+      const canView = shot.user_id === user.id || (await canAccessOrgUser(user, shot.user_id))
       if (!canView) {
         return reply
           .status(403)

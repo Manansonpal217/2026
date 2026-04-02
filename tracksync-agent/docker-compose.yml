@@ -1,0 +1,13 @@
+services:
+  tracksync-agent:
+    build: .
+    image: tracksync-agent:latest
+    restart: always
+    volumes:
+      - ./tracksync-agent.config.yaml:/app/tracksync-agent.config.yaml:ro
+    # Optional overrides (see README):
+    # environment:
+    #   TRACKSYNC_TOKEN: ${TRACKSYNC_TOKEN}
+    #   JIRA_PAT: ${JIRA_PAT}
+    #   TRACKSYNC_API_URL: https://api.tracksync.dev
+    #   JIRA_BASE_URL: https://jira.example.com

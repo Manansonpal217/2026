@@ -1,7 +1,11 @@
 'use client'
 
-import { useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion'
 
 const faqs = [
   {
@@ -35,41 +39,35 @@ const faqs = [
 ]
 
 export default function FAQPage() {
-  const [openIndex, setOpenIndex] = useState<number | null>(0)
-
   return (
     <main className="min-h-screen">
-      <section className="px-4 pt-24 pb-16 sm:px-6 sm:pt-32 sm:pb-28">
+      <section className="px-4 pb-20 pt-24 sm:px-6 sm:pb-28 sm:pt-32">
         <div className="mx-auto max-w-3xl">
-          <h1 className="font-display text-3xl font-bold text-foreground sm:text-4xl lg:text-5xl">
+          <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground sm:text-4xl lg:text-5xl">
             Frequently asked questions
           </h1>
-          <p className="mt-4 text-muted-foreground">Everything you need to know about TrackSync.</p>
-          <div className="mt-10 space-y-2 sm:mt-12">
+          <p className="mt-4 text-base leading-relaxed text-muted-foreground">
+            Everything you need to know about TrackSync.
+          </p>
+          <Accordion
+            type="single"
+            collapsible
+            defaultValue="faq-0"
+            className="mt-10 space-y-3 sm:mt-12"
+          >
             {faqs.map((faq, i) => (
-              <div
+              <AccordionItem
                 key={i}
-                className="rounded-xl border border-border bg-card/70 backdrop-blur-sm transition-colors hover:border-border"
+                value={`faq-${i}`}
+                className="overflow-hidden rounded-xl border border-border bg-card/90 shadow-sm transition-shadow data-[state=open]:shadow-md"
               >
-                <button
-                  onClick={() => setOpenIndex(openIndex === i ? null : i)}
-                  className="flex w-full items-center justify-between px-6 py-4 text-left"
-                >
-                  <span className="font-medium text-foreground">{faq.q}</span>
-                  <ChevronDown
-                    className={`h-5 w-5 shrink-0 text-muted-foreground transition-transform ${
-                      openIndex === i ? 'rotate-180' : ''
-                    }`}
-                  />
-                </button>
-                {openIndex === i && (
-                  <div className="border-t border-border px-6 py-4">
-                    <p className="text-sm text-muted-foreground">{faq.a}</p>
-                  </div>
-                )}
-              </div>
+                <AccordionTrigger className="text-base font-medium hover:no-underline">
+                  {faq.q}
+                </AccordionTrigger>
+                <AccordionContent className="text-sm leading-relaxed">{faq.a}</AccordionContent>
+              </AccordionItem>
             ))}
-          </div>
+          </Accordion>
         </div>
       </section>
     </main>

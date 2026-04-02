@@ -10,8 +10,10 @@ interface User {
   role: string
 }
 
+export type SessionOrgSettings = { work_platform?: string } | null
+
 interface LoginProps {
-  onSuccess: (user: User) => void
+  onSuccess: (payload: { user: User; org_settings?: SessionOrgSettings }) => void
 }
 
 function InputField({
@@ -184,13 +186,13 @@ export default function Login({ onSuccess }: LoginProps) {
       const res = await window.electron?.ipcRenderer.invoke('auth:login', {
         email,
         password,
-        org_slug: 'demo',
       })
       const result = res as {
         mfa_required?: boolean
         mfa_token?: string
         error?: string
         user?: User
+        org_settings?: SessionOrgSettings
       }
 
       if (result.mfa_required) {
@@ -205,7 +207,7 @@ export default function Login({ onSuccess }: LoginProps) {
       }
 
       if (result.user) {
-        onSuccess(result.user)
+        onSuccess({ user: result.user, org_settings: result.org_settings ?? null })
       }
     } catch {
       setError('Something went wrong. Please try again.')
@@ -227,7 +229,11 @@ export default function Login({ onSuccess }: LoginProps) {
         mfa_token: mfaToken,
         totp_code: mfaCode,
       })
-      const result = res as { error?: string; user?: User }
+      const result = res as {
+        error?: string
+        user?: User
+        org_settings?: SessionOrgSettings
+      }
 
       if (result.error) {
         setError(result.error || 'Invalid code')
@@ -236,7 +242,7 @@ export default function Login({ onSuccess }: LoginProps) {
       }
 
       if (result.user) {
-        onSuccess(result.user)
+        onSuccess({ user: result.user, org_settings: result.org_settings ?? null })
       }
     } catch {
       setError('Something went wrong. Please try again.')

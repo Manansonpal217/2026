@@ -1,23 +1,28 @@
 import Link from 'next/link'
+import { Separator } from '@/components/ui/separator'
 
 export function Footer() {
   return (
-    <footer className="border-t border-border py-12 sm:py-16">
-      <div className="mx-auto max-w-6xl px-4 sm:px-6">
-        <div className="grid gap-10 sm:grid-cols-2 sm:gap-12 lg:grid-cols-4">
+    <footer className="relative overflow-hidden border-t border-border/80 bg-background/50 py-14 sm:py-20">
+      <div
+        className="pointer-events-none absolute inset-0 gradient-mesh opacity-[0.2]"
+        aria-hidden
+      />
+      <div className="relative mx-auto max-w-6xl px-4 sm:px-6">
+        <div className="grid gap-12 sm:grid-cols-2 sm:gap-14 lg:grid-cols-4">
           <div>
-            <span className="text-lg font-semibold text-foreground">TrackSync</span>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <span className="text-lg font-semibold tracking-tight text-foreground">TrackSync</span>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               Work intelligence for modern teams.
             </p>
           </div>
           <div>
-            <h4 className="text-sm font-medium text-foreground">Product</h4>
-            <ul className="mt-4 space-y-2">
+            <h4 className="text-sm font-semibold tracking-tight text-foreground">Product</h4>
+            <ul className="mt-4 space-y-2.5">
               <li>
                 <Link
                   href="/pricing"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  className="text-sm text-muted-foreground transition-colors duration-200 hover:text-foreground"
                 >
                   Pricing
                 </Link>
@@ -25,7 +30,7 @@ export function Footer() {
               <li>
                 <Link
                   href="/#features"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  className="text-sm text-muted-foreground transition-colors duration-200 hover:text-foreground"
                 >
                   Features
                 </Link>
@@ -33,7 +38,7 @@ export function Footer() {
               <li>
                 <Link
                   href="/faq"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  className="text-sm text-muted-foreground transition-colors duration-200 hover:text-foreground"
                 >
                   FAQ
                 </Link>
@@ -41,12 +46,12 @@ export function Footer() {
             </ul>
           </div>
           <div>
-            <h4 className="text-sm font-medium text-foreground">Company</h4>
-            <ul className="mt-4 space-y-2">
+            <h4 className="text-sm font-semibold tracking-tight text-foreground">Company</h4>
+            <ul className="mt-4 space-y-2.5">
               <li>
                 <Link
                   href="/about"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  className="text-sm text-muted-foreground transition-colors duration-200 hover:text-foreground"
                 >
                   About
                 </Link>
@@ -54,7 +59,7 @@ export function Footer() {
               <li>
                 <Link
                   href="/contact"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  className="text-sm text-muted-foreground transition-colors duration-200 hover:text-foreground"
                 >
                   Contact
                 </Link>
@@ -62,12 +67,12 @@ export function Footer() {
             </ul>
           </div>
           <div>
-            <h4 className="text-sm font-medium text-foreground">Legal</h4>
-            <ul className="mt-4 space-y-2">
+            <h4 className="text-sm font-semibold tracking-tight text-foreground">Legal</h4>
+            <ul className="mt-4 space-y-2.5">
               <li>
                 <Link
                   href="/privacy"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  className="text-sm text-muted-foreground transition-colors duration-200 hover:text-foreground"
                 >
                   Privacy
                 </Link>
@@ -75,7 +80,7 @@ export function Footer() {
               <li>
                 <Link
                   href="/terms"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  className="text-sm text-muted-foreground transition-colors duration-200 hover:text-foreground"
                 >
                   Terms
                 </Link>
@@ -83,7 +88,8 @@ export function Footer() {
             </ul>
           </div>
         </div>
-        <div className="mt-12 border-t border-border pt-8">
+        <Separator className="my-12 bg-border/80" />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <span className="text-sm text-muted-foreground" suppressHydrationWarning>
             © {new Date().getFullYear()} TrackSync
           </span>

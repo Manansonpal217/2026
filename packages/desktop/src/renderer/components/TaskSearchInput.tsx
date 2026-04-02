@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Search, X } from 'lucide-react'
 import { InlineLoader } from './Loader'
 
@@ -63,6 +63,7 @@ export function TaskSearchInput({
   theme = 'dark',
 }: TaskSearchInputProps) {
   const [backendResults, setBackendResults] = useState<TaskWithProject[]>([])
+  const [syncedJiraResults, setSyncedJiraResults] = useState<JiraIssue[]>([])
   const [loading, setLoading] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
   const [hasSearched, setHasSearched] = useState(false)
@@ -71,23 +72,38 @@ export function TaskSearchInput({
 
   const jiraMatches = value.length >= MIN_QUERY_LENGTH ? filterJiraIssues(jiraIssues, value) : []
 
+  const mergedJiraRows = useMemo(() => {
+    const byKey = new Map<string, JiraIssue>()
+    for (const j of syncedJiraResults) byKey.set(j.key, j)
+    for (const j of jiraMatches) byKey.set(j.key, j)
+    return Array.from(byKey.values())
+  }, [syncedJiraResults, jiraMatches])
+
   const search = useCallback(async (query: string) => {
     if (query.length < MIN_QUERY_LENGTH) {
       setBackendResults([])
+      setSyncedJiraResults([])
       setHasSearched(false)
       return
     }
     setLoading(true)
     setHasSearched(true)
     try {
-      const list = (await window.electron?.ipcRenderer.invoke(
-        'projects:search-tasks',
-        query,
-        'me'
-      )) as TaskWithProject[]
-      setBackendResults(list ?? [])
+      const pack = await window.electron?.ipcRenderer.invoke('projects:search-tasks', query, 'me')
+      if (Array.isArray(pack)) {
+        setBackendResults((pack as TaskWithProject[]) ?? [])
+        setSyncedJiraResults([])
+      } else if (pack && typeof pack === 'object') {
+        const o = pack as { tasks?: TaskWithProject[]; syncedJiraIssues?: JiraIssue[] }
+        setBackendResults(o.tasks ?? [])
+        setSyncedJiraResults(o.syncedJiraIssues ?? [])
+      } else {
+        setBackendResults([])
+        setSyncedJiraResults([])
+      }
     } catch {
       setBackendResults([])
+      setSyncedJiraResults([])
     } finally {
       setLoading(false)
     }
@@ -97,6 +113,7 @@ export function TaskSearchInput({
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (value.length < MIN_QUERY_LENGTH) {
       setBackendResults([])
+      setSyncedJiraResults([])
       setShowDropdown(false)
       setHasSearched(false)
       return
@@ -126,6 +143,7 @@ export function TaskSearchInput({
     onSelect(task.project_id, task.id, task)
     onChange('')
     setBackendResults([])
+    setSyncedJiraResults([])
     setShowDropdown(false)
     setHasSearched(false)
   }
@@ -134,6 +152,7 @@ export function TaskSearchInput({
     onSelectJiraIssue?.(issue)
     onChange('')
     setBackendResults([])
+    setSyncedJiraResults([])
     setShowDropdown(false)
     setHasSearched(false)
   }
@@ -142,7 +161,7 @@ export function TaskSearchInput({
     onSelect(null, null)
   }
 
-  const hasResults = backendResults.length > 0 || jiraMatches.length > 0
+  const hasResults = backendResults.length > 0 || mergedJiraRows.length > 0
 
   const inputBase =
     theme === 'dark'
@@ -292,7 +311,7 @@ export function TaskSearchInput({
                 <span className={`text-xs ${muted} shrink-0`}>({task.project.name})</span>
               </button>
             ))}
-            {jiraMatches.map((issue) => (
+            {mergedJiraRows.map((issue) => (
               <button
                 key={issue.id}
                 type="button"

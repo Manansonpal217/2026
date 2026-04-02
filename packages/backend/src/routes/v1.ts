@@ -31,6 +31,7 @@ import { integrationCallbackRoutes } from './integrations/callback.js'
 import { integrationListRoutes } from './integrations/list.js'
 import { integrationDeleteRoutes } from './integrations/delete.js'
 import { integrationSyncRoutes } from './integrations/sync.js'
+import { jiraIssuesSearchRoutes } from './integrations/jira-issues-search.js'
 // Phase 5
 import { timeReportRoutes } from './reports/time.js'
 import { activityReportRoutes } from './reports/activity.js'
@@ -39,9 +40,14 @@ import { adminUserRoutes } from './admin/users.js'
 import { adminSettingsRoutes } from './admin/settings.js'
 import { adminAuditLogRoutes } from './admin/audit-log.js'
 import { adminStreaksRoutes } from './admin/streaks.js'
+import { adminAnalyticsRoutes } from './admin/analytics.js'
 import { dashboardTeamSummaryRoutes } from './dashboard/team-summary.js'
 import { platformOrgRoutes } from './platform/orgs.js'
+import { platformAnalyticsRoutes } from './platform/analytics.js'
 import { offlineTimeRoutes } from './offline-time.js'
+import { agentRoutes } from './agent/index.js'
+import { adminAgentRoutes } from './admin/agent.js'
+import { teamRoutes } from './teams/index.js'
 
 export async function v1Routes(fastify: FastifyInstance, opts: { config: Config }) {
   const { config } = opts
@@ -71,6 +77,9 @@ export async function v1Routes(fastify: FastifyInstance, opts: { config: Config 
   // ── Users ─────────────────────────────────────────────────────────────────────
   fastify.register(userRoutes, { prefix: '/users', config })
 
+  // ── Teams ─────────────────────────────────────────────────────────────────────
+  fastify.register(teamRoutes, { prefix: '/teams', config })
+
   // ── Dashboard ────────────────────────────────────────────────────────────────
   fastify.register(dashboardTeamSummaryRoutes, { prefix: '/dashboard', config })
 
@@ -88,6 +97,7 @@ export async function v1Routes(fastify: FastifyInstance, opts: { config: Config 
   fastify.register(integrationListRoutes, { prefix: '/integrations', config })
   fastify.register(integrationDeleteRoutes, { prefix: '/integrations', config })
   fastify.register(integrationSyncRoutes, { prefix: '/integrations', config })
+  fastify.register(jiraIssuesSearchRoutes, { prefix: '/integrations/jira', config })
 
   // ── Phase 5: Reports + Admin ──────────────────────────────────────────────────
   fastify.register(timeReportRoutes, { prefix: '/reports', config })
@@ -97,7 +107,13 @@ export async function v1Routes(fastify: FastifyInstance, opts: { config: Config 
   fastify.register(adminSettingsRoutes, { prefix: '/admin', config })
   fastify.register(adminAuditLogRoutes, { prefix: '/admin', config })
   fastify.register(adminStreaksRoutes, { prefix: '/admin', config })
+  fastify.register(adminAnalyticsRoutes, { prefix: '/admin', config })
+  fastify.register(adminAgentRoutes, { prefix: '/admin', config })
+
+  // ── Agent (Bearer agent token) ───────────────────────────────────────────────
+  fastify.register(agentRoutes, { prefix: '/agent', config })
 
   // Platform (cross-tenant): requires User.is_platform_admin
   fastify.register(platformOrgRoutes, { prefix: '/platform', config })
+  fastify.register(platformAnalyticsRoutes, { prefix: '/platform', config })
 }

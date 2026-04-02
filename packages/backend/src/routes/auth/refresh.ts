@@ -40,7 +40,10 @@ export async function refreshRoutes(fastify: FastifyInstance, _opts: { config: C
 
       const { user } = matchedToken
 
-      if (user.status !== 'active' || user.organization.status === 'suspended') {
+      if (
+        (user.status as string) !== 'ACTIVE' ||
+        (user.organization.status as string) === 'SUSPENDED'
+      ) {
         await prisma.refreshToken.deleteMany({ where: { id: matchedToken.id } })
         return reply.status(402).send({
           code: 'ORG_SUSPENDED',
@@ -57,7 +60,12 @@ export async function refreshRoutes(fastify: FastifyInstance, _opts: { config: C
         })
       }
 
-      const newAccessToken = await issueAccessToken(user.id, user.org_id, user.role)
+      const newAccessToken = await issueAccessToken(
+        user.id,
+        user.org_id,
+        user.role as string,
+        user.role_version
+      )
       const newRefreshToken = createRefreshToken()
       const newTokenHash = hashRefreshToken(newRefreshToken)
 

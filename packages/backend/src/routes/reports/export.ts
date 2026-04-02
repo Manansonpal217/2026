@@ -2,9 +2,15 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../../db/prisma.js'
 import { getDbRead } from '../../lib/db-read.js'
-import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
+import { createAuthenticateMiddleware, requirePermission } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
+import {
+  filterAccessibleUserIds,
+  mayActAsPeopleManager,
+  Permission,
+} from '../../lib/permissions.js'
+import { timeApprovalTotalsFilter } from '../../lib/time-approval-scope.js'
 
 const querySchema = z.object({
   from: z.string().datetime({ offset: true }).optional(),
@@ -29,7 +35,7 @@ export async function exportReportRoutes(fastify: FastifyInstance, opts: { confi
   const authenticate = createAuthenticateMiddleware(opts.config)
 
   fastify.get('/export', {
-    preHandler: [authenticate],
+    preHandler: [authenticate, requirePermission(Permission.REPORTS_EXPORT)],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const user = req.user!
@@ -41,13 +47,20 @@ export async function exportReportRoutes(fastify: FastifyInstance, opts: { confi
       }
       const query = parsed.data
 
-      const canViewOthers = ['admin', 'super_admin', 'manager'].includes(user.role)
-      const userIds =
-        canViewOthers && query.user_id
+      const requestedRaw =
+        mayActAsPeopleManager(user.role) && query.user_id
           ? Array.isArray(query.user_id)
             ? query.user_id
             : [query.user_id]
           : [user.id]
+
+      const userIds = await filterAccessibleUserIds(user, requestedRaw)
+      if (userIds.length !== requestedRaw.length) {
+        return reply.status(403).send({
+          code: 'FORBIDDEN',
+          message: 'Access denied for one or more selected users',
+        })
+      }
 
       const projectIds = query.project_id
         ? Array.isArray(query.project_id)
@@ -85,10 +98,12 @@ export async function exportReportRoutes(fastify: FastifyInstance, opts: { confi
         }
       }
 
+      const approvalTotals = await timeApprovalTotalsFilter(user.org_id)
       const where = {
         org_id: user.org_id,
         user_id: { in: userIds },
         ended_at: { not: null },
+        ...approvalTotals,
         ...(projectIds && { project_id: { in: projectIds } }),
         ...(query.from || query.to
           ? {

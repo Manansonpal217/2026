@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../../db/prisma.js'
 import type { Config } from '../../config.js'
-import { getRegistry } from '../../lib/integrations/registry.js'
+import { getAdapter } from '../../lib/integrations/registry.js'
 import { encryptAuthData } from '../../lib/integrations/kms.js'
 
 export async function integrationCallbackRoutes(
@@ -52,9 +52,16 @@ export async function integrationCallbackRoutes(
         data: { used: true },
       })
 
-      const adapter = getRegistry().get(oauthState.provider)
-      if (!adapter) {
-        return reply.status(400).send({ code: 'UNKNOWN_PROVIDER', message: 'Unknown provider' })
+      let adapter
+      try {
+        adapter = getAdapter(oauthState.provider)
+      } catch {
+        return reply
+          .status(503)
+          .send({
+            code: 'INTEGRATION_NOT_CONFIGURED',
+            message: 'Integration provider is not available',
+          })
       }
 
       try {
@@ -77,13 +84,13 @@ export async function integrationCallbackRoutes(
             org_id: oauthState.org_id,
             type: oauthState.provider,
             name: adapter.displayName,
-            status: 'active',
+            status: 'ACTIVE',
             auth_data: encryptedTokens,
             kms_key_id: opts.config.KMS_INTEGRATIONS_KEY_ID ?? 'local',
           },
           update: {
             auth_data: encryptedTokens,
-            status: 'active',
+            status: 'ACTIVE',
             kms_key_id: opts.config.KMS_INTEGRATIONS_KEY_ID ?? 'local',
           },
         })

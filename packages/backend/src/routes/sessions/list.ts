@@ -4,7 +4,9 @@ import { prisma } from '../../db/prisma.js'
 import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
+import { canAccessOrgUser, mayActAsPeopleManager } from '../../lib/permissions.js'
 import { overlapSeconds } from '../../lib/time-session-overlap.js'
+import { timeApprovalTotalsFilter } from '../../lib/time-approval-scope.js'
 
 const querySchema = z.object({
   from: z.string().datetime({ offset: true }).optional(),
@@ -30,8 +32,18 @@ export async function sessionListRoutes(fastify: FastifyInstance, opts: { config
       }
       const query = parsed.data
 
-      const canViewOthers = ['admin', 'super_admin', 'manager'].includes(user.role)
-      const targetUserId = canViewOthers && query.user_id ? query.user_id : user.id
+      if (query.user_id && query.user_id !== user.id && !mayActAsPeopleManager(user.role)) {
+        return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+      }
+
+      const targetUserId =
+        query.user_id && mayActAsPeopleManager(user.role) ? query.user_id : user.id
+
+      if (query.user_id && query.user_id !== user.id) {
+        if (!(await canAccessOrgUser(user, query.user_id))) {
+          return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+        }
+      }
 
       const fromDate = query.from ? new Date(query.from) : undefined
       const toDate = query.to ? new Date(query.to) : undefined
@@ -67,6 +79,9 @@ export async function sessionListRoutes(fastify: FastifyInstance, opts: { config
         ...overlapWhere,
       }
 
+      const approvalTotals = await timeApprovalTotalsFilter(user.org_id)
+      const whereTotals = { ...where, ...approvalTotals }
+
       const [sessions, total, aggregateRows] = await Promise.all([
         prisma.timeSession.findMany({
           where,
@@ -85,7 +100,7 @@ export async function sessionListRoutes(fastify: FastifyInstance, opts: { config
         prisma.timeSession.count({ where }),
         usesOverlap
           ? prisma.timeSession.findMany({
-              where,
+              where: whereTotals,
               select: {
                 id: true,
                 started_at: true,
@@ -115,7 +130,7 @@ export async function sessionListRoutes(fastify: FastifyInstance, opts: { config
         }, 0)
       } else {
         const forSum = await prisma.timeSession.findMany({
-          where,
+          where: whereTotals,
           select: { id: true, duration_sec: true },
         })
         const sumIds = forSum.map((s) => s.id)

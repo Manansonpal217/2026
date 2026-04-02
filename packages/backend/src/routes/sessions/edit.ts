@@ -18,7 +18,7 @@ export async function sessionAdminEditRoutes(fastify: FastifyInstance, opts: { c
   const authenticate = createAuthenticateMiddleware(opts.config)
 
   fastify.patch('/:id/admin-edit', {
-    preHandler: [authenticate, requireRole('admin', 'super_admin')],
+    preHandler: [authenticate, requireRole('ADMIN', 'OWNER')],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const user = req.user!
@@ -37,16 +37,18 @@ export async function sessionAdminEditRoutes(fastify: FastifyInstance, opts: { c
       }
 
       const startedAt = body.data.started_at ? new Date(body.data.started_at) : session.started_at
-      const endedAt = body.data.ended_at
-        ? new Date(body.data.ended_at)
-        : session.ended_at
+      const endedAt = body.data.ended_at ? new Date(body.data.ended_at) : session.ended_at
 
       // Validation
       if (startedAt > new Date()) {
-        return reply.status(400).send({ code: 'INVALID_TIME', message: 'started_at cannot be in the future' })
+        return reply
+          .status(400)
+          .send({ code: 'INVALID_TIME', message: 'started_at cannot be in the future' })
       }
       if (endedAt && endedAt <= startedAt) {
-        return reply.status(400).send({ code: 'INVALID_TIME', message: 'ended_at must be after started_at' })
+        return reply
+          .status(400)
+          .send({ code: 'INVALID_TIME', message: 'ended_at must be after started_at' })
       }
 
       const durationSec = endedAt

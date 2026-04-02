@@ -29,7 +29,7 @@ export async function projectRoutes(fastify: FastifyInstance, opts: { config: Co
 
   // POST /v1/projects — create a project (admin+)
   fastify.post('/', {
-    preHandler: [authenticate, requireRole('admin', 'super_admin')],
+    preHandler: [authenticate, requireRole('ADMIN', 'OWNER')],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const body = createProjectSchema.safeParse(request.body)
@@ -107,7 +107,7 @@ export async function projectRoutes(fastify: FastifyInstance, opts: { config: Co
 
   // PATCH /v1/projects/:id — update project (admin+)
   fastify.patch('/:id', {
-    preHandler: [authenticate, requireRole('admin', 'super_admin')],
+    preHandler: [authenticate, requireRole('ADMIN', 'OWNER')],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const { id } = request.params as { id: string }
@@ -137,7 +137,7 @@ export async function projectRoutes(fastify: FastifyInstance, opts: { config: Co
 
   // DELETE /v1/projects/:id — soft delete (archive)
   fastify.delete('/:id', {
-    preHandler: [authenticate, requireRole('admin', 'super_admin')],
+    preHandler: [authenticate, requireRole('ADMIN', 'OWNER')],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const { id } = request.params as { id: string }

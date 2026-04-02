@@ -1,8 +1,10 @@
 'use client'
 
-import Image from 'next/image'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Quote, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
 
 const testimonials = [
   {
@@ -87,6 +89,13 @@ const testimonials = [
   },
 ]
 
+function initialsFromName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
 function chunk<T>(items: T[], size: number): T[][] {
   const pages: T[][] = []
   for (let i = 0; i < items.length; i += size) {
@@ -97,25 +106,28 @@ function chunk<T>(items: T[], size: number): T[][] {
 
 function TestimonialCard({ quote, name, avatar, role, company }: (typeof testimonials)[number]) {
   return (
-    <div className="h-full rounded-2xl border border-border bg-card/70 p-6 backdrop-blur-sm transition-all hover:border-primary/25 hover:bg-card">
-      <Quote className="h-8 w-8 text-primary/50" />
-      <p className="mt-4 text-[15px] leading-relaxed text-foreground/85">&ldquo;{quote}&rdquo;</p>
-      <div className="mt-6 flex items-center gap-3">
-        <Image
-          src={avatar}
-          alt=""
-          width={48}
-          height={48}
-          className="h-12 w-12 shrink-0 rounded-full object-cover ring-2 ring-border"
-        />
-        <div className="min-w-0">
-          <p className="truncate font-medium text-foreground">{name}</p>
-          <p className="truncate text-sm text-muted-foreground">
-            {role}, {company}
-          </p>
+    <Card className="h-full border-border/80 bg-card/95 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-md">
+      <CardContent className="flex h-full flex-col p-6">
+        <Quote className="h-8 w-8 shrink-0 text-primary/40" />
+        <p className="mt-4 flex-1 text-[15px] leading-relaxed text-foreground/90">
+          &ldquo;{quote}&rdquo;
+        </p>
+        <div className="mt-6 flex items-center gap-3">
+          <Avatar className="h-12 w-12">
+            <AvatarImage src={avatar} alt="" />
+            <AvatarFallback className="text-xs font-medium">
+              {initialsFromName(name)}
+            </AvatarFallback>
+          </Avatar>
+          <div className="min-w-0">
+            <p className="truncate font-medium text-foreground">{name}</p>
+            <p className="truncate text-sm text-muted-foreground">
+              {role}, {company}
+            </p>
+          </div>
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -192,25 +204,29 @@ export function TestimonialsCarousel() {
       </div>
 
       {pages.length > 1 ? (
-        <div className="mt-8 flex items-center justify-center gap-3">
-          <button
+        <div className="mt-8 flex items-center justify-center gap-2">
+          <Button
             type="button"
+            variant="outline"
+            size="icon"
+            className="h-11 w-11 rounded-full"
             onClick={() => scrollByPage('left')}
             disabled={!canScrollLeft}
-            className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-muted/50 text-foreground/85 transition-all hover:border-border hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-25"
             aria-label="Previous testimonials"
           >
             <ChevronLeft className="h-5 w-5" />
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="outline"
+            size="icon"
+            className="h-11 w-11 rounded-full"
             onClick={() => scrollByPage('right')}
             disabled={!canScrollRight}
-            className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-muted/50 text-foreground/85 transition-all hover:border-border hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-25"
             aria-label="Next testimonials"
           >
             <ChevronRight className="h-5 w-5" />
-          </button>
+          </Button>
         </div>
       ) : null}
     </div>

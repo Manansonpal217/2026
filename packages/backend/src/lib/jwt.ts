@@ -6,6 +6,7 @@ export interface TokenPayload {
   sub: string
   org_id: string
   role: string
+  role_version: number
   iat: number
   exp: number
 }
@@ -49,12 +50,14 @@ export async function initJwtKeys(
 export async function issueAccessToken(
   userId: string,
   orgId: string,
-  role: string
+  role: string,
+  roleVersion: number
 ): Promise<string> {
   return new jose.SignJWT({
     jti: randomUUID(),
     org_id: orgId,
     role,
+    role_version: roleVersion,
   })
     .setProtectedHeader({ alg: 'RS256' })
     .setSubject(userId)

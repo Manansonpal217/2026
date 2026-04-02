@@ -1,14 +1,15 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../../db/prisma.js'
-import { createAuthenticateMiddleware, requireRole } from '../../middleware/authenticate.js'
+import { createAuthenticateMiddleware, requirePermission } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
+import { Permission } from '../../lib/permissions.js'
 
 export async function integrationDeleteRoutes(fastify: FastifyInstance, opts: { config: Config }) {
   const authenticate = createAuthenticateMiddleware(opts.config)
 
   fastify.delete('/:id', {
-    preHandler: [authenticate, requireRole('admin', 'super_admin')],
+    preHandler: [authenticate, requirePermission(Permission.INTEGRATIONS_MANAGE)],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const { id } = request.params as { id: string }

@@ -19,6 +19,8 @@ import { loadTokens } from './auth/keychain.js'
 import { registerJiraHandlers } from './jira/ipcHandlers.js'
 import { handleJiraProtocolUrl } from './jira/auth.js'
 import { initJiraApi } from './jira/api.js'
+import { handleAsanaProtocolUrl, setAsanaMainWindowGetter } from './asana/auth.js'
+import { registerAsanaHandlers } from './asana/ipcHandlers.js'
 import { openDb, closeDb } from './db/index.js'
 import {
   startTimer,
@@ -45,7 +47,8 @@ import {
   stopInputMonitor,
   isInputMonitorAvailable,
 } from './activity/inputMonitor.js'
-import { getActivityPercentForTrackedTime, pruneOldIntervals } from './activity/intervalTracker.js'
+import { pruneOldIntervals } from './activity/intervalTracker.js'
+import { getWeightedActivityScoreLocalCalendarDay } from './activity/dayWeightedScore.js'
 import { startActiveWindowPolling, stopActiveWindowPolling } from './activity/activeWin.js'
 import { startIdleManager, stopIdleManager, type StopReason } from './idle/idleManager.js'
 import { getDb } from './db/index.js'
@@ -368,6 +371,10 @@ function createWindow(): void {
 }
 
 function handleProtocolUrl(url: string): void {
+  if (handleAsanaProtocolUrl(url)) {
+    mainWindow?.focus()
+    return
+  }
   if (handleJiraProtocolUrl(url)) {
     mainWindow?.focus()
   }
@@ -451,6 +458,8 @@ app.whenReady().then(async () => {
 
   // Register Jira IPC handlers
   registerJiraHandlers(ipcMain)
+  registerAsanaHandlers(ipcMain)
+  setAsanaMainWindowGetter(() => mainWindow)
   initJiraApi(() => mainWindow)
 
   // Theme: sync window background with app theme (hides title bar seam in light mode)
@@ -562,6 +571,7 @@ function registerTimerHandlers(): void {
                 email: '',
                 name: '',
               },
+              org_settings: null,
               reason: 'network' as const,
             }
           } catch {
@@ -595,13 +605,20 @@ function registerTimerHandlers(): void {
       })
       if (!res.ok) {
         if (res.status === 401) return { authenticated: false, user: null }
-        return { authenticated: true, user: fallbackUser }
+        return { authenticated: true, user: fallbackUser, org_settings: null }
       }
       const data = (await res.json()) as {
         user?: { id: string; name: string; email: string; role: string; org_id: string }
+        org_settings?: { work_platform?: string } | null
       }
       const u = data.user
-      if (!u) return { authenticated: true, user: fallbackUser }
+      if (!u) {
+        return {
+          authenticated: true,
+          user: fallbackUser,
+          org_settings: data.org_settings ?? null,
+        }
+      }
       return {
         authenticated: true,
         user: {
@@ -611,6 +628,7 @@ function registerTimerHandlers(): void {
           email: u.email,
           name: u.name ?? u.email,
         },
+        org_settings: data.org_settings ?? null,
       }
     } catch {
       try {
@@ -628,6 +646,7 @@ function registerTimerHandlers(): void {
             email: '',
             name: '',
           },
+          org_settings: null,
         }
       } catch {
         return { authenticated: false, user: null }
@@ -752,12 +771,12 @@ function registerTimerHandlers(): void {
           userSub = null
         }
       }
-      const score = userSub ? getActivityPercentForTrackedTime(userSub) : 0
+      const score = userSub ? getWeightedActivityScoreLocalCalendarDay(userSub) : null
       const inputAvailable = isInputMonitorAvailable()
       return { score, monitoring: true, inputAvailable }
     } catch (err) {
       // DB may be closed during app shutdown
-      return { score: 0, monitoring: false, inputAvailable: false }
+      return { score: null, monitoring: false, inputAvailable: false }
     }
   })
 
@@ -1015,20 +1034,29 @@ function registerProjectHandlers(): void {
     'projects:search-tasks',
     async (_, query: string, assigneeFilter?: 'me' | 'all') => {
       const token = await ensureValidSession(mainWindow ?? undefined).catch(() => null)
-      if (!token) return []
+      if (!token) return { tasks: [], syncedJiraIssues: [] }
 
       try {
         const filter = assigneeFilter === 'me' ? 'me' : 'all'
         const encoded = encodeURIComponent(query.trim())
-        const res = await fetch(
-          `${API_URL}/v1/projects/tasks/search?q=${encoded}&assigneeFilter=${filter}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        )
-        if (!res.ok) return []
-        const data = (await res.json()) as { tasks: unknown[] }
-        return data.tasks
+        const taskUrl = `${API_URL}/v1/projects/tasks/search?q=${encoded}&assigneeFilter=${filter}`
+        const jiraUrl = `${API_URL}/v1/integrations/jira/issues/search?q=${encoded}&assigneeFilter=all`
+
+        const [taskRes, jiraRes] = await Promise.all([
+          fetch(taskUrl, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(jiraUrl, { headers: { Authorization: `Bearer ${token}` } }),
+        ])
+
+        const tasks = taskRes.ok
+          ? (((await taskRes.json()) as { tasks?: unknown[] }).tasks ?? [])
+          : []
+        const syncedJiraIssues = jiraRes.ok
+          ? (((await jiraRes.json()) as { issues?: unknown[] }).issues ?? [])
+          : []
+
+        return { tasks, syncedJiraIssues }
       } catch {
-        return []
+        return { tasks: [], syncedJiraIssues: [] }
       }
     }
   )

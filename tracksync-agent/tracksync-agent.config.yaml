@@ -1,0 +1,34 @@
+# Default config when you run `npm run dev` from this folder.
+# For secrets and overrides, copy to tracksync-agent.config.local.yaml (gitignored) and set:
+#   export TRACKSYNC_AGENT_CONFIG="$PWD/tracksync-agent.config.local.yaml"
+jira:
+  baseUrl: https://jira.example.com
+  pat: JIRA_PAT_HERE
+
+tracksync:
+  apiUrl: http://localhost:3001/v1/agent
+  token: ORG_TOKEN_HERE
+
+sync:
+  # Safer default: no fake project keys (avoids Jira 400). Set false + real keys to filter.
+  syncAllIssues: true
+  # First run only: pull every issue (created since 1970), then use the time window below.
+  fullBackfillOnFirstRun: false
+  pollIntervalMinutes: 5
+  projects: []
+  issueTypes: []
+  statuses: []
+  fields:
+    - summary
+    - status
+    - assignee
+    - priority
+    - duedate
+    - labels
+    - description
+  excludeFields:
+    - comment
+    - attachments
+  timeLogging:
+    method: jira_worklog
+    commandPollIntervalSeconds: 30

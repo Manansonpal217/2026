@@ -18,6 +18,9 @@ interface TrackysncAPI {
   connectJira: () => Promise<{ success: boolean; error?: string }>
   disconnectJira: () => Promise<{ ok: boolean }>
   isConnected: () => Promise<boolean>
+  connectAsana?: () => Promise<{ success: boolean; error?: string }>
+  disconnectAsana?: () => Promise<{ ok: boolean }>
+  isAsanaConnected?: () => Promise<boolean>
   getIssues: () => Promise<
     Array<{
       id: string

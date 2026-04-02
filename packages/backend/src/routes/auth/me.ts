@@ -4,6 +4,12 @@ import { computeUserStreak } from '../../lib/streak.js'
 import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
+import {
+  Permission,
+  hasPermission,
+  type Permission as PermissionKey,
+} from '../../lib/permissions.js'
+import { toPublicOrgSettings } from '../../lib/org-settings-fields.js'
 
 export async function meRoutes(fastify: FastifyInstance, opts: { config: Config }) {
   const authenticate = createAuthenticateMiddleware(opts.config)
@@ -31,6 +37,21 @@ export async function meRoutes(fastify: FastifyInstance, opts: { config: Config 
         computeUserStreak(fullUser.id, fullUser.timezone),
       ])
 
+      const principal = {
+        id: fullUser.id,
+        org_id: fullUser.org_id,
+        role: fullUser.role as string,
+      }
+      const access_scope =
+        (fullUser.role as string) === 'OWNER' || (fullUser.role as string) === 'ADMIN'
+          ? 'org'
+          : (fullUser.role as string) === 'MANAGER'
+            ? 'direct_reports'
+            : 'self'
+      const permissions = (Object.values(Permission) as PermissionKey[]).filter((p) =>
+        hasPermission(principal, p)
+      )
+
       return {
         user: {
           id: fullUser.id,
@@ -48,18 +69,11 @@ export async function meRoutes(fastify: FastifyInstance, opts: { config: Config 
           status: fullUser.organization.status,
           plan: fullUser.organization.plan,
         },
-        org_settings: orgSettings
-          ? {
-              screenshot_interval_seconds: orgSettings.screenshot_interval_seconds,
-              screenshot_retention_days: orgSettings.screenshot_retention_days,
-              blur_screenshots: orgSettings.blur_screenshots,
-              time_approval_required: orgSettings.time_approval_required,
-              idle_detection_enabled: orgSettings.idle_detection_enabled,
-              idle_timeout_minutes: orgSettings.idle_timeout_minutes,
-              idle_timeout_intervals: orgSettings.idle_timeout_intervals,
-              expected_daily_work_minutes: orgSettings.expected_daily_work_minutes,
-            }
-          : null,
+        org_settings: toPublicOrgSettings(orgSettings),
+        authz: {
+          access_scope,
+          permissions,
+        },
       }
     }
   )

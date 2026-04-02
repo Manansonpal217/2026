@@ -2,12 +2,11 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { prisma } from '../../db/prisma.js'
 import { hashPassword, hashRefreshToken } from '../../lib/password.js'
 import { issueAccessToken, createRefreshToken } from '../../lib/jwt.js'
-import { sendInviteEmail } from '../../lib/email.js'
+import { enqueueTransactionalEmail } from '../../services/email/enqueue.js'
 import { createAuthenticateMiddleware, requireRole } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
-
-const VALID_ROLES = ['admin', 'manager', 'employee']
+import { getAllowedInviteRoles } from '../../lib/permissions.js'
 
 export async function inviteRoutes(fastify: FastifyInstance, opts: { config: Config }) {
   const { config } = opts
@@ -16,21 +15,33 @@ export async function inviteRoutes(fastify: FastifyInstance, opts: { config: Con
   fastify.post<{ Body: { email: string; role?: string } }>(
     '/invite',
     {
-      preHandler: [authenticate, requireRole('super_admin', 'admin')],
+      preHandler: [authenticate, requireRole('OWNER', 'ADMIN', 'MANAGER')],
       schema: {
         body: {
           type: 'object',
           required: ['email'],
           properties: {
             email: { type: 'string', format: 'email' },
-            role: { type: 'string', enum: VALID_ROLES },
+            role: { type: 'string' },
           },
         },
       },
     },
-    async (request: FastifyRequest<{ Body: { email: string; role?: string } }>, reply: FastifyReply) => {
-      const { email, role = 'employee' } = request.body
+    async (
+      request: FastifyRequest<{ Body: { email: string; role?: string } }>,
+      reply: FastifyReply
+    ) => {
+      const { email, role = 'EMPLOYEE' } = request.body
       const requester = (request as AuthenticatedRequest).user!
+
+      // Privilege escalation prevention — callers can only invite roles below their own
+      const allowedRoles = getAllowedInviteRoles(requester.role)
+      if (!allowedRoles.includes(role)) {
+        return reply.status(403).send({
+          code: 'FORBIDDEN',
+          message: `Your role cannot invite users with role ${role}. Allowed: ${allowedRoles.join(', ')}`,
+        })
+      }
 
       const existingUser = await prisma.user.findFirst({
         where: { email: email.toLowerCase(), org_id: requester.org_id },
@@ -61,19 +72,21 @@ export async function inviteRoutes(fastify: FastifyInstance, opts: { config: Con
         data: {
           org_id: requester.org_id,
           email: email.toLowerCase(),
-          role,
+          role: role as 'ADMIN' | 'MANAGER' | 'EMPLOYEE' | 'VIEWER',
+          invited_by_id: requester.id,
           expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         },
         include: { organization: true },
       })
 
-      sendInviteEmail(
-        config,
-        invite.email,
-        invite.token,
-        invite.organization.name,
-        requester.name
-      ).catch((err) => fastify.log.error({ err }, 'Failed to send invite email'))
+      void enqueueTransactionalEmail({
+        kind: 'invite',
+        to: invite.email,
+        appUrl: config.APP_URL,
+        inviterName: requester.name,
+        workspaceName: invite.organization.name,
+        inviteToken: invite.token,
+      }).catch((err) => fastify.log.error({ err }, 'Failed to enqueue invite email'))
 
       return reply.status(201).send({ invite_id: invite.id, message: 'Invitation sent' })
     }
@@ -112,22 +125,30 @@ export async function inviteRoutes(fastify: FastifyInstance, opts: { config: Con
       }
 
       if (invite.accepted_at) {
-        return reply.status(400).send({ code: 'INVITE_USED', message: 'This invite has already been accepted' })
+        return reply
+          .status(400)
+          .send({ code: 'INVITE_USED', message: 'This invite has already been accepted' })
       }
 
       if (invite.expires_at < new Date()) {
-        return reply.status(400).send({ code: 'INVITE_EXPIRED', message: 'This invite has expired' })
+        return reply
+          .status(400)
+          .send({ code: 'INVITE_EXPIRED', message: 'This invite has expired' })
       }
 
-      if (invite.organization.status === 'suspended') {
-        return reply.status(402).send({ code: 'ORG_SUSPENDED', message: 'Organization access has been suspended' })
+      if ((invite.organization.status as string) === 'SUSPENDED') {
+        return reply
+          .status(402)
+          .send({ code: 'ORG_SUSPENDED', message: 'Organization access has been suspended' })
       }
 
       const existingUser = await prisma.user.findFirst({
         where: { email: invite.email, org_id: invite.org_id },
       })
       if (existingUser) {
-        return reply.status(409).send({ code: 'USER_EXISTS', message: 'A user with this email already exists' })
+        return reply
+          .status(409)
+          .send({ code: 'USER_EXISTS', message: 'A user with this email already exists' })
       }
 
       const password_hash = await hashPassword(password)
@@ -142,8 +163,8 @@ export async function inviteRoutes(fastify: FastifyInstance, opts: { config: Con
             email: invite.email,
             password_hash,
             name: full_name,
-            role: invite.role,
-            status: 'active',
+            role: invite.role as 'ADMIN' | 'MANAGER' | 'EMPLOYEE' | 'VIEWER',
+            status: 'ACTIVE',
           },
         })
         await tx.invite.update({
@@ -160,7 +181,12 @@ export async function inviteRoutes(fastify: FastifyInstance, opts: { config: Con
         return newUser
       })
 
-      const accessToken = await issueAccessToken(user.id, invite.org_id, user.role)
+      const accessToken = await issueAccessToken(
+        user.id,
+        invite.org_id,
+        user.role as string,
+        user.role_version
+      )
 
       return reply.status(201).send({
         access_token: accessToken,
@@ -188,10 +214,7 @@ export async function inviteRoutes(fastify: FastifyInstance, opts: { config: Con
         },
       },
     },
-    async (
-      request: FastifyRequest<{ Querystring: { token?: string } }>,
-      reply: FastifyReply
-    ) => {
+    async (request: FastifyRequest<{ Querystring: { token?: string } }>, reply: FastifyReply) => {
       const { token } = request.query
       if (!token) {
         return reply.status(400).send({ code: 'MISSING_TOKEN', message: 'Token is required' })
@@ -203,7 +226,9 @@ export async function inviteRoutes(fastify: FastifyInstance, opts: { config: Con
       })
 
       if (!invite || invite.accepted_at || invite.expires_at < new Date()) {
-        return reply.status(400).send({ code: 'INVALID_INVITE', message: 'Invite is invalid or expired' })
+        return reply
+          .status(400)
+          .send({ code: 'INVALID_INVITE', message: 'Invite is invalid or expired' })
       }
 
       return reply.send({

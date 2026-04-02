@@ -42,7 +42,7 @@ export function Timer({ jiraConnected = false, jiraIssues = [] }: TimerProps = {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [selectedTask, setSelectedTask] = useState<TaskWithProject | null>(null)
-  const [activityScore, setActivityScore] = useState(0)
+  const [activityScore, setActivityScore] = useState<number | null>(null)
   const [inputMonitorAvailable, setInputMonitorAvailable] = useState(true)
   const [projects, setProjects] = useState<Project[]>([])
   const [recentSessions, setRecentSessions] = useState<LocalSessionRow[]>([])
@@ -84,8 +84,8 @@ export function Timer({ jiraConnected = false, jiraIssues = [] }: TimerProps = {
         }
         // Fetch activity on load so we show today's activity even when timer is stopped
         window.electron?.ipcRenderer.invoke('activity:current-stats').then((res) => {
-          const r = res as { score?: number; inputAvailable?: boolean } | undefined
-          if (r?.score !== undefined) setActivityScore(r.score)
+          const r = res as { score?: number | null; inputAvailable?: boolean } | undefined
+          if (r && 'score' in r) setActivityScore(r.score ?? null)
           if (r?.inputAvailable !== undefined) setInputMonitorAvailable(r.inputAvailable)
         })
       })
@@ -100,18 +100,18 @@ export function Timer({ jiraConnected = false, jiraIssues = [] }: TimerProps = {
       refreshTodaySessions().catch(() => {})
       fetchRecentSessions().catch(() => {})
       const res = (await window.electron?.ipcRenderer.invoke('activity:current-stats')) as
-        | { score?: number }
+        | { score?: number | null }
         | undefined
-      if (res?.score !== undefined) setActivityScore(res.score)
+      if (res && 'score' in res) setActivityScore(res.score ?? null)
     }
     const handleStarted = async () => {
       initialize().catch(() => {})
       refreshTodaySessions().catch(() => {})
       fetchRecentSessions().catch(() => {})
       const res = (await window.electron?.ipcRenderer.invoke('activity:current-stats')) as
-        | { score?: number; inputAvailable?: boolean }
+        | { score?: number | null; inputAvailable?: boolean }
         | undefined
-      if (res?.score !== undefined) setActivityScore(res.score)
+      if (res && 'score' in res) setActivityScore(res.score ?? null)
       if (res?.inputAvailable !== undefined) setInputMonitorAvailable(res.inputAvailable)
     }
     window.electron?.ipcRenderer.on('timer:tick', handleTick)
@@ -129,11 +129,11 @@ export function Timer({ jiraConnected = false, jiraIssues = [] }: TimerProps = {
     const poll = async () => {
       const res = (await window.electron?.ipcRenderer.invoke('activity:current-stats')) as
         | {
-            score: number
+            score?: number | null
             inputAvailable?: boolean
           }
         | undefined
-      if (res?.score !== undefined) setActivityScore(res.score)
+      if (res && 'score' in res) setActivityScore(res.score ?? null)
       if (res?.inputAvailable !== undefined) setInputMonitorAvailable(res.inputAvailable)
     }
     poll()
@@ -720,7 +720,7 @@ export function Timer({ jiraConnected = false, jiraIssues = [] }: TimerProps = {
                 <span
                   className={`text-sm font-medium tabular-nums ${theme === 'dark' ? 'text-white/80' : 'text-slate-700'}`}
                 >
-                  Activity {activityScore}%
+                  Activity {activityScore === null ? '—' : `${activityScore}%`}
                 </span>
                 {!inputMonitorAvailable && isRunning && (
                   <span

@@ -14,6 +14,7 @@ import { encryptMfaSecret, resolveMfaSecret } from '../../lib/integrations/kms.j
 import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
+import { toPublicOrgSettings } from '../../lib/org-settings-fields.js'
 
 export async function mfaRoutes(fastify: FastifyInstance, opts: { config: Config }) {
   const { config } = opts
@@ -63,7 +64,7 @@ export async function mfaRoutes(fastify: FastifyInstance, opts: { config: Config
         return reply.status(401).send({ code: 'MFA_NOT_SETUP', message: 'MFA is not configured' })
       }
 
-      if (user.organization.status === 'suspended') {
+      if (user.organization.status === 'SUSPENDED') {
         return reply
           .status(402)
           .send({ code: 'ORG_SUSPENDED', message: 'Organization access has been suspended' })
@@ -86,7 +87,12 @@ export async function mfaRoutes(fastify: FastifyInstance, opts: { config: Config
         })
       }
 
-      const accessToken = await issueAccessToken(user.id, user.org_id, user.role)
+      const accessToken = await issueAccessToken(
+        user.id,
+        user.org_id,
+        user.role as string,
+        user.role_version
+      )
       const refreshToken = createRefreshToken()
       const tokenHash = hashRefreshToken(refreshToken)
 
@@ -96,6 +102,10 @@ export async function mfaRoutes(fastify: FastifyInstance, opts: { config: Config
           token_hash: tokenHash,
           expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         },
+      })
+
+      const orgSettings = await prisma.orgSettings.findUnique({
+        where: { org_id: user.org_id },
       })
 
       return reply.send({
@@ -110,6 +120,7 @@ export async function mfaRoutes(fastify: FastifyInstance, opts: { config: Config
           org_name: user.organization.name,
           is_platform_admin: user.is_platform_admin,
         },
+        org_settings: toPublicOrgSettings(orgSettings),
       })
     }
   )

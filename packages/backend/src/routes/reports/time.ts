@@ -1,10 +1,17 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
+import { getISOWeek, getISOWeekYear } from 'date-fns'
 import { prisma } from '../../db/prisma.js'
 import { getDbRead } from '../../lib/db-read.js'
-import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
+import { createAuthenticateMiddleware, requirePermission } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
+import {
+  filterAccessibleUserIds,
+  mayActAsPeopleManager,
+  Permission,
+} from '../../lib/permissions.js'
+import { timeApprovalTotalsFilter } from '../../lib/time-approval-scope.js'
 
 const querySchema = z.object({
   from: z.string().datetime({ offset: true }).optional(),
@@ -20,7 +27,7 @@ export async function timeReportRoutes(fastify: FastifyInstance, opts: { config:
   const authenticate = createAuthenticateMiddleware(opts.config)
 
   fastify.get('/time', {
-    preHandler: [authenticate],
+    preHandler: [authenticate, requirePermission(Permission.REPORTS_VIEW)],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const user = req.user!
@@ -32,13 +39,20 @@ export async function timeReportRoutes(fastify: FastifyInstance, opts: { config:
       }
       const query = parsed.data
 
-      const canViewOthers = ['admin', 'super_admin', 'manager'].includes(user.role)
-      const userIds =
-        canViewOthers && query.user_id
+      const requestedRaw =
+        mayActAsPeopleManager(user.role) && query.user_id
           ? Array.isArray(query.user_id)
             ? query.user_id
             : [query.user_id]
           : [user.id]
+
+      const userIds = await filterAccessibleUserIds(user, requestedRaw)
+      if (userIds.length !== requestedRaw.length) {
+        return reply.status(403).send({
+          code: 'FORBIDDEN',
+          message: 'Access denied for one or more selected users',
+        })
+      }
 
       const projectIds = query.project_id
         ? Array.isArray(query.project_id)
@@ -76,10 +90,12 @@ export async function timeReportRoutes(fastify: FastifyInstance, opts: { config:
         }
       }
 
+      const approvalTotals = await timeApprovalTotalsFilter(user.org_id)
       const where = {
         org_id: user.org_id,
         user_id: { in: userIds },
         ended_at: { not: null },
+        ...approvalTotals,
         ...(projectIds && { project_id: { in: projectIds } }),
         ...(query.from || query.to
           ? {
@@ -149,6 +165,20 @@ export async function timeReportRoutes(fastify: FastifyInstance, opts: { config:
         breakdown = [...userMap.values()]
           .sort((a, b) => b.seconds - a.seconds)
           .map(({ name, seconds, sessions: sc }) => ({ label: name, seconds, sessions: sc }))
+      } else if (query.group_by === 'week') {
+        const weekMap = new Map<string, { seconds: number; sessions: number }>()
+        for (const s of sessions) {
+          const y = getISOWeekYear(s.started_at)
+          const w = getISOWeek(s.started_at)
+          const label = `${y}-W${String(w).padStart(2, '0')}`
+          const existing = weekMap.get(label) ?? { seconds: 0, sessions: 0 }
+          existing.seconds += s.duration_sec
+          existing.sessions += 1
+          weekMap.set(label, existing)
+        }
+        breakdown = [...weekMap.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([label, v]) => ({ label, ...v }))
       }
 
       return {

@@ -281,7 +281,7 @@ export function ScreenshotGallery({
                         <button
                           type="button"
                           title="Delete screenshot"
-                          className="rounded-md bg-black/70 p-1.5 text-destructive hover:bg-destructive/90"
+                          className="rounded-md bg-black/70 p-1.5 text-destructive hover:bg-destructive hover:text-destructive-foreground"
                           onClick={(e) => {
                             e.stopPropagation()
                             if (

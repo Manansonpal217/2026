@@ -19,7 +19,7 @@ export async function adminAuditLogRoutes(fastify: FastifyInstance, opts: { conf
   const authenticate = createAuthenticateMiddleware(opts.config)
 
   fastify.get('/audit-log', {
-    preHandler: [authenticate, requireRole('admin', 'super_admin')],
+    preHandler: [authenticate, requireRole('ADMIN', 'OWNER')],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const parsed = querySchema.safeParse(request.query)

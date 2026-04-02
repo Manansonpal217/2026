@@ -1,35 +1,20 @@
 import type { FastifyInstance } from 'fastify'
-import { z } from 'zod'
 import { prisma } from '../../db/prisma.js'
 import { createAuthenticateMiddleware, requireRole } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
 import { logAuditEvent } from '../../lib/audit.js'
-
-const patchSettingsSchema = z.object({
-  screenshot_interval_seconds: z.number().int().min(60).max(3600).optional(),
-  screenshot_retention_days: z.number().int().min(7).max(365).optional(),
-  blur_screenshots: z.boolean().optional(),
-  activity_weight_keyboard: z.number().min(0).max(1).optional(),
-  activity_weight_mouse: z.number().min(0).max(1).optional(),
-  activity_weight_movement: z.number().min(0).max(1).optional(),
-  track_keyboard: z.boolean().optional(),
-  track_mouse: z.boolean().optional(),
-  track_app_usage: z.boolean().optional(),
-  track_url: z.boolean().optional(),
-  time_approval_required: z.boolean().optional(),
-  mfa_required_for_admins: z.boolean().optional(),
-  mfa_required_for_managers: z.boolean().optional(),
-  /** Target minutes per day for progress indicators (e.g. calendar strip). 15m–24h. */
-  expected_daily_work_minutes: z.number().int().min(15).max(1440).optional(),
-  allow_employee_offline_time: z.boolean().optional(),
-})
+import { SETTINGS_PATCH_KEY_PERMISSION, Permission, hasPermission } from '../../lib/permissions.js'
+import {
+  orgSettingsScalarPatchSchema as patchSettingsSchema,
+  assertActivityWeightsSum,
+} from '../../lib/org-settings-fields.js'
 
 export async function adminSettingsRoutes(fastify: FastifyInstance, opts: { config: Config }) {
   const authenticate = createAuthenticateMiddleware(opts.config)
 
   fastify.get('/settings', {
-    preHandler: [authenticate, requireRole('admin', 'super_admin')],
+    preHandler: [authenticate, requireRole('ADMIN', 'OWNER')],
     handler: async (request) => {
       const req = request as AuthenticatedRequest
       const settings = await prisma.orgSettings.findFirst({
@@ -40,7 +25,7 @@ export async function adminSettingsRoutes(fastify: FastifyInstance, opts: { conf
   })
 
   fastify.patch('/settings', {
-    preHandler: [authenticate, requireRole('admin', 'super_admin')],
+    preHandler: [authenticate, requireRole('ADMIN', 'OWNER')],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const user = req.user!
@@ -50,27 +35,32 @@ export async function adminSettingsRoutes(fastify: FastifyInstance, opts: { conf
         return reply.status(400).send({ code: 'VALIDATION_ERROR', errors: body.error.flatten() })
       }
 
-      // Validate activity weights sum to ~1.0 if all three are provided
-      const {
-        activity_weight_keyboard: k,
-        activity_weight_mouse: m,
-        activity_weight_movement: mv,
-      } = body.data
-      if (k !== undefined || m !== undefined || mv !== undefined) {
-        const existing = await prisma.orgSettings.findFirst({ where: { org_id: user.org_id } })
-        const finalK = k ?? existing?.activity_weight_keyboard ?? 0.5
-        const finalM = m ?? existing?.activity_weight_mouse ?? 0.3
-        const finalMv = mv ?? existing?.activity_weight_movement ?? 0.2
-        const sum = finalK + finalM + finalMv
-        if (Math.abs(sum - 1.0) > 0.01) {
-          return reply.status(400).send({
-            code: 'INVALID_WEIGHTS',
-            message: `Activity weights must sum to 1.0, got ${sum.toFixed(3)}`,
+      for (const key of Object.keys(body.data) as (keyof typeof body.data)[]) {
+        if (body.data[key] === undefined) continue
+        const perm =
+          SETTINGS_PATCH_KEY_PERMISSION[key as string] ?? Permission.SETTINGS_MANAGE_ADVANCED
+        if (!hasPermission(user, perm)) {
+          return reply.status(403).send({
+            code: 'FORBIDDEN',
+            message: `Not allowed to change setting: ${String(key)}`,
           })
         }
       }
 
       const existing = await prisma.orgSettings.findFirst({ where: { org_id: user.org_id } })
+      try {
+        assertActivityWeightsSum(body.data, existing)
+      } catch (e) {
+        const err = e as { code?: string; message?: string }
+        if (err.code === 'INVALID_WEIGHTS') {
+          return reply.status(400).send({
+            code: 'INVALID_WEIGHTS',
+            message: err.message?.replace(/^INVALID_WEIGHTS: /, '') ?? 'Invalid weights',
+          })
+        }
+        throw e
+      }
+
       const oldValue = existing ?? {}
 
       const updated = await prisma.orgSettings.upsert({

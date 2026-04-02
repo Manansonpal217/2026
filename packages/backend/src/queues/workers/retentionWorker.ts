@@ -9,7 +9,7 @@ export function retentionWorker(config: Config): Worker {
     async () => {
       // Load all active orgs with their retention settings
       const orgs = await prisma.organization.findMany({
-        where: { status: 'active' },
+        where: { status: 'ACTIVE' },
         include: { org_settings: true },
       })
 

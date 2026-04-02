@@ -2,9 +2,10 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../../db/prisma.js'
 import { getDbRead } from '../../lib/db-read.js'
-import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
+import { createAuthenticateMiddleware, requirePermission } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
+import { canAccessOrgUser, mayActAsPeopleManager, Permission } from '../../lib/permissions.js'
 
 const querySchema = z.object({
   user_id: z.string().uuid().optional(),
@@ -18,7 +19,7 @@ export async function activityReportRoutes(fastify: FastifyInstance, opts: { con
   const authenticate = createAuthenticateMiddleware(opts.config)
 
   fastify.get('/activity', {
-    preHandler: [authenticate],
+    preHandler: [authenticate, requirePermission(Permission.REPORTS_VIEW)],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const user = req.user!
@@ -30,20 +31,28 @@ export async function activityReportRoutes(fastify: FastifyInstance, opts: { con
       }
       const query = parsed.data
 
-      const canViewOthers = ['admin', 'super_admin', 'manager'].includes(user.role)
-      const targetUserId = canViewOthers && query.user_id ? query.user_id : user.id
+      if (query.user_id && query.user_id !== user.id && !mayActAsPeopleManager(user.role)) {
+        return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+      }
 
-      if (targetUserId !== user.id) {
-        const validUser = await prisma.user.findFirst({
-          where: { id: targetUserId, org_id: user.org_id },
-          select: { id: true },
-        })
-        if (!validUser) {
-          return reply.status(400).send({
-            code: 'INVALID_USER',
-            message: `User ${targetUserId} not found in your organization`,
-          })
+      const targetUserId =
+        query.user_id && mayActAsPeopleManager(user.role) ? query.user_id : user.id
+
+      if (query.user_id && query.user_id !== user.id) {
+        if (!(await canAccessOrgUser(user, query.user_id))) {
+          return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
         }
+      }
+
+      const exists = await prisma.user.findFirst({
+        where: { id: targetUserId, org_id: user.org_id },
+        select: { id: true },
+      })
+      if (!exists) {
+        return reply.status(400).send({
+          code: 'INVALID_USER',
+          message: `User ${targetUserId} not found in your organization`,
+        })
       }
 
       const where = {

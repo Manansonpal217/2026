@@ -1,27 +1,32 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../../db/prisma.js'
-import { createAuthenticateMiddleware, requireRole } from '../../middleware/authenticate.js'
+import { createAuthenticateMiddleware, requirePermission } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
-import { getRegistry } from '../../lib/integrations/registry.js'
+import { getAdapter } from '../../lib/integrations/registry.js'
 import { generatePkce } from '../../lib/integrations/pkce.js'
+import { Permission } from '../../lib/permissions.js'
 
 export async function integrationConnectRoutes(fastify: FastifyInstance, opts: { config: Config }) {
   const authenticate = createAuthenticateMiddleware(opts.config)
 
   fastify.get('/connect/:provider', {
-    preHandler: [authenticate, requireRole('admin', 'super_admin')],
+    preHandler: [authenticate, requirePermission(Permission.INTEGRATIONS_MANAGE)],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const user = req.user!
       const { provider } = request.params as { provider: string }
       const query = request.query as { redirect_uri?: string }
 
-      const adapter = getRegistry().get(provider)
-      if (!adapter) {
-        return reply
-          .status(400)
-          .send({ code: 'UNKNOWN_PROVIDER', message: `Unknown integration provider: ${provider}` })
+      let adapter
+      try {
+        adapter = getAdapter(provider)
+      } catch (e) {
+        const err = e as { statusCode?: number; code?: string; message?: string }
+        return reply.status(err.statusCode ?? 503).send({
+          code: err.code ?? 'INTEGRATION_NOT_CONFIGURED',
+          message: err.message ?? 'Integration provider is not available',
+        })
       }
 
       const allowedRedirectUri = `${opts.config.APP_URL.replace(/\/$/, '')}/v1/integrations/callback`

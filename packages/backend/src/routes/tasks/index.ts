@@ -140,7 +140,7 @@ export async function taskRoutes(fastify: FastifyInstance, opts: { config: Confi
       // Only admin+ can close tasks; any member can change open <-> in_progress
       if (body.data.status === 'closed') {
         const role = req.user!.role
-        if (!['admin', 'super_admin', 'manager'].includes(role)) {
+        if (!['ADMIN', 'OWNER', 'MANAGER'].includes(role)) {
           return reply
             .status(403)
             .send({ code: 'FORBIDDEN', message: 'Only managers+ can close tasks' })

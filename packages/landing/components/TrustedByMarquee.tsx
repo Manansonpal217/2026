@@ -12,7 +12,7 @@ export function TrustedByMarquee({ names }: { names: readonly string[] }) {
         {names.map((name) => (
           <span
             key={name}
-            className="font-display text-lg font-semibold text-foreground/65 transition-all duration-300 hover:scale-110 hover:text-foreground/90"
+            className="font-display text-lg font-semibold tracking-tight text-foreground/55 transition-all duration-300 hover:scale-105 hover:text-foreground/85"
           >
             {name}
           </span>
@@ -25,7 +25,7 @@ export function TrustedByMarquee({ names }: { names: readonly string[] }) {
           {[...names, ...names].map((name, i) => (
             <span
               key={`${name}-${i}`}
-              className="font-display shrink-0 px-6 text-lg font-semibold text-foreground/65 sm:px-8"
+              className="shrink-0 px-6 font-display text-lg font-semibold tracking-tight text-foreground/55 sm:px-8"
             >
               {name}
             </span>

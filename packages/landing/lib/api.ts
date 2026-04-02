@@ -61,8 +61,17 @@ api.interceptors.response.use(
     ) {
       // Access token may be stale (dev HMR, clock skew vs backend). Refresh session once before signing out.
       config._authRetry = true
-      const session = await getSession()
-      const s = session as { access_token?: string; error?: string } | null
+      let session = await getSession()
+      let s = session as { access_token?: string; error?: string } | null
+      if ((!s?.access_token || s.error) && typeof window !== 'undefined') {
+        // Force a server round-trip so the JWT callback can run (and coalesced refresh in lib/auth.ts).
+        await fetch(`${window.location.origin}/api/auth/session`, {
+          credentials: 'same-origin',
+          cache: 'no-store',
+        })
+        session = await getSession()
+        s = session as { access_token?: string; error?: string } | null
+      }
       if (s?.access_token && !s.error) {
         setAuthorizationOnConfig(config, s.access_token)
         return api.request(config)
@@ -74,6 +83,18 @@ api.interceptors.response.use(
       // hard refresh and the request went out without Authorization (would wrongly clear cookie).
       // Clear NextAuth cookies so a user with backend 401 does not bounce:
       // login page auto-redirects when "authenticated", which caused /myhome ↔ /login loops.
+      if (process.env.NODE_ENV === 'development') {
+        const retryConfig = err.config as RetryConfig | undefined
+        const session = await getSession().catch(() => null)
+        const sess = session as { error?: string } | null
+        console.warn('[landing/api] 401 → signOut', {
+          url: retryConfig?.url,
+          method: retryConfig?.method,
+          afterAuthRetry: retryConfig?._authRetry === true,
+          sessionError: sess?.error ?? null,
+          hint: 'Check Network: failing /v1/* and /api/auth/session. RefreshAccessTokenError means backend refresh failed.',
+        })
+      }
       await clearScreenshotImageCache().catch(() => {})
       await signOut({ redirect: false })
       const path = window.location.pathname || '/myhome'

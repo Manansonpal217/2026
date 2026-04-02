@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client'
+import type { OrgSettingsScalarPatch, WorkPlatform } from './org-settings-fields.js'
 
 export const DISPOSABLE_SIGNUP_DOMAINS = [
   'mailinator.com',
@@ -22,6 +23,8 @@ export async function createOrgWithSuperAdmin(
     email: string
     password_hash: string
     data_region?: string
+    work_platform?: WorkPlatform
+    settings?: OrgSettingsScalarPatch
   }
 ): Promise<{ orgId: string; userId: string }> {
   const emailLower = input.email.toLowerCase()
@@ -36,8 +39,18 @@ export async function createOrgWithSuperAdmin(
       data_region: input.data_region || 'us-east-1',
     },
   })
+  const { work_platform: wpFromSettings, ...settingsRest } = input.settings ?? {}
+  const work_platform = input.work_platform ?? wpFromSettings ?? 'jira_cloud'
+  const settingsData = Object.fromEntries(
+    Object.entries(settingsRest).filter(([k, v]) => v !== undefined && k !== 'org_id' && k !== 'id')
+  )
+
   await tx.orgSettings.create({
-    data: { org_id: org.id },
+    data: {
+      org_id: org.id,
+      work_platform,
+      ...(settingsData as Omit<Prisma.OrgSettingsUncheckedCreateInput, 'org_id' | 'work_platform'>),
+    },
   })
   const user = await tx.user.create({
     data: {
@@ -45,8 +58,8 @@ export async function createOrgWithSuperAdmin(
       email: emailLower,
       password_hash: input.password_hash,
       name: input.full_name,
-      role: 'super_admin',
-      status: 'active',
+      role: 'OWNER',
+      status: 'ACTIVE',
     },
   })
   return { orgId: org.id, userId: user.id }

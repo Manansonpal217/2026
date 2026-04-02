@@ -103,7 +103,7 @@ describe('IDOR protection', () => {
     expect(isOwner).toBe(false)
   })
 
-  it('allows same-org admin access', () => {
+  it('allows same-org admin to view employee screenshots (API also hides super_admin subjects)', () => {
     const screenshot = { id: 's1', user_id: 'user-A', org_id: 'org-1' }
     const adminUser = { id: 'admin-1', org_id: 'org-1', role: 'admin' }
 
@@ -111,6 +111,7 @@ describe('IDOR protection', () => {
       screenshot.org_id === adminUser.org_id &&
       ['admin', 'super_admin', 'manager'].includes(adminUser.role)
     expect(canView).toBe(true)
+    // Managers are scoped to direct reports; `super_admin` subjects are excluded for non–super_admin callers in `canAccessOrgUser`.
   })
 
   it('blocks cross-org access', () => {

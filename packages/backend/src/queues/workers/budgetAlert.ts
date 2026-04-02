@@ -11,7 +11,7 @@ export function budgetAlertWorker(config: Config): Worker {
       // Projects with a budget_hours limit
       const projects = await prisma.project.findMany({
         where: { budget_hours: { not: null }, archived: false },
-        include: { organization: { include: { users: { where: { role: 'admin' } } } } },
+        include: { organization: { include: { users: { where: { role: 'ADMIN' } } } } },
       })
 
       const now = new Date()
@@ -24,7 +24,7 @@ export function budgetAlertWorker(config: Config): Worker {
         const aggregate = await prisma.timeSession.aggregate({
           where: {
             project_id: project.id,
-            approval_status: 'approved',
+            approval_status: 'APPROVED',
             started_at: { gte: monthStart },
             ended_at: { not: null },
           },
@@ -34,9 +34,7 @@ export function budgetAlertWorker(config: Config): Worker {
         const usedSec = aggregate._sum.duration_sec ?? 0
         const percent = (usedSec / budgetSec) * 100
 
-        const adminEmails = project.organization.users
-          .map((u) => u.email)
-          .filter(Boolean)
+        const adminEmails = project.organization.users.map((u) => u.email).filter(Boolean)
 
         if (adminEmails.length === 0) continue
 
@@ -65,6 +63,6 @@ export function budgetAlertWorker(config: Config): Worker {
     {
       connection: { url: config.REDIS_URL },
       concurrency: 1,
-    },
+    }
   )
 }

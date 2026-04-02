@@ -7,6 +7,7 @@ import { signIn, useSession, SessionProvider } from 'next-auth/react'
 import { Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
@@ -23,6 +24,10 @@ function ErrorBar({ message }: { message: string }) {
     </div>
   )
 }
+
+const authInputClass =
+  'h-12 rounded-xl border-border bg-background shadow-sm placeholder:text-muted-foreground/70 transition-all focus:bg-background focus:ring-2 focus:ring-ring/35 focus:border-primary/45'
+const labelClass = 'text-xs font-medium uppercase tracking-wider text-muted-foreground/80'
 
 function AuthPanel() {
   const searchParams = useSearchParams()
@@ -64,14 +69,10 @@ function AuthPanel() {
     }
   }
 
-  const inputCx =
-    'h-12 rounded-xl border border-border bg-background/90 shadow-sm shadow-indigo-950/[0.04] placeholder:text-muted-foreground/65 focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary/50 focus:shadow-md focus:shadow-primary/5 dark:bg-input dark:shadow-none dark:focus:shadow-none transition-all'
-  const labelCx = 'text-xs font-medium uppercase tracking-wider text-muted-foreground/75'
-
   return (
     <div className="w-full animate-fade-in-up">
       <div className="mb-8 text-center">
-        <h2 className="font-display text-3xl font-bold tracking-tight text-foreground">
+        <h2 className="font-display text-3xl font-semibold tracking-tight text-foreground">
           Welcome <span className="text-gradient">back</span>
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -81,7 +82,7 @@ function AuthPanel() {
 
       <form onSubmit={handleSignIn} className="space-y-5">
         <div className="space-y-2">
-          <Label htmlFor="email" className={labelCx}>
+          <Label htmlFor="email" className={labelClass}>
             Email
           </Label>
           <Input
@@ -92,12 +93,12 @@ function AuthPanel() {
             required
             placeholder="you@company.com"
             autoComplete="email"
-            className={inputCx}
+            className={authInputClass}
           />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="password" className={labelCx}>
+          <Label htmlFor="password" className={labelClass}>
             Password
           </Label>
           <div className="relative">
@@ -109,21 +110,24 @@ function AuthPanel() {
               required
               placeholder="Enter your password"
               autoComplete="current-password"
-              className={cn(inputCx, 'pr-11')}
+              className={cn(authInputClass, 'pr-11')}
             />
-            <button
+            <Button
               type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/60 transition-colors hover:text-foreground"
+              variant="ghost"
+              size="icon"
+              className="absolute right-1 top-1/2 h-9 w-9 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               tabIndex={-1}
+              onClick={() => setShowPassword(!showPassword)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
               {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
+            </Button>
           </div>
           <div className="flex justify-end pt-0.5">
             <Link
               href="/forgot-password"
-              className="text-xs font-medium text-primary transition-colors hover:text-primary/80 dark:text-indigo-400/90 dark:hover:text-indigo-300"
+              className="text-xs font-medium text-primary underline-offset-4 transition-colors hover:underline"
             >
               Forgot password?
             </Link>
@@ -146,18 +150,18 @@ function AuthPanel() {
           Need an account or organization?{' '}
           <Link
             href="/contact"
-            className="font-semibold text-primary underline decoration-primary/25 underline-offset-[3px] transition-colors hover:text-primary/85 dark:decoration-border dark:hover:text-indigo-300"
+            className="font-semibold text-primary underline decoration-primary/30 underline-offset-4 transition-colors hover:text-primary/90"
           >
             Contact us
           </Link>
         </p>
       </form>
 
-      <p className="mt-8 text-center text-[11px] leading-relaxed text-muted-foreground/40">
+      <p className="mt-8 text-center text-[11px] leading-relaxed text-muted-foreground/50">
         By continuing you agree to our{' '}
         <Link
           href="/terms"
-          className="text-muted-foreground/60 underline decoration-border underline-offset-[3px] transition-colors hover:text-foreground"
+          className="text-muted-foreground/70 underline decoration-border underline-offset-2 transition-colors hover:text-foreground"
         >
           Terms of Service
         </Link>
@@ -176,11 +180,13 @@ export default function LoginPage() {
     <SessionProvider>
       <main className="relative flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-16 sm:py-24">
         <div className="relative w-full max-w-[440px]">
-          <div className="rounded-2xl border border-border/80 bg-gradient-to-br from-card via-card to-primary/[0.07] p-8 shadow-auth-card backdrop-blur-[10px] dark:border-border dark:from-card dark:via-card dark:to-card dark:shadow-auth-card-dark sm:p-10">
-            <Suspense fallback={<LoginFallback />}>
-              <AuthPanel />
-            </Suspense>
-          </div>
+          <Card className="border-border/80 shadow-auth-card dark:shadow-auth-card-dark">
+            <CardContent className="bg-gradient-to-br from-card via-card to-primary/[0.04] p-8 sm:p-10 dark:from-card dark:via-card dark:to-card">
+              <Suspense fallback={<LoginFallback />}>
+                <AuthPanel />
+              </Suspense>
+            </CardContent>
+          </Card>
         </div>
       </main>
     </SessionProvider>

@@ -33,4 +33,7 @@ contextBridge.exposeInMainWorld('trackysnc', {
   getIssues: () => ipcRenderer.invoke('jira:get-issues'),
   logWork: (key: string, secs: number, desc: string) =>
     ipcRenderer.invoke('jira:log-work', key, secs, desc),
+  connectAsana: () => ipcRenderer.invoke('asana:connect'),
+  disconnectAsana: () => ipcRenderer.invoke('asana:disconnect'),
+  isAsanaConnected: () => ipcRenderer.invoke('asana:is-connected'),
 })

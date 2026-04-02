@@ -127,7 +127,7 @@ export function authHandlers(
 
       const data = await res.json()
       await storeTokens(data.access_token, data.refresh_token)
-      return { user: data.user }
+      return { user: data.user, org_settings: data.org_settings ?? null }
     }
   )
 

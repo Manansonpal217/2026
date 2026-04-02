@@ -13,7 +13,12 @@ const envSchema = z.object({
   SMTP_PORT: z.coerce.number().default(587),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
-  SMTP_FROM: z.string().default('noreply@tracksync.io'),
+  SMTP_FROM: z.string().default('TrackSync <support@tracksync.dev>'),
+  /** Resend API key for transactional email (optional in dev). */
+  RESEND_API_KEY: z.preprocess(
+    (v) => (v === '' || v === undefined ? undefined : v),
+    z.string().min(1).optional()
+  ),
   SES_REGION: z.string().default('us-east-1'),
   // AWS general
   AWS_REGION: z.string().default('us-east-1'),

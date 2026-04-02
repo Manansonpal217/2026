@@ -1,41 +1,66 @@
 import type { NextAuthOptions } from 'next-auth'
 import type { JWT } from 'next-auth/jwt'
 import CredentialsProvider from 'next-auth/providers/credentials'
+import { normalizeOrgRole } from './roles'
 import { getNextAuthSecret } from './next-auth-secret'
 
 const API_URL =
   process.env.NEXTAUTH_API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
+/** Client-side refresh threshold — must stay below backend access JWT TTL (15m in `packages/backend/src/lib/jwt.ts`). */
+const ACCESS_TOKEN_CLIENT_TTL_MS = 14 * 60 * 1000
+
+/**
+ * Coalesce concurrent refresh calls for the same refresh_token. The backend rotates refresh tokens
+ * on each refresh; parallel `/api/auth/session` hits would otherwise invalidate each other.
+ */
+const refreshInFlightByRefreshToken = new Map<string, Promise<JWT>>()
+
 async function refreshAccessToken(token: JWT): Promise<JWT> {
-  try {
-    const res = await fetch(`${API_URL}/v1/app/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: token.refresh_token }),
-    })
-
-    if (!res.ok) {
-      return { ...token, error: 'RefreshAccessTokenError' }
-    }
-
-    const data = (await res.json()) as {
-      access_token: string
-      refresh_token?: string
-      is_platform_admin?: boolean
-    }
-    return {
-      ...token,
-      access_token: data.access_token,
-      refresh_token: data.refresh_token ?? token.refresh_token,
-      access_token_expires: Date.now() + 14 * 60 * 1000,
-      ...(typeof data.is_platform_admin === 'boolean' && {
-        is_platform_admin: data.is_platform_admin,
-      }),
-      error: undefined,
-    }
-  } catch {
+  const refreshToken = token.refresh_token as string | undefined
+  if (!refreshToken) {
     return { ...token, error: 'RefreshAccessTokenError' }
   }
+
+  const existing = refreshInFlightByRefreshToken.get(refreshToken)
+  if (existing) return existing
+
+  const done = (async (): Promise<JWT> => {
+    try {
+      const res = await fetch(`${API_URL}/v1/app/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      })
+
+      if (!res.ok) {
+        return { ...token, error: 'RefreshAccessTokenError' }
+      }
+
+      const data = (await res.json()) as {
+        access_token: string
+        refresh_token?: string
+        is_platform_admin?: boolean
+      }
+      return {
+        ...token,
+        access_token: data.access_token,
+        refresh_token: data.refresh_token ?? refreshToken,
+        access_token_expires: Date.now() + ACCESS_TOKEN_CLIENT_TTL_MS,
+        ...(typeof data.is_platform_admin === 'boolean' && {
+          is_platform_admin: data.is_platform_admin,
+        }),
+        error: undefined,
+      }
+    } catch {
+      return { ...token, error: 'RefreshAccessTokenError' }
+    } finally {
+      refreshInFlightByRefreshToken.delete(refreshToken)
+    }
+  })()
+
+  refreshInFlightByRefreshToken.set(refreshToken, done)
+  return done
 }
 
 const cookieDomain = process.env.COOKIE_DOMAIN || undefined
@@ -82,7 +107,7 @@ export const authOptions: NextAuthOptions = {
           id: data.user.id,
           email: data.user.email,
           name: data.user.name,
-          role: data.user.role,
+          role: normalizeOrgRole(data.user.role),
           org_id: data.user.org_id,
           org_name: data.user.org_name,
           is_platform_admin: data.user.is_platform_admin ?? false,
@@ -98,13 +123,13 @@ export const authOptions: NextAuthOptions = {
         return {
           ...token,
           id: user.id,
-          role: user.role,
+          role: normalizeOrgRole(user.role),
           org_id: user.org_id,
           org_name: user.org_name,
           is_platform_admin: user.is_platform_admin ?? false,
           access_token: user.access_token,
           refresh_token: user.refresh_token,
-          access_token_expires: Date.now() + 14 * 60 * 1000,
+          access_token_expires: Date.now() + ACCESS_TOKEN_CLIENT_TTL_MS,
         }
       }
 
@@ -117,7 +142,7 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.id as string
-        session.user.role = token.role
+        session.user.role = normalizeOrgRole(token.role as string | undefined)
         session.user.org_id = token.org_id
         session.user.org_name = token.org_name
         session.user.is_platform_admin = token.is_platform_admin === true

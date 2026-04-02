@@ -2,6 +2,11 @@
 
 import { useState } from 'react'
 import { Mail, Send } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 
 export default function ContactPage() {
   const [submitted, setSubmitted] = useState(false)
@@ -12,21 +17,23 @@ export default function ContactPage() {
   }
 
   const fieldClass =
-    'mt-2 w-full rounded-lg border border-border bg-muted/40 px-4 py-3 text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50'
+    'mt-2 h-11 rounded-xl border-border bg-background shadow-sm transition-all hover:border-border focus:border-primary/50'
 
   if (submitted) {
     return (
       <main className="min-h-screen">
         <section className="flex min-h-[60vh] flex-col items-center justify-center px-4 pt-24 sm:px-6 sm:pt-32">
-          <div className="mx-auto max-w-md rounded-2xl border border-border bg-card/80 p-8 text-center backdrop-blur-sm sm:p-12">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/20">
-              <Send className="h-8 w-8 text-primary" />
-            </div>
-            <h2 className="mt-6 font-display text-2xl font-bold text-foreground">
-              Thanks for reaching out
-            </h2>
-            <p className="mt-4 text-muted-foreground">We&apos;ll be in touch within 24 hours.</p>
-          </div>
+          <Card className="mx-auto max-w-md border-border/80 shadow-soft-lg dark:shadow-soft-lg-dark">
+            <CardContent className="p-8 text-center sm:p-12">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/15">
+                <Send className="h-8 w-8 text-primary" />
+              </div>
+              <h2 className="mt-6 font-display text-2xl font-semibold tracking-tight text-foreground">
+                Thanks for reaching out
+              </h2>
+              <p className="mt-4 text-muted-foreground">We&apos;ll be in touch within 24 hours.</p>
+            </CardContent>
+          </Card>
         </section>
       </main>
     )
@@ -34,82 +41,85 @@ export default function ContactPage() {
 
   return (
     <main className="min-h-screen">
-      <section className="px-4 pt-24 pb-16 sm:px-6 sm:pt-32 sm:pb-28">
+      <section className="px-4 pb-20 pt-24 sm:px-6 sm:pb-28 sm:pt-32">
         <div className="mx-auto max-w-xl">
-          <h1 className="font-display text-3xl font-bold text-foreground sm:text-4xl lg:text-5xl">
+          <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground sm:text-4xl lg:text-5xl">
             Get in touch
           </h1>
-          <p className="mt-4 text-muted-foreground">
+          <p className="mt-4 text-base leading-relaxed text-muted-foreground">
             Have questions? Want a demo? We&apos;d love to hear from you.
           </p>
-          <form
-            onSubmit={handleSubmit}
-            className="mt-10 rounded-2xl border border-border bg-card/70 p-6 backdrop-blur-sm sm:mt-12 sm:p-8"
-          >
-            <div className="space-y-6">
-              <div>
-                <label htmlFor="name" className="block text-sm font-medium text-foreground">
-                  Name
-                </label>
-                <input
-                  id="name"
-                  name="name"
-                  type="text"
-                  required
-                  className={fieldClass}
-                  placeholder="Your name"
-                />
-              </div>
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-foreground">
-                  Email
-                </label>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  required
-                  className={fieldClass}
-                  placeholder="you@company.com"
-                />
-              </div>
-              <div>
-                <label htmlFor="company" className="block text-sm font-medium text-foreground">
-                  Company <span className="text-muted-foreground font-normal">(optional)</span>
-                </label>
-                <input
-                  id="company"
-                  name="company"
-                  type="text"
-                  className={fieldClass}
-                  placeholder="Your company"
-                />
-              </div>
-              <div>
-                <label htmlFor="message" className="block text-sm font-medium text-foreground">
-                  Message
-                </label>
-                <textarea
-                  id="message"
-                  name="message"
-                  required
-                  rows={5}
-                  className={fieldClass}
-                  placeholder="Tell us what you're looking for..."
-                />
-              </div>
-            </div>
-            <button
-              type="submit"
-              className="mt-8 flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-primary to-accent px-6 py-3 font-medium text-primary-foreground shadow-lg shadow-primary/25 transition-all hover:shadow-primary/40"
-            >
-              Send message
-              <Send className="h-4 w-4" />
-            </button>
-          </form>
+          <Card className="mt-10 border-border/80 shadow-soft-lg dark:shadow-soft-lg-dark sm:mt-12">
+            <CardContent className="p-6 sm:p-8">
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="space-y-2">
+                  <Label htmlFor="name" className="text-sm font-medium text-foreground">
+                    Name
+                  </Label>
+                  <Input
+                    id="name"
+                    name="name"
+                    type="text"
+                    required
+                    placeholder="Your name"
+                    className={fieldClass}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email" className="text-sm font-medium text-foreground">
+                    Email
+                  </Label>
+                  <Input
+                    id="email"
+                    name="email"
+                    type="email"
+                    required
+                    placeholder="you@company.com"
+                    className={fieldClass}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="company" className="text-sm font-medium text-foreground">
+                    Company <span className="font-normal text-muted-foreground">(optional)</span>
+                  </Label>
+                  <Input
+                    id="company"
+                    name="company"
+                    type="text"
+                    placeholder="Your company"
+                    className={fieldClass}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="message" className="text-sm font-medium text-foreground">
+                    Message
+                  </Label>
+                  <Textarea
+                    id="message"
+                    name="message"
+                    required
+                    rows={5}
+                    className="mt-2 min-h-[140px] rounded-xl border-border bg-background shadow-sm"
+                    placeholder="Tell us what you're looking for..."
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="mt-4 w-full rounded-xl shadow-lg shadow-primary/20 transition-all hover:shadow-primary/30"
+                >
+                  Send message
+                  <Send className="h-4 w-4" />
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
           <div className="mt-8 flex items-center gap-3 text-muted-foreground">
-            <Mail className="h-5 w-5" />
-            <a href="mailto:support@tracksync.dev" className="hover:text-foreground">
+            <Mail className="h-5 w-5 shrink-0 text-primary/80" />
+            <a
+              href="mailto:support@tracksync.dev"
+              className="text-sm font-medium transition-colors hover:text-foreground"
+            >
               support@tracksync.dev
             </a>
           </div>

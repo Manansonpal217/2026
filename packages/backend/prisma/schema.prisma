@@ -7,12 +7,55 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  OWNER
+  ADMIN
+  MANAGER
+  EMPLOYEE
+  VIEWER
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum OrgStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum OrgPlan {
+  TRIAL
+  FREE
+  STANDARD
+  PROFESSIONAL
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum InviteRole {
+  ADMIN
+  MANAGER
+  EMPLOYEE
+  VIEWER
+}
+
+enum TeamRole {
+  LEAD
+  MEMBER
+}
+
 model Organization {
   id             String    @id @default(uuid())
   name           String
   slug           String    @unique
-  plan           String    @default("trial")
-  status         String    @default("active")
+  plan           OrgPlan   @default(TRIAL)
+  status         OrgStatus @default(ACTIVE)
   data_region    String    @default("us-east-1")
   trial_ends_at  DateTime?
   trial_expired  Boolean   @default(false)
@@ -26,6 +69,11 @@ model Organization {
   integrations Integration[]
   audit_logs   AuditLog[]
   offline_times OfflineTime[]
+  agent_tokens   AgentToken[]
+  agent_commands AgentCommand[]
+  agent_heartbeat AgentHeartbeat?
+  jira_issues    JiraIssue[]
+  teams          Team[]
 }
 
 model OrgSettings {
@@ -51,30 +99,42 @@ model OrgSettings {
   expected_daily_work_minutes  Int     @default(480)
   // When true, employees may add their own offline time unless overridden per-user.
   allow_employee_offline_time  Boolean @default(false)
+  // Agent / Jira sync preferences (JSON arrays of strings or objects as needed)
+  jira_projects               Json     @default("[]")
+  jira_issue_types            Json     @default("[]")
+  jira_statuses               Json     @default("[]")
+  jira_time_logging_method    String   @default("jira_worklog")
+  /// Desktop / client hint: none | asana | jira_cloud | jira_self_hosted
+  work_platform               String   @default("jira_cloud")
 
   organization Organization @relation(fields: [org_id], references: [id])
 }
 
 model User {
-  id               String   @id @default(uuid())
+  id               String     @id @default(uuid())
   org_id           String
   email            String
   password_hash    String
-  role             String   @default("employee")
+  role             UserRole   @default(EMPLOYEE)
+  role_version     Int        @default(0)
+  /// Optional line manager; null = unassigned. Same org enforced in app layer.
+  manager_id       String?
   name             String
-  timezone         String   @default("UTC")
-  status           String   @default("active")
-  mfa_enabled       Boolean  @default(false)
-  mfa_secret        String?  // Legacy plaintext; prefer mfa_secret_encrypted
+  timezone         String     @default("UTC")
+  status           UserStatus @default(ACTIVE)
+  mfa_enabled       Boolean   @default(false)
+  mfa_secret        String?   // Legacy plaintext; prefer mfa_secret_encrypted
   mfa_secret_encrypted Bytes?
-  mfa_backup_codes  String[] @default([])
-  is_platform_admin Boolean  @default(false)
+  mfa_backup_codes  String[]  @default([])
+  is_platform_admin Boolean   @default(false)
   // null = follow OrgSettings.allow_employee_offline_time; true/false = override
   can_add_offline_time Boolean?
-  created_at       DateTime @default(now())
-  updated_at       DateTime @updatedAt
+  created_at       DateTime   @default(now())
+  updated_at       DateTime   @updatedAt
 
   organization    Organization   @relation(fields: [org_id], references: [id])
+  manager         User?          @relation("UserHierarchy", fields: [manager_id], references: [id], onDelete: SetNull)
+  direct_reports  User[]         @relation("UserHierarchy")
   refresh_tokens  RefreshToken[]
   time_sessions   TimeSession[]
   screenshots     Screenshot[]
@@ -83,11 +143,16 @@ model User {
   assigned_tasks  Task[]          @relation("AssignedTasks")
   offline_times   OfflineTime[]   @relation("UserOfflineTime")
   added_offline_times OfflineTime[] @relation("AddedByOfflineTime")
+  agent_commands      AgentCommand[]
+  invites_sent        Invite[]       @relation("InvitedBy")
+  managed_teams       Team[]         @relation("TeamManager")
+  team_memberships    TeamMember[]
 
   @@unique([email, org_id])
   @@index([org_id])
   @@index([org_id, status])
   @@index([email])
+  @@index([manager_id])
 }
 
 model RefreshToken {
@@ -105,16 +170,18 @@ model RefreshToken {
 }
 
 model Invite {
-  id          String    @id @default(uuid())
-  org_id      String
-  email       String
-  role        String    @default("employee")
-  token       String    @unique @default(uuid())
-  accepted_at DateTime?
-  expires_at  DateTime
-  created_at  DateTime  @default(now())
+  id             String     @id @default(uuid())
+  org_id         String
+  email          String
+  role           InviteRole @default(EMPLOYEE)
+  invited_by_id  String
+  token          String     @unique @default(uuid())
+  accepted_at    DateTime?
+  expires_at     DateTime
+  created_at     DateTime   @default(now())
 
   organization Organization @relation(fields: [org_id], references: [id])
+  invited_by   User         @relation("InvitedBy", fields: [invited_by_id], references: [id])
 
   @@index([org_id])
   @@index([email, org_id])
@@ -171,15 +238,15 @@ model TimeSession {
   started_at      DateTime
   ended_at        DateTime?
   duration_sec    Int       @default(0)
-  is_manual       Boolean   @default(false)
+  is_manual       Boolean        @default(false)
   notes           String?
-  approval_status String    @default("pending")
+  approval_status ApprovalStatus @default(PENDING)
   created_at      DateTime  @default(now())
   updated_at      DateTime  @updatedAt
 
-  user           User         @relation(fields: [user_id], references: [id])
-  project        Project?     @relation(fields: [project_id], references: [id])
-  task           Task?        @relation(fields: [task_id], references: [id])
+  user           User           @relation(fields: [user_id], references: [id])
+  project        Project?       @relation(fields: [project_id], references: [id])
+  task           Task?          @relation(fields: [task_id], references: [id])
   screenshots    Screenshot[]
   activity_logs  ActivityLog[]
   time_deductions SessionTimeDeduction[]
@@ -328,4 +395,103 @@ model OfflineTime {
 
   @@index([org_id, user_id, start_time])
   @@index([org_id, start_time])
+}
+
+model AgentToken {
+  id           String       @id @default(uuid())
+  org_id       String
+  token_hash   String       @unique
+  name         String?
+  last_seen_at DateTime?
+  created_at   DateTime     @default(now())
+
+  organization Organization @relation(fields: [org_id], references: [id])
+
+  @@index([org_id])
+}
+
+model AgentCommand {
+  id           String    @id @default(uuid())
+  org_id       String
+  user_id      String
+  type         String
+  status       String    @default("pending")
+  payload      Json
+  attempts     Int       @default(0)
+  error        String?
+  locked_at    DateTime?
+  completed_at DateTime?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  organization Organization @relation(fields: [org_id], references: [id])
+  user         User         @relation(fields: [user_id], references: [id])
+
+  @@index([org_id, status])
+  @@index([org_id, created_at])
+  @@index([status, locked_at])
+}
+
+model AgentHeartbeat {
+  id              String   @id @default(uuid())
+  org_id          String   @unique
+  agent_version   String?
+  status          String   @default("online")
+  last_seen_at    DateTime @default(now())
+  last_sync_at    DateTime?
+  last_sync_count Int?
+
+  organization Organization @relation(fields: [org_id], references: [id])
+}
+
+model JiraIssue {
+  id              String    @id @default(uuid())
+  org_id          String
+  jira_id         String
+  key             String
+  summary         String?
+  status          String?
+  assignee_email  String?
+  priority        String?
+  due_date        DateTime?
+  labels          String[]  @default([])
+  raw_payload     Json
+  synced_at       DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [org_id], references: [id])
+
+  @@unique([org_id, jira_id])
+  @@index([org_id])
+  @@index([org_id, assignee_email])
+}
+
+model Team {
+  id          String    @id @default(cuid())
+  org_id      String
+  name        String
+  manager_id  String?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  organization Organization @relation(fields: [org_id], references: [id])
+  manager      User?        @relation("TeamManager", fields: [manager_id], references: [id])
+  members      TeamMember[]
+
+  @@index([org_id])
+  @@index([manager_id])
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  team_id   String
+  user_id   String
+  team_role TeamRole @default(MEMBER)
+  joined_at DateTime @default(now())
+
+  team Team @relation(fields: [team_id], references: [id], onDelete: Cascade)
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([team_id, user_id])
+  @@index([user_id])
 }

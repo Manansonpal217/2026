@@ -8,7 +8,7 @@ export async function integrationSyncRoutes(fastify: FastifyInstance, opts: { co
   const authenticate = createAuthenticateMiddleware(opts.config)
 
   fastify.post('/:id/sync', {
-    preHandler: [authenticate, requireRole('admin', 'super_admin')],
+    preHandler: [authenticate, requireRole('ADMIN', 'OWNER')],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const { id } = request.params as { id: string }
@@ -28,7 +28,7 @@ export async function integrationSyncRoutes(fastify: FastifyInstance, opts: { co
       const job = await queue.add(
         'sync',
         { integrationId: id, orgId: req.user!.org_id },
-        { jobId: `integrationSync:${id}`, attempts: 3 },
+        { jobId: `integrationSync:${id}`, attempts: 3 }
       )
 
       return { queued: true, job_id: job.id }

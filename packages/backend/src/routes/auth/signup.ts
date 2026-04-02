@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto'
 import { prisma } from '../../db/prisma.js'
 import { getRedis } from '../../db/redis.js'
 import { hashPassword } from '../../lib/password.js'
-import { sendVerificationEmail } from '../../lib/email.js'
+import { enqueueTransactionalEmail } from '../../services/email/enqueue.js'
 import {
   createOrgWithSuperAdmin,
   isDisposableSignupEmail,
@@ -112,9 +112,13 @@ export async function signupRoutes(fastify: FastifyInstance, opts: { config: Con
       const redis = getRedis(config)
       await redis.set(`email:verify:${verifyToken}`, userId, 'EX', 86400)
 
-      sendVerificationEmail(config, email.toLowerCase(), verifyToken).catch((err) =>
-        fastify.log.error({ err }, 'Failed to send verification email')
-      )
+      void enqueueTransactionalEmail({
+        kind: 'verify',
+        to: email.toLowerCase(),
+        appUrl: config.APP_URL,
+        userName: full_name,
+        token: verifyToken,
+      }).catch((err) => fastify.log.error({ err }, 'Failed to enqueue verification email'))
 
       return reply.status(201).send({
         message: 'Organization created. Please check your email to verify your account.',

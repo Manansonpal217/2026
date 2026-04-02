@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto'
 import { prisma } from '../../db/prisma.js'
 import { getRedis } from '../../db/redis.js'
 import { hashPassword } from '../../lib/password.js'
-import { sendPasswordResetEmail } from '../../lib/email.js'
+import { enqueueTransactionalEmail } from '../../services/email/enqueue.js'
 import type { Config } from '../../config.js'
 
 const GENERIC_OK_MESSAGE =
@@ -60,9 +60,9 @@ export async function passwordResetRoutes(fastify: FastifyInstance, opts: { conf
       const candidates = await prisma.user.findMany({
         where: {
           email,
-          status: 'active',
+          status: 'ACTIVE',
           organization: {
-            status: { not: 'suspended' },
+            status: { not: 'SUSPENDED' },
             ...(orgSlug ? { slug: orgSlug } : {}),
           },
         },
@@ -79,9 +79,12 @@ export async function passwordResetRoutes(fastify: FastifyInstance, opts: { conf
         const redis = getRedis(config)
         await redis.set(`password:reset:${token}`, targetId, 'EX', RESET_TTL_SEC)
         const userRow = candidates[0]
-        sendPasswordResetEmail(config, userRow.email, token).catch((err) =>
-          fastify.log.error({ err }, 'Failed to send password reset email')
-        )
+        void enqueueTransactionalEmail({
+          kind: 'reset',
+          to: userRow.email,
+          appUrl: config.APP_URL,
+          token,
+        }).catch((err) => fastify.log.error({ err }, 'Failed to enqueue password reset email'))
       }
 
       return reply.send({ message: GENERIC_OK_MESSAGE })
@@ -130,6 +133,12 @@ export async function passwordResetRoutes(fastify: FastifyInstance, opts: { conf
       ])
 
       await redis.del(`password:reset:${token}`)
+
+      void enqueueTransactionalEmail({
+        kind: 'passwordChanged',
+        to: user.email,
+        userName: user.name,
+      }).catch((err) => fastify.log.error({ err }, 'Failed to enqueue password changed email'))
 
       return reply.send({
         message: 'Your password has been updated. You can sign in with your new password.',

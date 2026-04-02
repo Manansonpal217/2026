@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../../db/prisma.js'
-import { createAuthenticateMiddleware, requireRole } from '../../middleware/authenticate.js'
+import { createAuthenticateMiddleware, requirePermission } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
+import { canAccessOrgUser, mayActAsPeopleManager, Permission } from '../../lib/permissions.js'
 import { deleteFromS3, generateSignedUrl } from '../../lib/s3.js'
 import { deductionRangeForDeletedScreenshot } from '../../lib/screenshot-deleted-time.js'
 
@@ -31,8 +32,18 @@ export async function screenshotListRoutes(fastify: FastifyInstance, opts: { con
       }
       const query = parsed.data
 
-      const canViewOthers = ['admin', 'super_admin', 'manager'].includes(user.role)
-      const targetUserId = canViewOthers && query.user_id ? query.user_id : user.id
+      if (query.user_id && query.user_id !== user.id && !mayActAsPeopleManager(user.role)) {
+        return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+      }
+
+      const targetUserId =
+        query.user_id && mayActAsPeopleManager(user.role) ? query.user_id : user.id
+
+      if (query.user_id && query.user_id !== user.id) {
+        if (!(await canAccessOrgUser(user, query.user_id))) {
+          return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+        }
+      }
 
       const where = {
         org_id: user.org_id,
@@ -81,7 +92,7 @@ export async function screenshotListRoutes(fastify: FastifyInstance, opts: { con
   })
 
   fastify.post('/:id/blur', {
-    preHandler: [authenticate, requireRole('admin', 'super_admin', 'manager')],
+    preHandler: [authenticate, requirePermission(Permission.MANAGERS_ACCESS)],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const user = req.user!
@@ -92,6 +103,10 @@ export async function screenshotListRoutes(fastify: FastifyInstance, opts: { con
       })
       if (!screenshot) {
         return reply.status(404).send({ code: 'NOT_FOUND', message: 'Screenshot not found' })
+      }
+
+      if (!(await canAccessOrgUser(user, screenshot.user_id))) {
+        return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
       }
 
       const { getScreenshotQueue } = await import('../../queues/index.js')
@@ -112,7 +127,7 @@ export async function screenshotListRoutes(fastify: FastifyInstance, opts: { con
   })
 
   fastify.delete('/:id', {
-    preHandler: [authenticate, requireRole('admin', 'super_admin', 'manager')],
+    preHandler: [authenticate, requirePermission(Permission.MANAGERS_ACCESS)],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const user = req.user!
@@ -123,6 +138,10 @@ export async function screenshotListRoutes(fastify: FastifyInstance, opts: { con
       })
       if (!screenshot) {
         return reply.status(404).send({ code: 'NOT_FOUND', message: 'Screenshot not found' })
+      }
+
+      if (!(await canAccessOrgUser(user, screenshot.user_id))) {
+        return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
       }
 
       const now = new Date()

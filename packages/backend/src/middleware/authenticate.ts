@@ -4,6 +4,7 @@ import { getRedis } from '../db/redis.js'
 import { prisma } from '../db/prisma.js'
 import { isJtiBlacklisted } from '../db/redis.js'
 import type { Config } from '../config.js'
+import { hasPermission, type Permission } from '../lib/permissions.js'
 
 export interface AuthenticatedUser {
   id: string
@@ -31,6 +32,7 @@ interface CachedStatus {
   userName: string
   userEmail: string
   isPlatformAdmin: boolean
+  roleVersion: number
 }
 
 export function createAuthenticateMiddleware(config: Config) {
@@ -64,6 +66,7 @@ export function createAuthenticateMiddleware(config: Config) {
       let userName: string
       let userEmail: string
       let isPlatformAdmin: boolean
+      let roleVersion: number
 
       if (cachedRaw) {
         // Cache hit — no DB query needed (fast path)
@@ -74,6 +77,7 @@ export function createAuthenticateMiddleware(config: Config) {
         userName = cached.userName
         userEmail = cached.userEmail
         isPlatformAdmin = cached.isPlatformAdmin
+        roleVersion = cached.roleVersion ?? 0
       } else {
         // Cache miss — query DB with minimal columns (no full include)
         const user = await prisma.user.findUnique({
@@ -84,6 +88,7 @@ export function createAuthenticateMiddleware(config: Config) {
             name: true,
             email: true,
             is_platform_admin: true,
+            role_version: true,
             organization: { select: { id: true, name: true, status: true } },
           },
         })
@@ -94,12 +99,13 @@ export function createAuthenticateMiddleware(config: Config) {
             .send({ code: 'USER_INACTIVE', message: 'User not found or inactive' })
         }
 
-        userStatus = user.status
-        orgStatus = user.organization.status
+        userStatus = user.status as string
+        orgStatus = user.organization.status as string
         orgName = user.organization.name
         userName = user.name
         userEmail = user.email
         isPlatformAdmin = user.is_platform_admin
+        roleVersion = user.role_version
 
         // Populate cache asynchronously — don't block the response
         const toCache: CachedStatus = {
@@ -109,6 +115,7 @@ export function createAuthenticateMiddleware(config: Config) {
           userName,
           userEmail,
           isPlatformAdmin,
+          roleVersion,
         }
         redis
           .set(
@@ -120,16 +127,27 @@ export function createAuthenticateMiddleware(config: Config) {
           .catch(() => {}) // fire-and-forget
       }
 
-      if (userStatus !== 'active') {
+      if (userStatus !== 'ACTIVE') {
         return reply
           .status(401)
           .send({ code: 'USER_INACTIVE', message: 'User not found or inactive' })
       }
 
-      if (orgStatus === 'suspended') {
+      if (orgStatus === 'SUSPENDED') {
         return reply
           .status(402)
           .send({ code: 'ORG_SUSPENDED', message: 'Organization access has been suspended' })
+      }
+
+      // Step 3: role_version check — if the role was changed after this token was issued,
+      // reject with ROLE_CHANGED so the client re-authenticates.
+      const tokenRoleVersion = payload.role_version ?? 0
+      if (tokenRoleVersion !== roleVersion) {
+        // Evict stale cache so next login gets fresh data
+        redis.del(`${USER_STATUS_PREFIX}${payload.sub}`).catch(() => {})
+        return reply
+          .status(403)
+          .send({ code: 'ROLE_CHANGED', message: 'Your role has changed. Please sign in again.' })
       }
 
       // Attach to request — role comes from JWT (cryptographically signed)
@@ -164,6 +182,19 @@ export function requireRole(...roles: string[]) {
   }
 }
 
+export function requirePermission(...permissions: Permission[]) {
+  return async function (request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const user = (request as AuthenticatedRequest).user
+    if (!user) {
+      return reply.status(401).send({ code: 'UNAUTHORIZED' })
+    }
+    const ok = permissions.every((p) => hasPermission(user, p))
+    if (!ok) {
+      return reply.status(403).send({ code: 'FORBIDDEN', message: 'Insufficient permissions' })
+    }
+  }
+}
+
 export function requirePlatformAdmin() {
   return async function (request: FastifyRequest, reply: FastifyReply): Promise<void> {
     const user = (request as AuthenticatedRequest).user
@@ -177,3 +208,23 @@ export function requirePlatformAdmin() {
     }
   }
 }
+
+/** List all organizations (read-only directory) — org OWNER or platform admin. */
+export function requirePlatformAdminOrOrgOwner() {
+  return async function (request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    const user = (request as AuthenticatedRequest).user
+    if (!user) {
+      return reply.status(401).send({ code: 'UNAUTHORIZED' })
+    }
+    if (user.is_platform_admin || user.role === 'OWNER') {
+      return
+    }
+    return reply.status(403).send({
+      code: 'FORBIDDEN',
+      message: 'Organization owner or platform access required',
+    })
+  }
+}
+
+/** @deprecated Use requirePlatformAdminOrOrgOwner. Kept for callsites during migration. */
+export const requirePlatformAdminOrOrgSuperAdmin = requirePlatformAdminOrOrgOwner

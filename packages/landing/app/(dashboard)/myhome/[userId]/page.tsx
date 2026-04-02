@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
@@ -201,9 +202,37 @@ type ActivityLogRow = {
   activity_score: number
 }
 
+function activityLabelFromLog(log: ActivityLogRow): string {
+  return [log.active_app, log.active_url].filter(Boolean).join(' — ') || 'Unknown'
+}
+
+/** Time-weighted mean activity_score (0–100) for logs overlapping [rangeStart, rangeEnd] (ms). */
+function weightedActivityScoreForRange(
+  logs: ActivityLogRow[],
+  rangeStart: number,
+  rangeEnd: number
+): number | null {
+  let weighted = 0
+  let totalSec = 0
+  for (const log of logs) {
+    const ws = new Date(log.window_start).getTime()
+    const we = new Date(log.window_end).getTime()
+    const a = Math.max(rangeStart, ws)
+    const b = Math.min(rangeEnd, we)
+    if (b <= a) continue
+    const sec = (b - a) / 1000
+    const score = Number(log.activity_score)
+    if (!Number.isFinite(score)) continue
+    weighted += score * sec
+    totalSec += sec
+  }
+  if (totalSec <= 0) return null
+  return weighted / totalSec
+}
+
 const POLL_MS = 15_000
 
-function canViewTeamMembers(role: string | undefined): boolean {
+function isMgmtRole(role: string | undefined): boolean {
   const r = role ?? 'employee'
   return r === 'super_admin' || r === 'admin' || r === 'manager'
 }
@@ -461,7 +490,6 @@ export default function UserHomePage() {
   const [offlineEntriesMonth, setOfflineEntriesMonth] = useState<OfflineTimeRow[]>([])
   const [allowEmployeeOfflineTime, setAllowEmployeeOfflineTime] = useState(false)
   const [activityLogs, setActivityLogs] = useState<ActivityLogRow[]>([])
-  const [daySeconds, setDaySeconds] = useState(0)
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   /** When true, day fetch toggles full-page loading and unmounts session rows (bad for polls). */
@@ -469,10 +497,13 @@ export default function UserHomePage() {
   const [dayLoggedSecondsRecord, setDayLoggedSecondsRecord] = useState<Record<string, number>>({})
   const [expectedDailyWorkMinutes, setExpectedDailyWorkMinutes] = useState(480)
 
-  const [tab, setTab] = useState<'tasks' | 'apps'>('tasks')
-  const [rollupExpanded, setRollupExpanded] = useState(false)
+  const [rollupExpandedTasks, setRollupExpandedTasks] = useState(false)
+  const [rollupExpandedApps, setRollupExpandedApps] = useState(false)
+  const [dailyRollupTab, setDailyRollupTab] = useState<'tasks' | 'apps'>('tasks')
 
   const [offlineModalOpen, setOfflineModalOpen] = useState(false)
+  const [historyInfoOpen, setHistoryInfoOpen] = useState(false)
+  const [portalReady, setPortalReady] = useState(false)
   const [offlineSubmitErr, setOfflineSubmitErr] = useState<string | null>(null)
   const [offlineSubmitting, setOfflineSubmitting] = useState(false)
   const [offlineFormStart, setOfflineFormStart] = useState('09:00')
@@ -482,8 +513,26 @@ export default function UserHomePage() {
   const selectedIsToday = isSameLocalDay(selectedDay, new Date())
 
   useEffect(() => {
-    setRollupExpanded(false)
-  }, [tab, selectedDay, userId])
+    setPortalReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!offlineModalOpen && !historyInfoOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOfflineModalOpen(false)
+        setHistoryInfoOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [offlineModalOpen, historyInfoOpen])
+
+  useEffect(() => {
+    setRollupExpandedTasks(false)
+    setRollupExpandedApps(false)
+    setDailyRollupTab('tasks')
+  }, [selectedDay, userId])
 
   const screenshotCacheScope = useMemo(() => {
     if (!sessionUserId || !userId) return ''
@@ -524,7 +573,7 @@ export default function UserHomePage() {
       if (blockUi) setLoading(true)
       setLoadErr(null)
       const [sessRes, ssRes, actRes, offRes] = await Promise.all([
-        api.get<{ sessions: SessionRow[]; total_seconds: number }>('/v1/sessions', {
+        api.get<{ sessions: SessionRow[] }>('/v1/sessions', {
           params: { user_id: userId, from, to, limit: 200 },
         }),
         api.get<{ screenshots: ScreenshotItem[] }>('/v1/screenshots/', {
@@ -542,7 +591,6 @@ export default function UserHomePage() {
       setScreenshots(ssRes.data.screenshots ?? [])
       setOfflineTimes(offRes.data.offline_time ?? [])
       setActivityLogs(actRes.data.activity_logs ?? [])
-      setDaySeconds(sessRes.data.total_seconds ?? 0)
       blockUiUntilDayHydratedRef.current = false
     } catch (e: unknown) {
       setLoadErr(e instanceof Error ? e.message : 'Failed to load activity')
@@ -604,7 +652,7 @@ export default function UserHomePage() {
     if (
       sessionStatus === 'authenticated' &&
       sessionUserId &&
-      !canViewTeamMembers(sessionRole) &&
+      !isMgmtRole(sessionRole) &&
       sessionUserId !== userId
     ) {
       setUserErr('unavailable')
@@ -629,7 +677,7 @@ export default function UserHomePage() {
             setUserErr('unavailable')
           } else {
             setUserErr(
-              msg?.trim() || 'Could not load this user. Try again or return to the team list.'
+              msg?.trim() || 'Could not load this user. Try again or return to the user list.'
             )
           }
         } else {
@@ -702,6 +750,17 @@ export default function UserHomePage() {
     [sessions]
   )
 
+  /** Matches timeline/task list: clipped local-day seconds from loaded sessions (includes pending when org uses time approval). */
+  const clippedSessionDaySeconds = useMemo(() => {
+    const nowMs = Date.now()
+    let t = 0
+    for (const s of sessionsForTimeline) {
+      const r = sessionClippedRangeOnDay(s, selectedDay, nowMs)
+      if (r) t += (r.clipEnd - r.clipStart) / 1000
+    }
+    return Math.round(t)
+  }, [sessionsForTimeline, selectedDay])
+
   const sessionsChrono = useMemo(
     () =>
       [...sessionsForTimeline].sort(
@@ -751,13 +810,13 @@ export default function UserHomePage() {
     }
     if (selectedDay.getFullYear() === viewYear && selectedDay.getMonth() === viewMonth) {
       const k = localDayKey(selectedDay)
-      out[k] = Math.max(out[k] ?? 0, daySeconds + offlineDaySeconds)
+      out[k] = Math.max(out[k] ?? 0, clippedSessionDaySeconds + offlineDaySeconds)
     }
     return out
   }, [
     dayLoggedSecondsRecord,
     dayOfflineFromMonth,
-    daySeconds,
+    clippedSessionDaySeconds,
     offlineDaySeconds,
     selectedDay,
     viewYear,
@@ -781,24 +840,31 @@ export default function UserHomePage() {
   }, [displayGroups, offlineTimes, selectedDay])
 
   const canAddOfflineTime = useMemo(() => {
-    if (canViewTeamMembers(sessionRole)) return true
+    if (isMgmtRole(sessionRole) && user) return true
     if (sessionUserId !== userId) return false
     const o = user?.can_add_offline_time
     if (o === true) return true
     if (o === false) return false
     return allowEmployeeOfflineTime === true
-  }, [sessionRole, sessionUserId, userId, user?.can_add_offline_time, allowEmployeeOfflineTime])
+  }, [
+    sessionRole,
+    sessionUserId,
+    userId,
+    user,
+    user?.can_add_offline_time,
+    allowEmployeeOfflineTime,
+  ])
 
   const canDeleteOfflineEntry = useCallback(
     (_entry: OfflineTimeRow) => {
-      if (canViewTeamMembers(sessionRole)) return true
+      if (isMgmtRole(sessionRole) && user) return true
       if (sessionUserId !== userId) return false
       const o = user?.can_add_offline_time
       if (o === true) return true
       if (o === false) return false
       return allowEmployeeOfflineTime === true
     },
-    [sessionRole, sessionUserId, userId, user?.can_add_offline_time, allowEmployeeOfflineTime]
+    [sessionRole, sessionUserId, userId, user, user?.can_add_offline_time, allowEmployeeOfflineTime]
   )
 
   const taskRollup = useMemo(() => {
@@ -820,7 +886,7 @@ export default function UserHomePage() {
   const appRollup = useMemo(() => {
     const map = new Map<string, number>()
     for (const log of activityLogs) {
-      const label = [log.active_app, log.active_url].filter(Boolean).join(' — ') || 'Unknown'
+      const label = activityLabelFromLog(log)
       const sec = Math.max(
         0,
         (new Date(log.window_end).getTime() - new Date(log.window_start).getTime()) / 1000
@@ -829,6 +895,13 @@ export default function UserHomePage() {
     }
     return [...map.entries()].sort((a, b) => b[1] - a[1])
   }, [activityLogs])
+
+  const dayActivityScorePct = useMemo(() => {
+    const ds = startOfLocalDay(selectedDay).getTime()
+    const de = endOfLocalDay(selectedDay).getTime()
+    const raw = weightedActivityScoreForRange(activityLogs, ds, de)
+    return raw != null ? Math.round(raw) : null
+  }, [activityLogs, selectedDay])
 
   const presenceDot = useMemo(() => {
     if (!user) return 'idle' as const
@@ -840,7 +913,8 @@ export default function UserHomePage() {
     return 'idle' as const
   }, [user])
 
-  const canManageScreenshots = canViewTeamMembers(sessionRole)
+  /** Server enforces scope (e.g. managers: direct reports only). Hide controls until profile loads. */
+  const canManageScreenshots = isMgmtRole(sessionRole) && Boolean(user)
 
   const handleScreenshotBlur = useCallback(async (id: string) => {
     await api.post(`/v1/screenshots/${id}/blur`)
@@ -928,8 +1002,8 @@ export default function UserHomePage() {
 
   const tzLabel = formatUtcOffsetLabel()
 
-  const visibleTasks = rollupExpanded ? taskRollup : taskRollup.slice(0, ROLLUP_PREVIEW_LIMIT)
-  const visibleApps = rollupExpanded ? appRollup : appRollup.slice(0, ROLLUP_PREVIEW_LIMIT)
+  const visibleTasks = rollupExpandedTasks ? taskRollup : taskRollup.slice(0, ROLLUP_PREVIEW_LIMIT)
+  const visibleApps = rollupExpandedApps ? appRollup : appRollup.slice(0, ROLLUP_PREVIEW_LIMIT)
   const tasksRollupHasMore = taskRollup.length > ROLLUP_PREVIEW_LIMIT
   const appsRollupHasMore = appRollup.length > ROLLUP_PREVIEW_LIMIT
 
@@ -966,10 +1040,10 @@ export default function UserHomePage() {
           <h1 className="mt-4 text-xl font-semibold text-foreground sm:text-2xl">Page not found</h1>
           <p className="mt-3 text-pretty text-muted-foreground sm:text-base">
             This page doesn’t exist or isn’t available to your account. Check the link or return to
-            your dashboard.
+            home.
           </p>
           <Button asChild variant="gradient" size="lg" className="mt-8 min-w-[200px]">
-            <Link href="/myhome">Back to My Home</Link>
+            <Link href="/myhome">Back to home</Link>
           </Button>
         </div>
       </main>
@@ -984,7 +1058,7 @@ export default function UserHomePage() {
             <Link
               href="/myhome"
               className="mt-1 inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium text-muted-foreground transition-colors hover:bg-background/80 hover:text-foreground"
-              aria-label="Back to manager dashboard"
+              aria-label="Back to home"
             >
               <ArrowLeft className="h-4 w-4" aria-hidden />
               Back
@@ -1132,99 +1206,145 @@ export default function UserHomePage() {
                 day: 'numeric',
               })}
             </p>
-            <p className="mt-1 text-4xl font-bold tabular-nums text-foreground">
-              {formatDurationSeconds(daySeconds + offlineDaySeconds)}
-            </p>
+            <div className="mt-1 flex items-start justify-between gap-3">
+              <p className="min-w-0 text-4xl font-bold tabular-nums text-foreground">
+                {formatDurationSeconds(clippedSessionDaySeconds + offlineDaySeconds)}
+              </p>
+              {dayActivityScorePct != null ? (
+                <span className="shrink-0 pt-1.5 text-right text-[11px] font-medium leading-tight text-muted-foreground sm:text-xs">
+                  Activity
+                  <br />
+                  <span className="tabular-nums text-foreground/90">{dayActivityScorePct}%</span>
+                </span>
+              ) : null}
+            </div>
           </div>
-          <div>
-            <div className="flex gap-2 border-b border-border">
+          <div className="min-w-0">
+            <div
+              className="flex gap-0 border-b border-border"
+              role="tablist"
+              aria-label="Tasks and app usage for this day"
+            >
               <button
+                id="rollup-tab-tasks"
                 type="button"
+                role="tab"
+                aria-selected={dailyRollupTab === 'tasks'}
+                aria-controls="rollup-panel-tasks"
                 className={cn(
-                  'border-b-2 px-3 py-2 text-sm font-medium',
-                  tab === 'tasks'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground'
+                  '-mb-px border-b-2 px-1 py-2 text-xs font-semibold uppercase tracking-wide transition-colors sm:px-2',
+                  dailyRollupTab === 'tasks'
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
                 )}
-                onClick={() => setTab('tasks')}
+                onClick={() => setDailyRollupTab('tasks')}
               >
                 Tasks
               </button>
               <button
+                id="rollup-tab-apps"
                 type="button"
+                role="tab"
+                aria-selected={dailyRollupTab === 'apps'}
+                aria-controls="rollup-panel-apps"
                 className={cn(
-                  'border-b-2 px-3 py-2 text-sm font-medium',
-                  tab === 'apps'
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground'
+                  '-mb-px border-b-2 px-1 py-2 text-xs font-semibold uppercase tracking-wide transition-colors sm:px-2',
+                  dailyRollupTab === 'apps'
+                    ? 'border-primary text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground'
                 )}
-                onClick={() => setTab('apps')}
+                onClick={() => setDailyRollupTab('apps')}
               >
                 Apps & URLs
               </button>
             </div>
-            <div
-              className={cn(
-                'mt-3 space-y-2 text-sm',
-                rollupExpanded && 'max-h-64 min-h-0 overflow-y-auto overscroll-contain pr-0.5'
-              )}
-            >
-              {tab === 'tasks' ? (
-                taskRollup.length ? (
-                  visibleTasks.map(([key, row]) => (
-                    <div
-                      key={key}
-                      className="flex items-center justify-between gap-2 border-b border-border/60 pb-2 last:border-0"
-                    >
-                      <span className="truncate text-foreground/90">{row.name}</span>
-                      <span className="shrink-0 tabular-nums font-medium text-foreground">
-                        {formatDurationSeconds(Math.round(row.seconds))}
-                      </span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-right text-muted-foreground">No tasks for this day.</p>
-                )
-              ) : appRollup.length ? (
-                visibleApps.map(([label, sec]) => (
-                  <div
-                    key={label}
-                    className="flex items-center justify-between gap-2 border-b border-border/60 pb-2 last:border-0"
+            {dailyRollupTab === 'tasks' ? (
+              <div
+                id="rollup-panel-tasks"
+                role="tabpanel"
+                aria-labelledby="rollup-tab-tasks"
+                className="min-w-0 pt-3"
+              >
+                <div
+                  className={cn(
+                    'space-y-2 text-sm',
+                    rollupExpandedTasks &&
+                      'max-h-64 min-h-0 overflow-y-auto overscroll-contain pr-0.5'
+                  )}
+                >
+                  {taskRollup.length ? (
+                    visibleTasks.map(([key, row]) => (
+                      <div
+                        key={key}
+                        className="flex items-center justify-between gap-2 border-b border-border/60 pb-2 last:border-0"
+                      >
+                        <span className="truncate text-foreground/90">{row.name}</span>
+                        <span className="shrink-0 tabular-nums font-medium text-foreground">
+                          {formatDurationSeconds(Math.round(row.seconds))}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-muted-foreground">No tasks for this day.</p>
+                  )}
+                </div>
+                {tasksRollupHasMore ? (
+                  <button
+                    type="button"
+                    onClick={() => setRollupExpandedTasks((e) => !e)}
+                    className="mt-2 text-sm font-medium text-primary hover:underline"
                   >
-                    <span className="truncate text-foreground/90" title={label}>
-                      {label}
-                    </span>
-                    <span className="shrink-0 tabular-nums font-medium text-foreground">
-                      {formatDurationSeconds(Math.round(sec))}
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <p className="text-right text-muted-foreground">No app activity for this day.</p>
-              )}
-            </div>
-            {tab === 'tasks' && tasksRollupHasMore ? (
-              <button
-                type="button"
-                onClick={() => setRollupExpanded((e) => !e)}
-                className="mt-2 text-sm font-medium text-primary hover:underline"
+                    {rollupExpandedTasks
+                      ? 'Show less'
+                      : `Show more (${taskRollup.length - ROLLUP_PREVIEW_LIMIT})`}
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <div
+                id="rollup-panel-apps"
+                role="tabpanel"
+                aria-labelledby="rollup-tab-apps"
+                className="min-w-0 pt-3"
               >
-                {rollupExpanded
-                  ? 'Show less'
-                  : `Show more (${taskRollup.length - ROLLUP_PREVIEW_LIMIT})`}
-              </button>
-            ) : null}
-            {tab === 'apps' && appsRollupHasMore ? (
-              <button
-                type="button"
-                onClick={() => setRollupExpanded((e) => !e)}
-                className="mt-2 text-sm font-medium text-primary hover:underline"
-              >
-                {rollupExpanded
-                  ? 'Show less'
-                  : `Show more (${appRollup.length - ROLLUP_PREVIEW_LIMIT})`}
-              </button>
-            ) : null}
+                <div
+                  className={cn(
+                    'space-y-2 text-sm',
+                    rollupExpandedApps &&
+                      'max-h-64 min-h-0 overflow-y-auto overscroll-contain pr-0.5'
+                  )}
+                >
+                  {appRollup.length ? (
+                    visibleApps.map(([label, sec]) => (
+                      <div
+                        key={label}
+                        className="flex items-center justify-between gap-2 border-b border-border/60 pb-2 last:border-0"
+                      >
+                        <span className="truncate text-foreground/90" title={label}>
+                          {label}
+                        </span>
+                        <span className="shrink-0 tabular-nums font-medium text-foreground">
+                          {formatDurationSeconds(Math.round(sec))}
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-muted-foreground">No app activity for this day.</p>
+                  )}
+                </div>
+                {appsRollupHasMore ? (
+                  <button
+                    type="button"
+                    onClick={() => setRollupExpandedApps((e) => !e)}
+                    className="mt-2 text-sm font-medium text-primary hover:underline"
+                  >
+                    {rollupExpandedApps
+                      ? 'Show less'
+                      : `Show more (${appRollup.length - ROLLUP_PREVIEW_LIMIT})`}
+                  </button>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
 
@@ -1262,14 +1382,20 @@ export default function UserHomePage() {
               </div>
               <div className="absolute inset-x-1 bottom-1 top-1 z-[1]">
                 <div className="relative h-full overflow-hidden rounded-sm bg-muted-foreground/15">
-                  {blocks.map((b) => (
-                    <div
-                      key={b.key}
-                      className="absolute bottom-0 top-0 z-[1] bg-emerald-500/90"
-                      style={{ left: `${b.left}%`, width: `${Math.max(b.width, 0.25)}%` }}
-                      title="Tracked time"
-                    />
-                  ))}
+                  {blocks.map((b, i) => {
+                    const g = displayGroups[i]
+                    const barTitle = g
+                      ? `${mergedGroupTaskLabel(g) ?? 'Tracked time'} — ${formatDurationSeconds(Math.max(0, Math.round((g.clipEnd - g.clipStart) / 1000)))}`
+                      : 'Tracked time'
+                    return (
+                      <div
+                        key={b.key}
+                        className="absolute bottom-0 top-0 z-[1] bg-emerald-500/90"
+                        style={{ left: `${b.left}%`, width: `${Math.max(b.width, 0.25)}%` }}
+                        title={barTitle}
+                      />
+                    )
+                  })}
                   {offlineBarBlocks.map((b) => (
                     <div
                       key={`off-${b.key}`}
@@ -1391,6 +1517,7 @@ export default function UserHomePage() {
             ) : null}
             <button
               type="button"
+              onClick={() => setHistoryInfoOpen(true)}
               className="border-b border-dotted border-muted-foreground/50 text-muted-foreground hover:text-foreground"
             >
               History of changes
@@ -1401,88 +1528,126 @@ export default function UserHomePage() {
 
       <p className="mt-4 text-center">
         <Link href="/myhome" className="text-sm text-primary hover:underline">
-          Back to team
+          Back to home
         </Link>
       </p>
 
-      {offlineModalOpen ? (
-        <div
-          role="presentation"
-          className="fixed inset-0 z-[120] flex items-center justify-center bg-black/60 p-4"
-          onClick={() => setOfflineModalOpen(false)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="offline-modal-title"
-            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id="offline-modal-title" className="text-lg font-semibold text-foreground">
-              Add offline time
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {user?.name ?? 'User'} ·{' '}
-              {selectedDay.toLocaleDateString(undefined, {
-                weekday: 'short',
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-              })}
-            </p>
-            <div className="mt-4 grid gap-3">
-              <label className="grid gap-1 text-sm">
-                <span className="text-muted-foreground">Start (local)</span>
-                <input
-                  type="time"
-                  value={offlineFormStart}
-                  onChange={(e) => setOfflineFormStart(e.target.value)}
-                  className="rounded-md border border-border bg-background px-3 py-2 text-foreground"
-                />
-              </label>
-              <label className="grid gap-1 text-sm">
-                <span className="text-muted-foreground">End (local)</span>
-                <input
-                  type="time"
-                  value={offlineFormEnd}
-                  onChange={(e) => setOfflineFormEnd(e.target.value)}
-                  className="rounded-md border border-border bg-background px-3 py-2 text-foreground"
-                />
-              </label>
-              <label className="grid gap-1 text-sm">
-                <span className="text-muted-foreground">Description</span>
-                <textarea
-                  value={offlineFormDescription}
-                  onChange={(e) => setOfflineFormDescription(e.target.value)}
-                  rows={3}
-                  className="rounded-md border border-border bg-background px-3 py-2 text-foreground"
-                  placeholder="e.g. Client meeting (no laptop)"
-                />
-              </label>
-            </div>
-            {offlineSubmitErr ? (
-              <p className="mt-3 text-sm text-destructive">{offlineSubmitErr}</p>
-            ) : null}
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                className="rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"
-                onClick={() => setOfflineModalOpen(false)}
+      {portalReady && offlineModalOpen
+        ? createPortal(
+            <div
+              role="presentation"
+              className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-4"
+              onClick={() => setOfflineModalOpen(false)}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="offline-modal-title"
+                className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl"
+                onClick={(e) => e.stopPropagation()}
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={offlineSubmitting}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                onClick={() => void submitOfflineTime()}
+                <h2 id="offline-modal-title" className="text-lg font-semibold text-foreground">
+                  Add offline time
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {user?.name ?? 'User'} ·{' '}
+                  {selectedDay.toLocaleDateString(undefined, {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
+                </p>
+                <div className="mt-4 grid gap-3">
+                  <label className="grid gap-1 text-sm">
+                    <span className="text-muted-foreground">Start (local)</span>
+                    <input
+                      type="time"
+                      value={offlineFormStart}
+                      onChange={(e) => setOfflineFormStart(e.target.value)}
+                      className="rounded-md border border-border bg-background px-3 py-2 text-foreground"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm">
+                    <span className="text-muted-foreground">End (local)</span>
+                    <input
+                      type="time"
+                      value={offlineFormEnd}
+                      onChange={(e) => setOfflineFormEnd(e.target.value)}
+                      className="rounded-md border border-border bg-background px-3 py-2 text-foreground"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm">
+                    <span className="text-muted-foreground">Description</span>
+                    <textarea
+                      value={offlineFormDescription}
+                      onChange={(e) => setOfflineFormDescription(e.target.value)}
+                      rows={3}
+                      className="rounded-md border border-border bg-background px-3 py-2 text-foreground"
+                      placeholder="e.g. Client meeting (no laptop)"
+                    />
+                  </label>
+                </div>
+                {offlineSubmitErr ? (
+                  <p className="mt-3 text-sm text-destructive">{offlineSubmitErr}</p>
+                ) : null}
+                <div className="mt-5 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    className="rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-muted"
+                    onClick={() => setOfflineModalOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={offlineSubmitting}
+                    className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                    onClick={() => void submitOfflineTime()}
+                  >
+                    {offlineSubmitting ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
+      {portalReady && historyInfoOpen
+        ? createPortal(
+            <div
+              role="presentation"
+              className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 p-4"
+              onClick={() => setHistoryInfoOpen(false)}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="history-info-title"
+                className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl"
+                onClick={(e) => e.stopPropagation()}
               >
-                {offlineSubmitting ? 'Saving…' : 'Save'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+                <h2 id="history-info-title" className="text-lg font-semibold text-foreground">
+                  History of changes
+                </h2>
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Updates to time, activity, and workspace rules are applied by your organization.
+                  If something looks wrong, contact an organization admin.
+                </p>
+                <div className="mt-5 flex justify-end">
+                  <button
+                    type="button"
+                    className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                    onClick={() => setHistoryInfoOpen(false)}
+                  >
+                    OK
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </main>
   )
 }

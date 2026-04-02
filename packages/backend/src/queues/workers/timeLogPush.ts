@@ -13,7 +13,7 @@ export function timeLogPushWorker(config: Config): Worker<TimeLogPushJobData> {
       const { sessionId, orgId } = job.data
 
       const { prisma } = await import('../../db/prisma.js')
-      const { getRegistry } = await import('../../lib/integrations/registry.js')
+      const { getAdapter } = await import('../../lib/integrations/registry.js')
       const { decryptAuthData } = await import('../../lib/integrations/kms.js')
       const { getBreaker } = await import('../../lib/integrations/circuitBreaker.js')
 
@@ -40,7 +40,12 @@ export function timeLogPushWorker(config: Config): Worker<TimeLogPushJobData> {
         return { skipped: true, reason: 'No active integration found' }
       }
 
-      const adapter = getRegistry().get(integrationType)
+      let adapter
+      try {
+        adapter = getAdapter(integrationType)
+      } catch {
+        return { skipped: true, reason: 'Adapter not available' }
+      }
       if (!adapter?.pushTimeEntry) {
         return { skipped: true, reason: 'Adapter does not support time push' }
       }
@@ -55,9 +60,8 @@ export function timeLogPushWorker(config: Config): Worker<TimeLogPushJobData> {
           notes: session.notes ?? '',
           userName: session.user.name,
         }
-        const breaker = getBreaker(
-          `${integrationType}-timepush`,
-          () => adapter.pushTimeEntry!(auth, entry),
+        const breaker = getBreaker(`${integrationType}-timepush`, () =>
+          adapter.pushTimeEntry!(auth, entry)
         )
         await breaker.fire(auth, entry)
         return { pushed: true }
@@ -70,6 +74,6 @@ export function timeLogPushWorker(config: Config): Worker<TimeLogPushJobData> {
     {
       connection: { url: config.REDIS_URL },
       concurrency: 5,
-    },
+    }
   )
 }

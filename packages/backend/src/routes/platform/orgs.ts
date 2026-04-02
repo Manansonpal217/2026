@@ -3,8 +3,8 @@ import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { prisma } from '../../db/prisma.js'
 import { getRedis } from '../../db/redis.js'
-import { hashPassword } from '../../lib/password.js'
-import { sendVerificationEmail } from '../../lib/email.js'
+import { hashPassword, hashRefreshToken } from '../../lib/password.js'
+import { enqueueTransactionalEmail } from '../../services/email/enqueue.js'
 import {
   createOrgWithSuperAdmin,
   isDisposableSignupEmail,
@@ -13,9 +13,17 @@ import { logAuditEvent } from '../../lib/audit.js'
 import {
   createAuthenticateMiddleware,
   requirePlatformAdmin,
+  requirePlatformAdminOrOrgSuperAdmin,
 } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
+import {
+  orgSettingsScalarPatchSchema,
+  workPlatformSchema,
+  assertActivityWeightsSum,
+} from '../../lib/org-settings-fields.js'
+
+const orgSettingsForCreateSchema = orgSettingsScalarPatchSchema.omit({ work_platform: true })
 
 const listOrgsQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -33,12 +41,14 @@ const createOrgBody = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   data_region: z.string().optional(),
+  work_platform: workPlatformSchema.optional(),
+  settings: orgSettingsForCreateSchema.optional(),
 })
 
 const listUsersQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(50),
-  status: z.enum(['active', 'suspended', 'invited']).optional(),
+  status: z.enum(['ACTIVE', 'SUSPENDED']).optional(),
   role: z.string().optional(),
   search: z.string().optional(),
 })
@@ -48,8 +58,36 @@ const createOrgUserBody = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   /** Org-level roles only; does not grant platform admin (`is_platform_admin`). */
-  role: z.enum(['super_admin', 'admin', 'manager', 'employee']),
+  role: z.enum(['OWNER', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'VIEWER']),
 })
+
+const platformAgentTokenBody = z.object({
+  name: z.string().max(100).optional(),
+})
+
+const patchOrgBody = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    slug: z
+      .string()
+      .regex(/^[a-z0-9-]+$/)
+      .min(2)
+      .max(40)
+      .optional(),
+    plan: z.string().min(1).max(64).optional(),
+    status: z.enum(['ACTIVE', 'SUSPENDED']).optional(),
+  })
+  .strict()
+  .refine(
+    (b) =>
+      b.name !== undefined ||
+      b.slug !== undefined ||
+      b.plan !== undefined ||
+      b.status !== undefined,
+    {
+      message: 'At least one field is required',
+    }
+  )
 
 export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config: Config }) {
   const { config } = opts
@@ -58,7 +96,7 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
   fastify.get(
     '/orgs',
     {
-      preHandler: [authenticate, requirePlatformAdmin()],
+      preHandler: [authenticate, requirePlatformAdminOrOrgSuperAdmin()],
     },
     async (request: FastifyRequest) => {
       const parsed = listOrgsQuery.safeParse(request.query)
@@ -100,7 +138,21 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
       if (!body.success) {
         return reply.status(400).send({ code: 'VALIDATION_ERROR', errors: body.error.flatten() })
       }
-      const { org_name, slug, full_name, email, password, data_region } = body.data
+      const { org_name, slug, full_name, email, password, data_region, work_platform, settings } =
+        body.data
+
+      try {
+        if (settings) assertActivityWeightsSum(settings, null)
+      } catch (e) {
+        const err = e as { code?: string; message?: string }
+        if (err.code === 'INVALID_WEIGHTS') {
+          return reply.status(400).send({
+            code: 'INVALID_WEIGHTS',
+            message: err.message?.replace(/^INVALID_WEIGHTS: /, '') ?? 'Invalid weights',
+          })
+        }
+        throw e
+      }
 
       const existing = await prisma.organization.findUnique({
         where: { slug: slug.toLowerCase() },
@@ -124,6 +176,8 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
             email,
             password_hash,
             data_region,
+            work_platform,
+            settings,
           })
           userId = uid
         })
@@ -165,9 +219,13 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
       const redis = getRedis(config)
       await redis.set(`email:verify:${verifyToken}`, userId, 'EX', 86400)
 
-      sendVerificationEmail(config, email.toLowerCase(), verifyToken).catch((err) =>
-        fastify.log.error({ err }, 'Failed to send verification email')
-      )
+      void enqueueTransactionalEmail({
+        kind: 'verify',
+        to: email.toLowerCase(),
+        appUrl: config.APP_URL,
+        userName: full_name,
+        token: verifyToken,
+      }).catch((err) => fastify.log.error({ err }, 'Failed to enqueue verification email'))
 
       return reply.status(201).send({
         message: 'Organization created. Verification email sent to the admin user.',
@@ -177,10 +235,103 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
     }
   )
 
+  fastify.patch<{
+    Params: { orgId: string }
+    Body: z.infer<typeof patchOrgBody>
+  }>(
+    '/orgs/:orgId',
+    {
+      preHandler: [authenticate, requirePlatformAdmin()],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const req = request as AuthenticatedRequest
+      const { orgId } = request.params as { orgId: string }
+      const parsed = patchOrgBody.safeParse(request.body ?? {})
+      if (!parsed.success) {
+        return reply.status(400).send({
+          code: 'VALIDATION_ERROR',
+          errors: parsed.error.flatten(),
+        })
+      }
+      const body = parsed.data
+
+      const existing = await prisma.organization.findUnique({
+        where: { id: orgId },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          plan: true,
+          status: true,
+        },
+      })
+      if (!existing) {
+        return reply.status(404).send({ code: 'NOT_FOUND', message: 'Organization not found' })
+      }
+
+      const slugLower = body.slug?.toLowerCase()
+      if (slugLower && slugLower !== existing.slug) {
+        const slugTaken = await prisma.organization.findUnique({
+          where: { slug: slugLower },
+          select: { id: true },
+        })
+        if (slugTaken) {
+          return reply.status(400).send({
+            code: 'SLUG_TAKEN',
+            message: 'Organization slug is already taken',
+          })
+        }
+      }
+
+      const updated = await prisma.organization.update({
+        where: { id: orgId },
+        data: {
+          ...(body.name !== undefined && { name: body.name }),
+          ...(slugLower !== undefined && { slug: slugLower }),
+          ...(body.plan !== undefined && {
+            plan: body.plan as 'TRIAL' | 'FREE' | 'STANDARD' | 'PROFESSIONAL',
+          }),
+          ...(body.status !== undefined && { status: body.status }),
+        },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          status: true,
+          plan: true,
+          created_at: true,
+        },
+      })
+
+      await logAuditEvent({
+        orgId,
+        actorId: req.user!.id,
+        action: 'platform.org_updated',
+        targetType: 'organization',
+        targetId: orgId,
+        oldValue: {
+          name: existing.name,
+          slug: existing.slug,
+          plan: existing.plan,
+          status: existing.status,
+        },
+        newValue: {
+          name: updated.name,
+          slug: updated.slug,
+          plan: updated.plan,
+          status: updated.status,
+        },
+        ip: request.ip,
+      })
+
+      return { organization: updated }
+    }
+  )
+
   fastify.get(
     '/orgs/:orgId/users',
     {
-      preHandler: [authenticate, requirePlatformAdmin()],
+      preHandler: [authenticate, requirePlatformAdminOrOrgSuperAdmin()],
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { orgId } = request.params as { orgId: string }
@@ -198,7 +349,9 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
       const where = {
         org_id: orgId,
         ...(query.status && { status: query.status }),
-        ...(query.role && { role: query.role }),
+        ...(query.role && {
+          role: query.role as 'OWNER' | 'ADMIN' | 'MANAGER' | 'EMPLOYEE' | 'VIEWER',
+        }),
         ...(query.search && {
           OR: [
             { name: { contains: query.search, mode: 'insensitive' as const } },
@@ -247,7 +400,7 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
       if (!org) {
         return reply.status(404).send({ code: 'NOT_FOUND', message: 'Organization not found' })
       }
-      if (org.status === 'suspended') {
+      if ((org.status as string) === 'SUSPENDED') {
         return reply.status(402).send({
           code: 'ORG_SUSPENDED',
           message: 'Organization access has been suspended',
@@ -289,7 +442,7 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
             password_hash,
             name,
             role,
-            status: 'active',
+            status: 'ACTIVE',
           },
           select: {
             id: true,
@@ -323,6 +476,59 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
       })
 
       return reply.status(201).send({ user })
+    }
+  )
+
+  /** Mint a Jira / server agent token for any org (platform admin). Plaintext returned once. */
+  fastify.post(
+    '/orgs/:orgId/agent-token',
+    {
+      preHandler: [authenticate, requirePlatformAdmin()],
+      config: { rateLimit: { max: 30, timeWindow: '1 hour' } },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const req = request as AuthenticatedRequest
+      const { orgId } = request.params as { orgId: string }
+      const parsed = platformAgentTokenBody.safeParse(request.body ?? {})
+      if (!parsed.success) {
+        return reply.status(400).send({ code: 'VALIDATION_ERROR', errors: parsed.error.flatten() })
+      }
+
+      const org = await prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { id: true, name: true },
+      })
+      if (!org) {
+        return reply.status(404).send({ code: 'NOT_FOUND', message: 'Organization not found' })
+      }
+
+      const raw = `${randomUUID()}${randomUUID().replace(/-/g, '')}`
+      const token_hash = hashRefreshToken(raw)
+
+      await prisma.agentToken.create({
+        data: {
+          org_id: orgId,
+          token_hash,
+          name: parsed.data.name ?? null,
+        },
+      })
+
+      await logAuditEvent({
+        orgId,
+        actorId: req.user!.id,
+        action: 'platform.agent_token_created',
+        targetType: 'organization',
+        targetId: orgId,
+        newValue: { organization_name: org.name },
+        ip: request.ip,
+      })
+
+      return reply.status(201).send({
+        token: raw,
+        message: 'Store this token securely; it will not be shown again.',
+        organization_id: org.id,
+        organization_name: org.name,
+      })
     }
   )
 }

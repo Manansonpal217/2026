@@ -1,11 +1,11 @@
 'use client'
 
-import type { FormEvent } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Plus } from 'lucide-react'
+import { useSession } from 'next-auth/react'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import { CreateUserDialog } from '../create-user-dialog'
 
 type OrgRow = {
   id: string
@@ -42,6 +42,9 @@ function roleLabel(role: string): string {
 }
 
 export default function AdminUsersPage() {
+  const { data: session } = useSession()
+  const canCreateCrossTenantUsers = session?.user?.is_platform_admin === true
+
   const [orgs, setOrgs] = useState<OrgRow[]>([])
   const [orgId, setOrgId] = useState('')
   const [users, setUsers] = useState<UserRow[]>([])
@@ -49,14 +52,9 @@ export default function AdminUsersPage() {
   const [loadingOrgs, setLoadingOrgs] = useState(true)
   const [loadingUsers, setLoadingUsers] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-  const [formMessage, setFormMessage] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
-  const [newName, setNewName] = useState('')
-  const [newEmail, setNewEmail] = useState('')
-  const [newPassword, setNewPassword] = useState('')
-  const [newRole, setNewRole] = useState<'super_admin' | 'admin' | 'manager' | 'employee'>(
-    'employee'
-  )
+  const [createOpen, setCreateOpen] = useState(false)
+
+  const selectedOrg = useMemo(() => orgs.find((o) => o.id === orgId), [orgs, orgId])
 
   const loadOrgs = useCallback(async () => {
     setError(null)
@@ -108,41 +106,23 @@ export default function AdminUsersPage() {
     loadUsers()
   }, [loadUsers])
 
-  async function onCreateUser(e: FormEvent) {
-    e.preventDefault()
-    if (!orgId) return
-    setFormMessage(null)
-    setSubmitting(true)
-    try {
-      await api.post(`/v1/platform/orgs/${encodeURIComponent(orgId)}/users`, {
-        name: newName,
-        email: newEmail.trim().toLowerCase(),
-        password: newPassword,
-        role: newRole,
-      })
-      const slug = orgs.find((o) => o.id === orgId)?.slug
-      setFormMessage({
-        type: 'ok',
-        text: slug
-          ? `User created. Sign-in may require organization slug: ${slug}.`
-          : 'User created. They can sign in with this email and password.',
-      })
-      setNewName('')
-      setNewEmail('')
-      setNewPassword('')
-      setNewRole('employee')
-      await loadUsers()
-    } catch (err: unknown) {
-      const ax = err as { response?: { data?: { message?: string } } }
-      const msg = ax.response?.data?.message ?? 'Could not create user.'
-      setFormMessage({ type: 'err', text: msg })
-    } finally {
-      setSubmitting(false)
-    }
-  }
+  useEffect(() => {
+    if (!orgId) setCreateOpen(false)
+  }, [orgId])
 
   return (
     <div className="space-y-6">
+      {canCreateCrossTenantUsers ? (
+        <CreateUserDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          orgId={orgId}
+          orgLabel={selectedOrg ? `${selectedOrg.name} (${selectedOrg.slug})` : undefined}
+          orgSlug={selectedOrg?.slug}
+          onCreated={loadUsers}
+        />
+      ) : null}
+
       <div className="max-w-md space-y-2">
         <label htmlFor="org-select" className="text-sm font-medium text-muted-foreground">
           Organization
@@ -166,90 +146,24 @@ export default function AdminUsersPage() {
         </select>
       </div>
 
-      {orgId ? (
-        <section className="rounded-xl border border-border bg-card p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-card-foreground">
-            Add user to this organization
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Creates an active account. Choose org super admin (full control in this company), org
-            admin, manager, or employee. This does not make someone a platform admin.
-          </p>
-          <form onSubmit={onCreateUser} className="mt-6 grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="new-name">Full name</Label>
-              <Input
-                id="new-name"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                required
-                autoComplete="name"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="new-email">Email</Label>
-              <Input
-                id="new-email"
-                type="email"
-                value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
-                required
-                autoComplete="email"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="new-password">Password</Label>
-              <Input
-                id="new-password"
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                required
-                minLength={8}
-                autoComplete="new-password"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="new-role">Role</Label>
-              <select
-                id="new-role"
-                className="flex h-10 w-full rounded-lg border border-border bg-input px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40"
-                value={newRole}
-                onChange={(e) =>
-                  setNewRole(e.target.value as 'super_admin' | 'admin' | 'manager' | 'employee')
-                }
-              >
-                <option value="employee">Employee — own activity only</option>
-                <option value="manager">Manager — their team</option>
-                <option value="admin">Admin — whole organization</option>
-                <option value="super_admin">Super admin — full control in this org</option>
-              </select>
-            </div>
-            <div className="flex items-end sm:col-span-2">
-              <Button type="submit" loading={submitting} disabled={!orgId}>
-                Create user
-              </Button>
-            </div>
-          </form>
-          {formMessage ? (
-            <p
-              className={
-                formMessage.type === 'ok'
-                  ? 'mt-4 text-sm text-emerald-600 dark:text-emerald-400'
-                  : 'mt-4 text-sm text-destructive'
-              }
-            >
-              {formMessage.text}
-            </p>
-          ) : null}
-        </section>
-      ) : null}
-
       <div>
-        <div className="mb-4 flex items-baseline justify-between gap-4">
-          <h2 className="text-lg font-semibold text-foreground">Users</h2>
-          {orgId ? (
-            <span className="text-sm text-muted-foreground">{total} in this org</span>
+        <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-baseline sm:justify-between">
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            <h2 className="text-lg font-semibold text-foreground">Users</h2>
+            {orgId ? (
+              <span className="text-sm text-muted-foreground">{total} in this org</span>
+            ) : null}
+          </div>
+          {canCreateCrossTenantUsers ? (
+            <Button
+              type="button"
+              className="shrink-0 gap-2 self-start sm:self-auto"
+              disabled={!orgId}
+              onClick={() => setCreateOpen(true)}
+            >
+              <Plus className="h-4 w-4" aria-hidden />
+              New user
+            </Button>
           ) : null}
         </div>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}

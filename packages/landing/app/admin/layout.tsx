@@ -1,12 +1,15 @@
 import { redirect } from 'next/navigation'
 import { getServerSession } from 'next-auth'
+import { AppShellSidebar } from '@/components/AppShellSidebar'
 import { Navbar } from '@/components/Navbar'
 import { authOptions } from '@/lib/auth'
-import { AdminSubNav } from './sub-nav'
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions)
-  if (!session?.user?.is_platform_admin) {
+  const role = session?.user?.role as string | undefined
+  const isOrgSuperAdmin = role === 'super_admin'
+  const isPlatformAdmin = session?.user?.is_platform_admin === true
+  if (!isPlatformAdmin && !isOrgSuperAdmin) {
     redirect('/myhome')
   }
 
@@ -14,15 +17,21 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     <>
       <Navbar />
       <div className="min-h-screen bg-background pt-[3.75rem]">
-        <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-          <header className="mb-6">
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">Platform admin</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Manage organizations and view users across tenants.
-            </p>
-          </header>
-          <AdminSubNav />
-          <div className="mt-8">{children}</div>
+        <div className="flex min-h-[calc(100vh-3.75rem)] flex-col md:flex-row">
+          <AppShellSidebar />
+          <div className="flex min-w-0 flex-1 flex-col border-border md:border-l">
+            <header className="border-b border-border bg-muted/10 px-4 py-5 sm:px-6 lg:px-8">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                {isPlatformAdmin ? 'Platform admin' : 'Organizations'}
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {isPlatformAdmin
+                  ? 'Manage organizations and view users across tenants.'
+                  : 'Browse every organization in the directory.'}
+              </p>
+            </header>
+            <div className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</div>
+          </div>
         </div>
       </div>
     </>

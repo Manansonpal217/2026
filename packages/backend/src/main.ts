@@ -7,10 +7,11 @@ import compress from '@fastify/compress'
 import underPressure from '@fastify/under-pressure'
 import * as Sentry from '@sentry/node'
 import { loadConfig } from './config.js'
-import { initJwtKeys } from './lib/jwt.js'
+import { initJwtKeys, verifyToken } from './lib/jwt.js'
+import { initAdapters } from './lib/integrations/registry.js'
 import { getRedis } from './db/redis.js'
 import { prisma } from './db/prisma.js'
-import { initQueues, startWorkers } from './queues/index.js'
+import { initQueues, startWorkers, scheduleRepeatableJobs } from './queues/index.js'
 import { v1Routes } from './routes/v1.js'
 import { getMetricsRegistry, httpRequestDurationSeconds } from './metrics.js'
 
@@ -33,6 +34,7 @@ async function main() {
     requirePersistentKeys: isProd,
   })
   initQueues(config)
+  await initAdapters()
 
   const fastify = Fastify({
     genReqId: () => randomUUID(),
@@ -103,9 +105,22 @@ async function main() {
   })
 
   await fastify.register(rateLimit, {
-    max: 200,
+    max: 500,
     timeWindow: '1 minute',
     redis: getRedis(config),
+    keyGenerator: async (request) => {
+      const auth = request.headers.authorization
+      const raw = auth?.startsWith('Bearer ') ? auth.slice(7).trim() : null
+      if (raw) {
+        try {
+          const payload = await verifyToken(raw)
+          return `org:${payload.org_id}`
+        } catch {
+          /* invalid/expired/MFA-pending token — fall back to IP */
+        }
+      }
+      return `ip:${request.ip}`
+    },
   })
 
   fastify.addHook('onRequest', async (request) => {
@@ -210,6 +225,7 @@ async function main() {
   await redis.ping()
 
   await startWorkers(config)
+  await scheduleRepeatableJobs()
 
   const port = config.PORT
   await fastify.listen({ port, host: '0.0.0.0' })

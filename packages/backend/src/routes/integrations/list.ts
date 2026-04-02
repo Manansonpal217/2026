@@ -1,14 +1,15 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '../../db/prisma.js'
-import { createAuthenticateMiddleware, requireRole } from '../../middleware/authenticate.js'
+import { createAuthenticateMiddleware, requirePermission } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
+import { Permission } from '../../lib/permissions.js'
 
 export async function integrationListRoutes(fastify: FastifyInstance, opts: { config: Config }) {
   const authenticate = createAuthenticateMiddleware(opts.config)
 
   fastify.get('/', {
-    preHandler: [authenticate, requireRole('admin', 'super_admin')],
+    preHandler: [authenticate, requirePermission(Permission.INTEGRATIONS_VIEW)],
     handler: async (request) => {
       const req = request as AuthenticatedRequest
       const integrations = await prisma.integration.findMany({
@@ -29,7 +30,7 @@ export async function integrationListRoutes(fastify: FastifyInstance, opts: { co
   })
 
   fastify.get('/:id', {
-    preHandler: [authenticate, requireRole('admin', 'super_admin')],
+    preHandler: [authenticate, requirePermission(Permission.INTEGRATIONS_VIEW)],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const { id } = request.params as { id: string }
@@ -53,8 +54,12 @@ export async function integrationListRoutes(fastify: FastifyInstance, opts: { co
 
       // Count synced projects + tasks by external_id prefix
       const [projectCount, taskCount] = await Promise.all([
-        prisma.project.count({ where: { org_id: req.user!.org_id, id: { startsWith: `ext-${integration.type}-` } } }),
-        prisma.task.count({ where: { org_id: req.user!.org_id, external_id: { startsWith: `${integration.type}:` } } }),
+        prisma.project.count({
+          where: { org_id: req.user!.org_id, id: { startsWith: `ext-${integration.type}-` } },
+        }),
+        prisma.task.count({
+          where: { org_id: req.user!.org_id, external_id: { startsWith: `${integration.type}:` } },
+        }),
       ])
 
       return { integration, stats: { projects: projectCount, tasks: taskCount } }

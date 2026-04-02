@@ -9,10 +9,18 @@ const DATABASE_URL = process.env.DATABASE_URL ?? ''
 function buildDatabaseUrl(): string {
   try {
     const url = new URL(DATABASE_URL)
-    url.searchParams.set('connection_limit', '10')
-    url.searchParams.set('pool_timeout', '10')
-    url.searchParams.set('statement_timeout', '30000')
-    url.searchParams.set('connect_timeout', '10')
+    if (!url.searchParams.has('connection_limit')) {
+      url.searchParams.set('connection_limit', '20')
+    }
+    if (!url.searchParams.has('pool_timeout')) {
+      url.searchParams.set('pool_timeout', '10')
+    }
+    if (!url.searchParams.has('statement_timeout')) {
+      url.searchParams.set('statement_timeout', '30000')
+    }
+    if (!url.searchParams.has('connect_timeout')) {
+      url.searchParams.set('connect_timeout', '10')
+    }
     return url.toString()
   } catch {
     return DATABASE_URL

@@ -1,5 +1,9 @@
 import Link from 'next/link'
 import { Check, ArrowRight } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
 
 interface PricingCardProps {
   name: string
@@ -21,43 +25,62 @@ export function PricingCard({
   popular,
 }: PricingCardProps) {
   return (
-    <div
-      className={`relative flex flex-col rounded-xl border p-6 backdrop-blur-sm transition-all hover:scale-[1.02] sm:rounded-2xl sm:p-8 ${
-        popular
-          ? 'border-primary/50 bg-card/90 shadow-lg shadow-primary/10'
-          : 'border-border bg-card/50 hover:border-border'
-      }`}
-    >
-      {popular && (
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gradient-to-r from-primary to-accent px-4 py-1 text-xs font-medium text-primary-foreground">
-          Popular
-        </div>
+    <Card
+      className={cn(
+        'relative flex flex-col overflow-hidden border-border/80 bg-card/95 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-soft-lg dark:hover:shadow-soft-lg-dark sm:rounded-2xl',
+        popular && 'border-primary/35 shadow-md ring-1 ring-primary/15'
       )}
-      <h3 className="font-display text-lg font-semibold text-foreground sm:text-xl">{name}</h3>
-      <div className="mt-3 sm:mt-4">
-        <span className="font-display text-3xl font-bold text-foreground sm:text-4xl">{price}</span>
-        {price !== 'Custom' && <span className="text-muted-foreground">/user/month</span>}
-      </div>
-      {description && <p className="mt-2 text-sm text-muted-foreground">{description}</p>}
-      <ul className="mt-4 space-y-2 sm:mt-6 sm:space-y-3">
-        {features.map((feature) => (
-          <li key={feature} className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Check className="h-4 w-4 shrink-0 text-primary" />
-            {feature}
-          </li>
-        ))}
-      </ul>
-      <Link
-        href={href}
-        className={`mt-6 flex min-h-[44px] items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-medium transition-all sm:mt-8 ${
-          popular
-            ? 'bg-gradient-to-r from-primary to-accent text-primary-foreground shadow-lg shadow-primary/25 hover:shadow-primary/40'
-            : 'border border-border text-foreground hover:border-border hover:bg-muted/70'
-        }`}
-      >
-        {cta}
-        <ArrowRight className="h-4 w-4" />
-      </Link>
-    </div>
+    >
+      {popular ? (
+        <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2">
+          <Badge className="px-3 py-1 font-medium shadow-sm">Popular</Badge>
+        </div>
+      ) : null}
+      <CardHeader className={cn('pb-2 pt-10', popular && 'pt-14')}>
+        <h3 className="font-display text-lg font-semibold tracking-tight text-foreground sm:text-xl">
+          {name}
+        </h3>
+        <div className="mt-3 sm:mt-4">
+          <span className="font-display text-3xl font-bold tabular-nums text-foreground sm:text-4xl">
+            {price}
+          </span>
+          {price !== 'Custom' ? (
+            <span className="text-sm text-muted-foreground">/user/month</span>
+          ) : null}
+        </div>
+        {description ? (
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p>
+        ) : null}
+      </CardHeader>
+      <CardContent className="flex-1 pb-2">
+        <ul className="space-y-2.5 sm:space-y-3">
+          {features.map((feature) => (
+            <li
+              key={feature}
+              className="flex items-start gap-2.5 text-sm leading-snug text-muted-foreground"
+            >
+              <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+              {feature}
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+      <CardFooter className="mt-auto flex w-full flex-col items-stretch gap-0 pt-2">
+        <Button
+          asChild
+          variant={popular ? 'default' : 'outline'}
+          size="lg"
+          className={cn(
+            'w-full rounded-xl',
+            popular && 'shadow-lg shadow-primary/20 hover:shadow-primary/30'
+          )}
+        >
+          <Link href={href} className="inline-flex min-h-[44px] items-center justify-center gap-2">
+            {cta}
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </Button>
+      </CardFooter>
+    </Card>
   )
 }

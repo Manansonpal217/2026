@@ -88,6 +88,12 @@ export async function sessionCreateRoutes(fastify: FastifyInstance, opts: { conf
         }
       }
 
+      const orgSettings = await prisma.orgSettings.findUnique({
+        where: { org_id: orgId },
+        select: { time_approval_required: true },
+      })
+      const defaultApprovalStatus = orgSettings?.time_approval_required ? 'PENDING' : 'APPROVED'
+
       const synced: { id: string; server_id: string }[] = []
       const errors: { id: string; reason: string }[] = []
 
@@ -161,6 +167,7 @@ export async function sessionCreateRoutes(fastify: FastifyInstance, opts: { conf
               duration_sec: s.duration_sec,
               is_manual: s.is_manual,
               notes: s.notes ?? null,
+              approval_status: defaultApprovalStatus,
             },
             update: {
               ended_at: updateData.ended_at ?? undefined,

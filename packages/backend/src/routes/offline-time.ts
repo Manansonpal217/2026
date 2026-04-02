@@ -4,6 +4,7 @@ import { prisma } from '../db/prisma.js'
 import { createAuthenticateMiddleware } from '../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../middleware/authenticate.js'
 import type { Config } from '../config.js'
+import { canAccessOrgUser, mayActAsPeopleManager } from '../lib/permissions.js'
 
 const listQuerySchema = z.object({
   user_id: z.string().uuid().optional(),
@@ -17,10 +18,6 @@ const createBodySchema = z.object({
   end_time: z.string().datetime({ offset: true }),
   description: z.string().min(1).max(2000),
 })
-
-function isMgmt(role: string): boolean {
-  return role === 'admin' || role === 'super_admin' || role === 'manager'
-}
 
 async function employeeMayAddOwnOffline(orgId: string, userId: string): Promise<boolean> {
   const [row, settings] = await Promise.all([
@@ -54,17 +51,18 @@ export async function offlineTimeRoutes(fastify: FastifyInstance, opts: { config
       }
       const q = parsed.data
 
-      const canViewOthers = isMgmt(caller.role)
-      const targetUserId = canViewOthers && q.user_id ? q.user_id : caller.id
-
-      if (!canViewOthers && q.user_id && q.user_id !== caller.id) {
+      if (q.user_id && q.user_id !== caller.id && !mayActAsPeopleManager(caller.role)) {
         return reply
           .status(403)
           .send({ code: 'FORBIDDEN', message: 'Cannot list offline time for others' })
       }
 
-      if (targetUserId !== caller.id && !canViewOthers) {
-        return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+      const targetUserId = q.user_id && mayActAsPeopleManager(caller.role) ? q.user_id : caller.id
+
+      if (q.user_id && q.user_id !== caller.id) {
+        if (!(await canAccessOrgUser(caller, q.user_id))) {
+          return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+        }
       }
 
       const target = await prisma.user.findFirst({
@@ -130,15 +128,17 @@ export async function offlineTimeRoutes(fastify: FastifyInstance, opts: { config
       }
 
       const subject = await prisma.user.findFirst({
-        where: { id: subjectId, org_id: caller.org_id, status: 'active' },
+        where: { id: subjectId, org_id: caller.org_id, status: 'ACTIVE' },
         select: { id: true },
       })
       if (!subject) {
         return reply.status(404).send({ code: 'NOT_FOUND', message: 'User not found' })
       }
 
-      if (isMgmt(caller.role)) {
-        // ok
+      if (mayActAsPeopleManager(caller.role)) {
+        if (!(await canAccessOrgUser(caller, subjectId))) {
+          return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+        }
       } else if (caller.id === subjectId) {
         const ok = await employeeMayAddOwnOffline(caller.org_id, caller.id)
         if (!ok) {
@@ -189,7 +189,10 @@ export async function offlineTimeRoutes(fastify: FastifyInstance, opts: { config
         return reply.status(404).send({ code: 'NOT_FOUND', message: 'Not found' })
       }
 
-      if (isMgmt(caller.role)) {
+      if (mayActAsPeopleManager(caller.role)) {
+        if (!(await canAccessOrgUser(caller, row.user_id))) {
+          return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+        }
         await prisma.offlineTime.delete({ where: { id } })
         return { deleted: true }
       }

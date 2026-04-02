@@ -21,11 +21,11 @@ const buttonVariants = cva(
           'active:scale-[0.98]',
         ],
         gradient: [
-          'bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600',
+          'bg-gradient-to-b from-primary to-primary/90',
           'text-primary-foreground font-semibold',
-          'shadow-[0_10px_28px_-6px_rgba(79,70,229,0.35)] hover:shadow-[0_14px_34px_-6px_rgba(124,58,237,0.3)]',
+          'shadow-[0_10px_28px_-6px_hsl(var(--primary)/0.35)] hover:shadow-[0_14px_34px_-6px_hsl(var(--primary)/0.28)]',
           'dark:shadow-glow-indigo dark:hover:shadow-glow-violet',
-          'hover:opacity-90 active:scale-[0.98]',
+          'hover:brightness-105 active:scale-[0.98]',
         ],
         outline: [
           'border border-border bg-transparent text-foreground',

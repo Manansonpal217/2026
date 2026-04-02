@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import { Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
@@ -20,6 +21,10 @@ function ErrorBar({ message }: { message: string }) {
   )
 }
 
+const authInputClass =
+  'h-12 rounded-xl border-border bg-background shadow-sm placeholder:text-muted-foreground/70 transition-all focus:bg-background focus:ring-2 focus:ring-ring/35 focus:border-primary/45'
+const labelClass = 'text-xs font-medium uppercase tracking-wider text-muted-foreground/80'
+
 function ResetPasswordForm() {
   const searchParams = useSearchParams()
   const token = searchParams?.get('token')?.trim() ?? ''
@@ -30,10 +35,6 @@ function ResetPasswordForm() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
-
-  const inputCx =
-    'h-12 rounded-xl border border-border bg-background/90 shadow-sm shadow-indigo-950/[0.04] placeholder:text-muted-foreground/65 focus:bg-background focus:ring-2 focus:ring-primary/20 focus:border-primary/50 focus:shadow-md focus:shadow-primary/5 dark:bg-input dark:shadow-none dark:focus:shadow-none transition-all'
-  const labelCx = 'text-xs font-medium uppercase tracking-wider text-muted-foreground/75'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -104,7 +105,7 @@ function ResetPasswordForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <div className="space-y-2">
-        <Label htmlFor="password" className={labelCx}>
+        <Label htmlFor="password" className={labelClass}>
           New password
         </Label>
         <div className="relative">
@@ -117,21 +118,24 @@ function ResetPasswordForm() {
             minLength={8}
             placeholder="8+ characters"
             autoComplete="new-password"
-            className={cn(inputCx, 'pr-11')}
+            className={cn(authInputClass, 'pr-11')}
           />
-          <button
+          <Button
             type="button"
-            onClick={() => setShowPassword(!showPassword)}
-            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/60 transition-colors hover:text-foreground"
+            variant="ghost"
+            size="icon"
+            className="absolute right-1 top-1/2 h-9 w-9 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             tabIndex={-1}
+            onClick={() => setShowPassword(!showPassword)}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
           >
             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
+          </Button>
         </div>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="confirm" className={labelCx}>
+        <Label htmlFor="confirm" className={labelClass}>
           Confirm password
         </Label>
         <Input
@@ -143,7 +147,7 @@ function ResetPasswordForm() {
           minLength={8}
           placeholder="Re-enter password"
           autoComplete="new-password"
-          className={inputCx}
+          className={authInputClass}
         />
       </div>
 
@@ -170,27 +174,29 @@ export default function ResetPasswordPage() {
   return (
     <main className="relative flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-16 sm:py-24">
       <div className="relative w-full max-w-[440px]">
-        <div className="rounded-2xl border border-border/80 bg-gradient-to-br from-card via-card to-primary/[0.07] p-8 shadow-auth-card backdrop-blur-[10px] dark:border-border dark:from-card dark:via-card dark:to-card dark:shadow-auth-card-dark sm:p-10">
-          <Link
-            href="/login"
-            className="mb-6 inline-flex text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Sign in
-          </Link>
+        <Card className="border-border/80 shadow-auth-card dark:shadow-auth-card-dark">
+          <CardContent className="bg-gradient-to-br from-card via-card to-primary/[0.04] p-8 sm:p-10 dark:from-card dark:via-card dark:to-card">
+            <Link
+              href="/login"
+              className="mb-6 inline-flex text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Sign in
+            </Link>
 
-          <div className="mb-8 text-center">
-            <h1 className="font-display text-3xl font-bold tracking-tight text-foreground">
-              New <span className="text-gradient">password</span>
-            </h1>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              Choose a strong password for your account.
-            </p>
-          </div>
+            <div className="mb-8 text-center">
+              <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground">
+                New <span className="text-gradient">password</span>
+              </h1>
+              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                Choose a strong password for your account.
+              </p>
+            </div>
 
-          <Suspense fallback={<ResetFallback />}>
-            <ResetPasswordForm />
-          </Suspense>
-        </div>
+            <Suspense fallback={<ResetFallback />}>
+              <ResetPasswordForm />
+            </Suspense>
+          </CardContent>
+        </Card>
       </div>
     </main>
   )

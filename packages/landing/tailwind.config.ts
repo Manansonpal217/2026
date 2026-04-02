@@ -36,20 +36,23 @@ const config: Config = {
       },
       fontFamily: {
         sans: ['var(--font-geist-sans)', 'system-ui', 'sans-serif'],
-        display: ['var(--font-outfit)', 'var(--font-geist-sans)', 'system-ui', 'sans-serif'],
+        display: ['var(--font-geist-sans)', 'system-ui', 'sans-serif'],
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
-        'gradient-primary': 'linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent)))',
+        'gradient-primary':
+          'linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary) / 0.85))',
         'gradient-mesh':
-          'linear-gradient(135deg, hsl(var(--primary) / 0.15) 0%, transparent 50%, hsl(var(--accent) / 0.1) 100%)',
+          'linear-gradient(135deg, hsl(var(--primary) / 0.1) 0%, transparent 50%, hsl(var(--primary) / 0.06) 100%)',
       },
       boxShadow: {
-        'glow-sm': '0 0 12px -2px rgba(99, 102, 241, 0.25)',
-        'glow-indigo': '0 0 20px -2px rgba(99, 102, 241, 0.35)',
-        'glow-violet': '0 0 20px -2px rgba(139, 92, 246, 0.35)',
+        'glow-sm': '0 0 12px -2px hsl(var(--primary) / 0.28)',
+        'glow-indigo': '0 0 20px -2px hsl(var(--primary) / 0.35)',
+        'glow-violet': '0 0 20px -2px hsl(var(--primary) / 0.28)',
+        'soft-lg': '0 18px 40px -16px rgb(15 23 42 / 0.09), 0 0 0 1px rgb(15 23 42 / 0.04)',
+        'soft-lg-dark': '0 18px 40px -16px rgb(0 0 0 / 0.45), 0 0 0 1px rgb(255 255 255 / 0.06)',
         'auth-card':
-          '0 22px 50px -14px rgba(79, 70, 229, 0.16), 0 0 0 1px rgba(99, 102, 241, 0.07), 0 1px 2px rgba(15, 23, 42, 0.04)',
+          '0 22px 50px -14px rgb(15 23 42 / 0.1), 0 0 0 1px rgb(15 23 42 / 0.05), 0 1px 2px rgb(15 23 42 / 0.04)',
         'auth-card-dark':
           '0 24px 48px -12px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.06)',
       },
@@ -67,8 +70,18 @@ const config: Config = {
         shimmer: 'shimmer 2s ease-in-out infinite',
         'gradient-text': 'gradient-text 4s ease-in-out infinite',
         'marquee-logos': 'marquee-logos 28s linear infinite',
+        'accordion-down': 'accordion-down 0.2s ease-out',
+        'accordion-up': 'accordion-up 0.2s ease-out',
       },
       keyframes: {
+        'accordion-down': {
+          from: { height: '0' },
+          to: { height: 'var(--radix-accordion-content-height)' },
+        },
+        'accordion-up': {
+          from: { height: 'var(--radix-accordion-content-height)' },
+          to: { height: '0' },
+        },
         'marquee-logos': {
           '0%': { transform: 'translateX(0)' },
           '100%': { transform: 'translateX(-50%)' },
@@ -78,8 +91,8 @@ const config: Config = {
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
         'glow-pulse': {
-          '0%, 100%': { boxShadow: '0 0 20px rgba(99,102,241,0.2)' },
-          '50%': { boxShadow: '0 0 40px rgba(99,102,241,0.4)' },
+          '0%, 100%': { boxShadow: '0 0 20px hsl(var(--primary) / 0.22)' },
+          '50%': { boxShadow: '0 0 40px hsl(var(--primary) / 0.38)' },
         },
         float: {
           '0%, 100%': { transform: 'translate(0, 0)' },

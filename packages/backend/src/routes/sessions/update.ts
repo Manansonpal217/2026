@@ -4,6 +4,7 @@ import { prisma } from '../../db/prisma.js'
 import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
+import { canAccessOrgUser, mayActAsPeopleManager } from '../../lib/permissions.js'
 
 const updateSessionSchema = z.object({
   notes: z.string().max(2000).nullable().optional(),
@@ -25,18 +26,21 @@ export async function sessionUpdateRoutes(fastify: FastifyInstance, opts: { conf
         return reply.status(400).send({ code: 'VALIDATION_ERROR', errors: body.error.flatten() })
       }
 
-      // Find the session; employees may only edit their own
-      const canEditOthers = ['admin', 'super_admin'].includes(user.role)
       const session = await prisma.timeSession.findFirst({
-        where: {
-          id,
-          org_id: user.org_id,
-          ...(!canEditOthers && { user_id: user.id }),
-        },
+        where: { id, org_id: user.org_id },
       })
 
       if (!session) {
         return reply.status(404).send({ code: 'NOT_FOUND', message: 'Session not found' })
+      }
+
+      if (session.user_id !== user.id) {
+        if (!mayActAsPeopleManager(user.role)) {
+          return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+        }
+        if (!(await canAccessOrgUser(user, session.user_id))) {
+          return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+        }
       }
 
       // Validate project_id and task_id belong to org
@@ -45,7 +49,9 @@ export async function sessionUpdateRoutes(fastify: FastifyInstance, opts: { conf
           where: { id: body.data.project_id, org_id: user.org_id },
         })
         if (!project) {
-          return reply.status(400).send({ code: 'INVALID_PROJECT', message: 'Project not found in your organization' })
+          return reply
+            .status(400)
+            .send({ code: 'INVALID_PROJECT', message: 'Project not found in your organization' })
         }
       }
 
@@ -54,7 +60,9 @@ export async function sessionUpdateRoutes(fastify: FastifyInstance, opts: { conf
           where: { id: body.data.task_id, org_id: user.org_id },
         })
         if (!task) {
-          return reply.status(400).send({ code: 'INVALID_TASK', message: 'Task not found in your organization' })
+          return reply
+            .status(400)
+            .send({ code: 'INVALID_TASK', message: 'Task not found in your organization' })
         }
       }
 

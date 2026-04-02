@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import Login from './pages/Login'
 import Onboarding from './pages/Onboarding'
 import { Timer } from './pages/Timer'
-import { ConnectJira } from './components/ConnectJira'
+import { IntegrationConnectBar } from './components/IntegrationConnectBar'
+import type { SessionOrgSettings } from './pages/Login'
 import {
   Zap,
   ExternalLink,
@@ -59,6 +60,7 @@ function LoadingScreen() {
 
 interface DashboardShellProps {
   user: User
+  workPlatform: string
   onSignOut: () => void
 }
 
@@ -110,7 +112,7 @@ function formatLastCaptured(isoString: string): string {
 
 type ShellPage = 'timer' | 'reports' | 'screenshots' | 'settings'
 
-function DashboardShell({ user, onSignOut }: DashboardShellProps) {
+function DashboardShell({ user, workPlatform, onSignOut }: DashboardShellProps) {
   const [, setSyncStatus] = useState<{
     pending: number
     pendingActivity?: number
@@ -281,12 +283,12 @@ function DashboardShell({ user, onSignOut }: DashboardShellProps) {
             <span>🔥</span>
             <span className="tabular-nums font-medium">{streak}</span>
           </span>
-          <ConnectJira
+          <IntegrationConnectBar
+            workPlatform={workPlatform}
             theme={theme}
-            compact
-            onConnected={() => setJiraConnected(true)}
-            onDisconnected={() => setJiraConnected(false)}
-            onRefresh={refreshJiraIssues}
+            onJiraConnected={() => setJiraConnected(true)}
+            onJiraDisconnected={() => setJiraConnected(false)}
+            onJiraRefresh={refreshJiraIssues}
           />
           <button
             type="button"
@@ -470,6 +472,7 @@ function DashboardShell({ user, onSignOut }: DashboardShellProps) {
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
   const [user, setUser] = useState<User | null>(null)
+  const [orgSettings, setOrgSettings] = useState<SessionOrgSettings>(null)
   const [onboardingDone, setOnboardingDone] = useState<boolean | null>(null)
 
   useEffect(() => {
@@ -484,10 +487,18 @@ export default function App() {
     const AUTH_RETRIES = 3
     const AUTH_RETRY_DELAY_MS = 1500
 
-    async function checkAuthWithRetry(): Promise<{ authenticated: boolean; user?: User }> {
+    async function checkAuthWithRetry(): Promise<{
+      authenticated: boolean
+      user?: User
+      org_settings?: SessionOrgSettings
+    }> {
       for (let i = 0; i < AUTH_RETRIES; i++) {
         const res = await ipcRenderer.invoke('auth:check').catch(() => ({ authenticated: false }))
-        const auth = res as { authenticated: boolean; user?: User }
+        const auth = res as {
+          authenticated: boolean
+          user?: User
+          org_settings?: SessionOrgSettings
+        }
         if (auth.authenticated) return auth
         if (i < AUTH_RETRIES - 1) await new Promise((r) => setTimeout(r, AUTH_RETRY_DELAY_MS))
       }
@@ -498,16 +509,22 @@ export default function App() {
       checkAuthWithRetry(),
       ipcRenderer.invoke('onboarding:status').catch(() => ({ done: true })),
     ]).then(([authRes, onboardingRes]) => {
-      const auth = authRes as { authenticated: boolean; user?: User }
+      const auth = authRes as {
+        authenticated: boolean
+        user?: User
+        org_settings?: SessionOrgSettings
+      }
       const onboarding = onboardingRes as { done: boolean }
       setOnboardingDone(onboarding?.done !== false)
       setIsAuthenticated(auth.authenticated)
       if (auth.user) setUser(auth.user)
+      if (auth.org_settings !== undefined) setOrgSettings(auth.org_settings ?? null)
     })
     const onSessionExpired = () => {
       useTimerStore.getState().reset()
       setIsAuthenticated(false)
       setUser(null)
+      setOrgSettings(null)
     }
     ipcRenderer.on('auth:session-expired', onSessionExpired)
     return () => ipcRenderer.off('auth:session-expired', onSessionExpired)
@@ -520,11 +537,13 @@ export default function App() {
         useTimerStore.getState().reset()
         setIsAuthenticated(false)
         setUser(null)
+        setOrgSettings(null)
       })
       .catch(() => {
         useTimerStore.getState().reset()
         setIsAuthenticated(false)
         setUser(null)
+        setOrgSettings(null)
       })
   }
 
@@ -538,6 +557,7 @@ export default function App() {
         const auth = res as {
           authenticated: boolean
           user?: User
+          org_settings?: SessionOrgSettings
           offline?: boolean
           reason?: string
         }
@@ -545,8 +565,10 @@ export default function App() {
           useTimerStore.getState().reset()
           setIsAuthenticated(false)
           setUser(null)
+          setOrgSettings(null)
         } else if (auth.authenticated && auth.user) {
           setUser(auth.user)
+          if (auth.org_settings !== undefined) setOrgSettings(auth.org_settings ?? null)
         }
       })
     }
@@ -574,8 +596,9 @@ export default function App() {
     return (
       <div className="h-full w-full">
         <Login
-          onSuccess={(u) => {
+          onSuccess={({ user: u, org_settings: os }) => {
             setUser(u)
+            setOrgSettings(os ?? null)
             setIsAuthenticated(true)
           }}
         />
@@ -585,7 +608,11 @@ export default function App() {
 
   return (
     <div className="h-full w-full">
-      <DashboardShell user={user!} onSignOut={handleSignOut} />
+      <DashboardShell
+        user={user!}
+        workPlatform={orgSettings?.work_platform ?? 'jira_cloud'}
+        onSignOut={handleSignOut}
+      />
     </div>
   )
 }

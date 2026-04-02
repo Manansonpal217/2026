@@ -4,6 +4,7 @@ import { prisma } from '../../db/prisma.js'
 import { createAuthenticateMiddleware, requireRole } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
+import { canAccessOrgUser, managerScopedUserIds } from '../../lib/permissions.js'
 import { logAuditEvent } from '../../lib/audit.js'
 
 const approveSchema = z.object({ notes: z.string().max(1000).optional() })
@@ -19,7 +20,7 @@ export async function sessionApproveRoutes(fastify: FastifyInstance, opts: { con
   const authenticate = createAuthenticateMiddleware(opts.config)
 
   fastify.get('/pending-approval', {
-    preHandler: [authenticate, requireRole('manager', 'admin', 'super_admin')],
+    preHandler: [authenticate, requireRole('MANAGER', 'ADMIN', 'OWNER')],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const user = req.user!
@@ -29,12 +30,31 @@ export async function sessionApproveRoutes(fastify: FastifyInstance, opts: { con
       }
       const query = parsed.data
 
+      let userFilter: { user_id?: string | { in: string[] } } = {}
+      if (user.role === 'MANAGER') {
+        const scoped = await managerScopedUserIds(user)
+        if (query.user_id) {
+          if (!scoped.includes(query.user_id)) {
+            return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+          }
+          userFilter = { user_id: query.user_id }
+        } else {
+          userFilter = { user_id: { in: scoped } }
+        }
+      } else if (query.user_id) {
+        if (!(await canAccessOrgUser(user, query.user_id))) {
+          return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+        }
+        userFilter = { user_id: query.user_id }
+      }
+
       const where = {
         org_id: user.org_id,
-        approval_status: 'pending',
+        approval_status: 'PENDING' as const,
         ended_at: { not: null },
-        ...(query.user_id && { user_id: query.user_id }),
+        ...userFilter,
         ...(query.project_id && { project_id: query.project_id }),
+        ...(user.role !== 'OWNER' ? { user: { is: { role: { not: 'OWNER' as const } } } } : {}),
       }
 
       const [sessions, total] = await Promise.all([
@@ -57,7 +77,7 @@ export async function sessionApproveRoutes(fastify: FastifyInstance, opts: { con
   })
 
   fastify.post('/:id/approve', {
-    preHandler: [authenticate, requireRole('manager', 'admin', 'super_admin')],
+    preHandler: [authenticate, requireRole('MANAGER', 'ADMIN', 'OWNER')],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const user = req.user!
@@ -69,16 +89,20 @@ export async function sessionApproveRoutes(fastify: FastifyInstance, opts: { con
       }
 
       const session = await prisma.timeSession.findFirst({
-        where: { id, org_id: user.org_id, approval_status: 'pending' },
+        where: { id, org_id: user.org_id, approval_status: 'PENDING' },
       })
       if (!session) {
         return reply.status(404).send({ code: 'NOT_FOUND', message: 'Pending session not found' })
       }
 
+      if (!(await canAccessOrgUser(user, session.user_id))) {
+        return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+      }
+
       const oldValue = { approval_status: session.approval_status }
       const updated = await prisma.timeSession.update({
         where: { id },
-        data: { approval_status: 'approved', ...(body.data.notes && { notes: body.data.notes }) },
+        data: { approval_status: 'APPROVED', ...(body.data.notes && { notes: body.data.notes }) },
       })
 
       await logAuditEvent({
@@ -88,14 +112,12 @@ export async function sessionApproveRoutes(fastify: FastifyInstance, opts: { con
         targetType: 'session',
         targetId: id,
         oldValue,
-        newValue: { approval_status: 'approved' },
+        newValue: { approval_status: 'APPROVED' },
         ip: request.ip,
       })
 
-      // Enqueue time log push to integration
-      // Use a separate time-log-push queue
-      const { Queue } = await import('bullmq')
-      const pushQueue = new Queue('time-log-push', { connection: { url: opts.config.REDIS_URL } })
+      const { getTimeLogPushQueue } = await import('../../queues/index.js')
+      const pushQueue = getTimeLogPushQueue()
       await pushQueue.add(
         'push',
         { sessionId: id, orgId: user.org_id },
@@ -107,7 +129,7 @@ export async function sessionApproveRoutes(fastify: FastifyInstance, opts: { con
   })
 
   fastify.post('/:id/reject', {
-    preHandler: [authenticate, requireRole('manager', 'admin', 'super_admin')],
+    preHandler: [authenticate, requireRole('MANAGER', 'ADMIN', 'OWNER')],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const user = req.user!
@@ -119,17 +141,21 @@ export async function sessionApproveRoutes(fastify: FastifyInstance, opts: { con
       }
 
       const session = await prisma.timeSession.findFirst({
-        where: { id, org_id: user.org_id, approval_status: 'pending' },
+        where: { id, org_id: user.org_id, approval_status: 'PENDING' },
         include: { user: { select: { email: true, name: true } } },
       })
       if (!session) {
         return reply.status(404).send({ code: 'NOT_FOUND', message: 'Pending session not found' })
       }
 
+      if (!(await canAccessOrgUser(user, session.user_id))) {
+        return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+      }
+
       const oldValue = { approval_status: session.approval_status }
       const updated = await prisma.timeSession.update({
         where: { id },
-        data: { approval_status: 'rejected' },
+        data: { approval_status: 'REJECTED' },
       })
 
       await logAuditEvent({
@@ -139,7 +165,7 @@ export async function sessionApproveRoutes(fastify: FastifyInstance, opts: { con
         targetType: 'session',
         targetId: id,
         oldValue,
-        newValue: { approval_status: 'rejected', reason: body.data.reason },
+        newValue: { approval_status: 'REJECTED', reason: body.data.reason },
         ip: request.ip,
       })
 
