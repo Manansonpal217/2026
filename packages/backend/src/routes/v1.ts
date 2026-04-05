@@ -44,7 +44,12 @@ import { adminAnalyticsRoutes } from './admin/analytics.js'
 import { dashboardTeamSummaryRoutes } from './dashboard/team-summary.js'
 import { platformOrgRoutes } from './platform/orgs.js'
 import { platformAnalyticsRoutes } from './platform/analytics.js'
+import { platformBillingRoutes } from './platform/billing.js'
+import { appDashboardRoutes } from './app/dashboard.js'
 import { offlineTimeRoutes } from './offline-time.js'
+import { adminOfflineTimeRoutes } from './admin/offline-time.js'
+import { appSettingsRoutes } from './app/settings.js'
+import { notificationRoutes } from './notifications/index.js'
 import { agentRoutes } from './agent/index.js'
 import { adminAgentRoutes } from './admin/agent.js'
 import { teamRoutes } from './teams/index.js'
@@ -62,6 +67,9 @@ export async function v1Routes(fastify: FastifyInstance, opts: { config: Config 
   fastify.register(logoutRoutes, { prefix: '/app/auth', config })
   fastify.register(meRoutes, { prefix: '/app/auth', config })
   fastify.register(mfaRoutes, { prefix: '/app/auth', config })
+  fastify.register(appSettingsRoutes, { prefix: '/app/settings', config })
+  fastify.register(notificationRoutes, { prefix: '/app/notifications', config })
+  fastify.register(appDashboardRoutes, { prefix: '/app', config })
 
   // ── Projects + Tasks ──────────────────────────────────────────────────────────
   fastify.register(projectRoutes, { prefix: '/projects', config })
@@ -88,7 +96,7 @@ export async function v1Routes(fastify: FastifyInstance, opts: { config: Config 
   fastify.register(screenshotConfirmRoutes, { prefix: '/screenshots', config })
   fastify.register(screenshotFileRoutes, { prefix: '/screenshots', config })
   fastify.register(screenshotListRoutes, { prefix: '/screenshots', config })
-  fastify.register(offlineTimeRoutes, { prefix: '/offline-time', config })
+  fastify.register(offlineTimeRoutes, { prefix: '/app/offline-time', config })
   fastify.register(activitySyncRoutes, { prefix: '/activity', config })
 
   // ── Phase 4: Integrations ─────────────────────────────────────────────────────
@@ -109,6 +117,7 @@ export async function v1Routes(fastify: FastifyInstance, opts: { config: Config 
   fastify.register(adminStreaksRoutes, { prefix: '/admin', config })
   fastify.register(adminAnalyticsRoutes, { prefix: '/admin', config })
   fastify.register(adminAgentRoutes, { prefix: '/admin', config })
+  fastify.register(adminOfflineTimeRoutes, { prefix: '/admin', config })
 
   // ── Agent (Bearer agent token) ───────────────────────────────────────────────
   fastify.register(agentRoutes, { prefix: '/agent', config })
@@ -116,4 +125,5 @@ export async function v1Routes(fastify: FastifyInstance, opts: { config: Config 
   // Platform (cross-tenant): requires User.is_platform_admin
   fastify.register(platformOrgRoutes, { prefix: '/platform', config })
   fastify.register(platformAnalyticsRoutes, { prefix: '/platform', config })
+  fastify.register(platformBillingRoutes, { prefix: '/platform', config })
 }

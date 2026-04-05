@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../../db/prisma.js'
 import type { Config } from '../../config.js'
+import { OVERRIDABLE_KEYS, type OverridableKey, resolveFeature } from '../../lib/settings.js'
 import {
   createVerifyAgentMiddleware,
   type AgentAuthenticatedRequest,
@@ -207,6 +208,16 @@ export async function agentRoutes(fastify: FastifyInstance, _opts: { config: Con
     const jiraIssueTypes = (settings?.jira_issue_types as unknown) ?? []
     const jiraStatuses = (settings?.jira_statuses as unknown) ?? []
 
+    const featureKeys = Object.keys(OVERRIDABLE_KEYS) as OverridableKey[]
+    const featureEntries = await Promise.all(
+      featureKeys.map(async (key) => {
+        const val = await resolveFeature(orgId, '', key)
+        return [key, val] as const
+      })
+    )
+    const features: Record<string, string> = {}
+    for (const [k, v] of featureEntries) features[k] = v
+
     return {
       sync: {
         pollIntervalMinutes: 5,
@@ -218,6 +229,7 @@ export async function agentRoutes(fastify: FastifyInstance, _opts: { config: Con
           method: settings?.jira_time_logging_method ?? 'jira_worklog',
         },
       },
+      features,
     }
   })
 }

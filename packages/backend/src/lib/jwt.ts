@@ -49,13 +49,13 @@ export async function initJwtKeys(
 
 export async function issueAccessToken(
   userId: string,
-  orgId: string,
+  orgId: string | null,
   role: string,
   roleVersion: number
 ): Promise<string> {
   return new jose.SignJWT({
     jti: randomUUID(),
-    org_id: orgId,
+    org_id: orgId ?? '',
     role,
     role_version: roleVersion,
   })
@@ -66,10 +66,10 @@ export async function issueAccessToken(
     .sign(privateKey)
 }
 
-export async function issueMfaPendingToken(userId: string, orgId: string): Promise<string> {
+export async function issueMfaPendingToken(userId: string, orgId: string | null): Promise<string> {
   return new jose.SignJWT({
     jti: randomUUID(),
-    org_id: orgId,
+    org_id: orgId ?? '',
     scope: 'mfa_pending',
   })
     .setProtectedHeader({ alg: 'RS256' })

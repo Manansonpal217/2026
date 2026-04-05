@@ -22,6 +22,7 @@ import {
   workPlatformSchema,
   assertActivityWeightsSum,
 } from '../../lib/org-settings-fields.js'
+import { registerOrgReportJobs } from '../../lib/report-jobs.js'
 
 const orgSettingsForCreateSchema = orgSettingsScalarPatchSchema.omit({ work_platform: true })
 
@@ -213,6 +214,10 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
           newValue: { name: org.name, slug: org.slug },
           ip: request.ip,
         })
+        // Register org report jobs with default UTC timezone (fire-and-forget)
+        void registerOrgReportJobs(org.id, 'UTC').catch((err) =>
+          fastify.log.error({ err }, 'Failed to register report jobs for new org')
+        )
       }
 
       const verifyToken = randomUUID()

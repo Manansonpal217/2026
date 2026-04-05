@@ -50,6 +50,27 @@ enum TeamRole {
   MEMBER
 }
 
+enum OfflineTimeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum OfflineTimeSource {
+  REQUEST
+  DIRECT_ADD
+}
+
+enum NotificationType {
+  OFFLINE_TIME_SUBMITTED
+  OFFLINE_TIME_APPROVED
+  OFFLINE_TIME_REJECTED
+  OFFLINE_TIME_EXPIRED
+  OFFLINE_TIME_ALREADY_RESOLVED
+  PAYMENT_DUE
+}
+
 model Organization {
   id             String    @id @default(uuid())
   name           String
@@ -59,6 +80,8 @@ model Organization {
   data_region    String    @default("us-east-1")
   trial_ends_at  DateTime?
   trial_expired  Boolean   @default(false)
+  /// IANA timezone for org-wide scheduled jobs (e.g. email crons)
+  timezone       String    @default("UTC")
   created_at     DateTime  @default(now())
   updated_at     DateTime  @updatedAt
 
@@ -112,7 +135,7 @@ model OrgSettings {
 
 model User {
   id               String     @id @default(uuid())
-  org_id           String
+  org_id           String?
   email            String
   password_hash    String
   role             UserRole   @default(EMPLOYEE)
@@ -132,7 +155,7 @@ model User {
   created_at       DateTime   @default(now())
   updated_at       DateTime   @updatedAt
 
-  organization    Organization   @relation(fields: [org_id], references: [id])
+  organization    Organization?  @relation(fields: [org_id], references: [id])
   manager         User?          @relation("UserHierarchy", fields: [manager_id], references: [id], onDelete: SetNull)
   direct_reports  User[]         @relation("UserHierarchy")
   refresh_tokens  RefreshToken[]
@@ -141,8 +164,12 @@ model User {
   activity_logs   ActivityLog[]
   audit_logs      AuditLog[]
   assigned_tasks  Task[]          @relation("AssignedTasks")
-  offline_times   OfflineTime[]   @relation("UserOfflineTime")
-  added_offline_times OfflineTime[] @relation("AddedByOfflineTime")
+  offline_times         OfflineTime[]           @relation("UserOfflineTime")
+  requested_offline_times OfflineTime[]         @relation("RequestedByOfflineTime")
+  approved_offline_times  OfflineTime[]         @relation("ApprovedOfflineTime")
+  settings_overrides    UserSettingsOverride[]
+  streak                Streak?
+  notifications         Notification[]
   agent_commands      AgentCommand[]
   invites_sent        Invite[]       @relation("InvitedBy")
   managed_teams       Team[]         @relation("TeamManager")
@@ -379,22 +406,66 @@ model ActivityLog {
 }
 
 model OfflineTime {
-  id           String   @id @default(uuid())
-  org_id       String
-  user_id      String
-  added_by_id  String
-  start_time   DateTime
-  end_time     DateTime
-  description  String
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
+  id               String            @id @default(uuid())
+  org_id           String
+  user_id          String
+  requested_by_id  String
+  approver_id      String?
+  source           OfflineTimeSource @default(REQUEST)
+  status           OfflineTimeStatus @default(PENDING)
+  start_time       DateTime
+  end_time         DateTime
+  description      String
+  approver_note    String?
+  expires_at       DateTime?
+  created_at       DateTime          @default(now())
+  updated_at       DateTime          @updatedAt
 
   organization Organization @relation(fields: [org_id], references: [id])
   user         User         @relation("UserOfflineTime", fields: [user_id], references: [id])
-  added_by     User         @relation("AddedByOfflineTime", fields: [added_by_id], references: [id])
+  requested_by User         @relation("RequestedByOfflineTime", fields: [requested_by_id], references: [id])
+  approver     User?        @relation("ApprovedOfflineTime", fields: [approver_id], references: [id])
 
   @@index([org_id, user_id, start_time])
-  @@index([org_id, start_time])
+  @@index([org_id, status])
+  @@index([status, expires_at])
+}
+
+model UserSettingsOverride {
+  id          String @id @default(uuid())
+  org_id      String
+  user_id     String
+  feature_key String @db.VarChar(100)
+  value       String
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([org_id, user_id, feature_key])
+  @@index([org_id, user_id])
+}
+
+model Streak {
+  user_id          String    @id
+  current_streak   Int       @default(0)
+  longest_streak   Int       @default(0)
+  last_active_date DateTime?
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id         String           @id @default(uuid())
+  org_id     String
+  user_id    String
+  type       NotificationType
+  payload    Json
+  read_at    DateTime?
+  created_at DateTime         @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, read_at, created_at])
+  @@index([org_id, created_at])
 }
 
 model AgentToken {

@@ -13,6 +13,7 @@ export interface AuthenticatedUser {
   name: string
   role: string
   is_platform_admin: boolean
+  mfa_enabled: boolean
 }
 
 export interface AuthenticatedRequest extends FastifyRequest {
@@ -32,6 +33,7 @@ interface CachedStatus {
   userName: string
   userEmail: string
   isPlatformAdmin: boolean
+  mfaEnabled: boolean
   roleVersion: number
 }
 
@@ -66,10 +68,10 @@ export function createAuthenticateMiddleware(config: Config) {
       let userName: string
       let userEmail: string
       let isPlatformAdmin: boolean
+      let mfaEnabled: boolean
       let roleVersion: number
 
       if (cachedRaw) {
-        // Cache hit — no DB query needed (fast path)
         const cached: CachedStatus = JSON.parse(cachedRaw)
         userStatus = cached.userStatus
         orgStatus = cached.orgStatus
@@ -77,9 +79,9 @@ export function createAuthenticateMiddleware(config: Config) {
         userName = cached.userName
         userEmail = cached.userEmail
         isPlatformAdmin = cached.isPlatformAdmin
+        mfaEnabled = cached.mfaEnabled ?? false
         roleVersion = cached.roleVersion ?? 0
       } else {
-        // Cache miss — query DB with minimal columns (no full include)
         const user = await prisma.user.findUnique({
           where: { id: payload.sub },
           select: {
@@ -88,6 +90,7 @@ export function createAuthenticateMiddleware(config: Config) {
             name: true,
             email: true,
             is_platform_admin: true,
+            mfa_enabled: true,
             role_version: true,
             organization: { select: { id: true, name: true, status: true } },
           },
@@ -100,14 +103,14 @@ export function createAuthenticateMiddleware(config: Config) {
         }
 
         userStatus = user.status as string
-        orgStatus = user.organization.status as string
-        orgName = user.organization.name
+        orgStatus = (user.organization?.status as string) ?? 'ACTIVE'
+        orgName = user.organization?.name ?? ''
         userName = user.name
         userEmail = user.email
         isPlatformAdmin = user.is_platform_admin
+        mfaEnabled = user.mfa_enabled
         roleVersion = user.role_version
 
-        // Populate cache asynchronously — don't block the response
         const toCache: CachedStatus = {
           userStatus,
           orgStatus,
@@ -115,6 +118,7 @@ export function createAuthenticateMiddleware(config: Config) {
           userName,
           userEmail,
           isPlatformAdmin,
+          mfaEnabled,
           roleVersion,
         }
         redis
@@ -124,7 +128,7 @@ export function createAuthenticateMiddleware(config: Config) {
             'EX',
             USER_STATUS_TTL
           )
-          .catch(() => {}) // fire-and-forget
+          .catch(() => {})
       }
 
       if (userStatus !== 'ACTIVE') {
@@ -150,7 +154,6 @@ export function createAuthenticateMiddleware(config: Config) {
           .send({ code: 'ROLE_CHANGED', message: 'Your role has changed. Please sign in again.' })
       }
 
-      // Attach to request — role comes from JWT (cryptographically signed)
       ;(request as AuthenticatedRequest).user = {
         id: payload.sub,
         org_id: payload.org_id,
@@ -158,6 +161,7 @@ export function createAuthenticateMiddleware(config: Config) {
         name: userName,
         role: payload.role,
         is_platform_admin: isPlatformAdmin,
+        mfa_enabled: mfaEnabled,
       }
       ;(request as AuthenticatedRequest).org = {
         id: payload.org_id,
@@ -205,6 +209,14 @@ export function requirePlatformAdmin() {
       return reply
         .status(403)
         .send({ code: 'FORBIDDEN', message: 'Platform administrator access required' })
+    }
+    if (!user.mfa_enabled) {
+      return reply
+        .status(403)
+        .send({
+          code: 'MFA_REQUIRED',
+          message: 'Platform admins must enable MFA before accessing this resource',
+        })
     }
   }
 }

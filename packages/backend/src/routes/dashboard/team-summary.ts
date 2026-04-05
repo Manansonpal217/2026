@@ -170,6 +170,7 @@ export async function dashboardTeamSummaryRoutes(
               where: {
                 org_id: orgId,
                 user_id: { in: ids },
+                status: 'APPROVED',
                 end_time: { gt: queryFrom },
                 start_time: { lt: now },
               },

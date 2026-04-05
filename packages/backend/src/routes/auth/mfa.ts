@@ -64,7 +64,7 @@ export async function mfaRoutes(fastify: FastifyInstance, opts: { config: Config
         return reply.status(401).send({ code: 'MFA_NOT_SETUP', message: 'MFA is not configured' })
       }
 
-      if (user.organization.status === 'SUSPENDED') {
+      if (user.organization && user.organization.status === 'SUSPENDED') {
         return reply
           .status(402)
           .send({ code: 'ORG_SUSPENDED', message: 'Organization access has been suspended' })
@@ -104,9 +104,9 @@ export async function mfaRoutes(fastify: FastifyInstance, opts: { config: Config
         },
       })
 
-      const orgSettings = await prisma.orgSettings.findUnique({
-        where: { org_id: user.org_id },
-      })
+      const orgSettings = user.org_id
+        ? await prisma.orgSettings.findUnique({ where: { org_id: user.org_id } })
+        : null
 
       return reply.send({
         access_token: accessToken,
@@ -116,8 +116,8 @@ export async function mfaRoutes(fastify: FastifyInstance, opts: { config: Config
           name: user.name,
           email: user.email,
           role: user.role,
-          org_id: user.org_id,
-          org_name: user.organization.name,
+          org_id: user.org_id ?? '',
+          org_name: user.organization?.name ?? '',
           is_platform_admin: user.is_platform_admin,
         },
         org_settings: toPublicOrgSettings(orgSettings),

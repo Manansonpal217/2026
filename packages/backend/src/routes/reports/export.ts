@@ -11,6 +11,8 @@ import {
   Permission,
 } from '../../lib/permissions.js'
 import { timeApprovalTotalsFilter } from '../../lib/time-approval-scope.js'
+import { getPdfExportQueue } from '../../queues/index.js'
+import type { PdfExportJobData, PdfExportJobResult } from '../../queues/workers/pdfExportWorker.js'
 
 const querySchema = z.object({
   from: z.string().datetime({ offset: true }).optional(),
@@ -180,6 +182,69 @@ export async function exportReportRoutes(fastify: FastifyInstance, opts: { confi
       reply.header('Content-Type', 'text/csv')
       reply.header('Content-Disposition', `attachment; filename="${filename}"`)
       return reply.send(csv)
+    },
+  })
+
+  const pdfBodySchema = z.object({
+    from: z.string(),
+    to: z.string(),
+    user_id: z.string().uuid().optional(),
+  })
+
+  fastify.post('/export/pdf', {
+    preHandler: [authenticate, requirePermission(Permission.REPORTS_EXPORT)],
+    handler: async (request, reply) => {
+      const req = request as AuthenticatedRequest
+      const user = req.user!
+
+      const parsed = pdfBodySchema.safeParse(request.body)
+      if (!parsed.success) {
+        return reply.status(400).send({ code: 'VALIDATION_ERROR', errors: parsed.error.flatten() })
+      }
+      const body = parsed.data
+
+      const targetUserId = body.user_id && mayActAsPeopleManager(user.role) ? body.user_id : user.id
+
+      if (body.user_id && body.user_id !== user.id) {
+        const ids = await filterAccessibleUserIds(user, [body.user_id])
+        if (ids.length === 0) {
+          return reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
+        }
+      }
+
+      const queue = getPdfExportQueue()
+      const job = await queue.add('pdf-export', {
+        userId: user.id,
+        orgId: user.org_id,
+        from: body.from,
+        to: body.to,
+        targetUserId,
+      } satisfies PdfExportJobData)
+
+      return { jobId: job.id }
+    },
+  })
+
+  fastify.get('/export/pdf/:jobId', {
+    preHandler: [authenticate],
+    handler: async (request, reply) => {
+      const { jobId } = request.params as { jobId: string }
+      const queue = getPdfExportQueue()
+      const job = await queue.getJob(jobId)
+      if (!job) {
+        return reply.status(404).send({ code: 'NOT_FOUND', message: 'Job not found' })
+      }
+
+      const state = await job.getState()
+      if (state === 'completed') {
+        const result = job.returnvalue as PdfExportJobResult | undefined
+        return { status: 'completed', url: result?.url ?? null }
+      }
+      if (state === 'failed') {
+        const result = job.returnvalue as PdfExportJobResult | undefined
+        return { status: 'failed', error: result?.error ?? 'Export failed' }
+      }
+      return { status: 'processing' }
     },
   })
 }
