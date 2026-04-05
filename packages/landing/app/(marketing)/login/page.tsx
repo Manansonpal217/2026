@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { signIn, useSession, SessionProvider } from 'next-auth/react'
+import { signIn, useSession } from 'next-auth/react'
 import { Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -182,18 +182,16 @@ function LoginFallback() {
 
 export default function LoginPage() {
   return (
-    <SessionProvider>
-      <main className="relative flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-16 sm:py-24">
-        <div className="relative w-full max-w-[440px]">
-          <Card className="border-border/80 shadow-auth-card dark:shadow-auth-card-dark">
-            <CardContent className="bg-gradient-to-br from-card via-card to-primary/[0.04] p-8 sm:p-10 dark:from-card dark:via-card dark:to-card">
-              <Suspense fallback={<LoginFallback />}>
-                <AuthPanel />
-              </Suspense>
-            </CardContent>
-          </Card>
-        </div>
-      </main>
-    </SessionProvider>
+    <main className="relative flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-16 sm:py-24">
+      <div className="relative w-full max-w-[440px]">
+        <Card className="border-border/80 shadow-auth-card dark:shadow-auth-card-dark">
+          <CardContent className="bg-gradient-to-br from-card via-card to-primary/[0.04] p-8 sm:p-10 dark:from-card dark:via-card dark:to-card">
+            <Suspense fallback={<LoginFallback />}>
+              <AuthPanel />
+            </Suspense>
+          </CardContent>
+        </Card>
+      </div>
+    </main>
   )
 }
