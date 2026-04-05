@@ -132,6 +132,7 @@ export default function OrganizationUsersPage() {
   const [roleFilter, setRoleFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [managerOptions, setManagerOptions] = useState<ManagerOption[]>([])
+  const [overrideUserIds, setOverrideUserIds] = useState<Set<string>>(new Set())
 
   const [inviteOpen, setInviteOpen] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
@@ -244,6 +245,10 @@ export default function OrganizationUsersPage() {
 
   useEffect(() => {
     void loadUsers()
+    api
+      .get<{ user_ids: string[] }>('/v1/admin/settings/override-users')
+      .then(({ data }) => setOverrideUserIds(new Set(data.user_ids)))
+      .catch(() => {})
   }, [loadUsers])
 
   const loadAssignablePool = useCallback(async (excludeUserId: string) => {
@@ -660,6 +665,11 @@ export default function OrganizationUsersPage() {
                       <div className="flex items-center gap-2">
                         <Avatar name={row.name} size="sm" />
                         <span className="font-medium text-foreground">{row.name}</span>
+                        {overrideUserIds.has(row.id) && (
+                          <span className="rounded px-1.5 text-xs bg-brand-secondary/10 text-brand-secondary">
+                            override
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">{row.email}</td>

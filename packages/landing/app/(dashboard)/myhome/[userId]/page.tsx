@@ -6,7 +6,32 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { isAxiosError } from 'axios'
-import { ArrowLeft, ChevronLeft, ChevronRight, Settings } from 'lucide-react'
+import {
+  ArrowLeft,
+  BarChart3,
+  Calendar,
+  Camera,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Download,
+  Flame,
+  Home,
+  Settings,
+} from 'lucide-react'
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+} from 'recharts'
 import { api } from '@/lib/api'
 import {
   endOfLocalDay,
@@ -16,9 +41,13 @@ import {
   startOfLocalDay,
 } from '@/lib/format'
 import { ScreenshotGallery, type ScreenshotItem } from '@/components/ScreenshotGallery'
+import { InitialsAvatar } from '@/components/ui/initials-avatar'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { buildScreenshotCacheScope, pruneScreenshotCache } from '@/lib/screenshotThumbCache'
 import { cn } from '@/lib/utils'
+
+type UserDetailTab = 'overview' | 'time' | 'screenshots' | 'activity'
 
 type UserResp = {
   user: {
@@ -39,10 +68,15 @@ type UserResp = {
 type OfflineTimeRow = {
   id: string
   user_id: string
-  added_by_id: string
+  requested_by_id: string
+  approver_id: string | null
+  source: 'REQUEST' | 'DIRECT_ADD'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED'
   start_time: string
   end_time: string
   description: string
+  approver_note: string | null
+  expires_at: string | null
   created_at: string
 }
 
@@ -501,6 +535,13 @@ export default function UserHomePage() {
   const [rollupExpandedApps, setRollupExpandedApps] = useState(false)
   const [dailyRollupTab, setDailyRollupTab] = useState<'tasks' | 'apps'>('tasks')
 
+  const [activeTab, setActiveTab] = useState<UserDetailTab>('overview')
+  const [weeklyChartData, setWeeklyChartData] = useState<
+    { day: string; hours: number; seconds: number }[]
+  >([])
+  const [weeklyChartLoading, setWeeklyChartLoading] = useState(true)
+  const [userStreak, setUserStreak] = useState(0)
+
   const [offlineModalOpen, setOfflineModalOpen] = useState(false)
   const [historyInfoOpen, setHistoryInfoOpen] = useState(false)
   const [portalReady, setPortalReady] = useState(false)
@@ -582,7 +623,7 @@ export default function UserHomePage() {
         api.get<{ activity_logs: ActivityLogRow[] }>('/v1/reports/activity', {
           params: { user_id: userId, from, to, limit: 500 },
         }),
-        api.get<{ offline_time: OfflineTimeRow[] }>('/v1/offline-time', {
+        api.get<{ offline_time: OfflineTimeRow[] }>('/v1/app/offline-time', {
           params: { user_id: userId, from, to },
         }),
       ])
@@ -624,7 +665,7 @@ export default function UserHomePage() {
         if (batch.length < PAGE_SIZE) break
       }
       const { data: offData } = await api.get<{ offline_time: OfflineTimeRow[] }>(
-        '/v1/offline-time',
+        '/v1/app/offline-time',
         {
           params: {
             user_id: userId,
@@ -932,7 +973,7 @@ export default function UserHomePage() {
         return
       }
       try {
-        await api.delete(`/v1/offline-time/${id}`)
+        await api.delete(`/v1/app/offline-time/${id}`)
         setOfflineTimes((prev) => prev.filter((x) => x.id !== id))
         setOfflineEntriesMonth((prev) => prev.filter((x) => x.id !== id))
         void loadMonthMarkers()
@@ -968,12 +1009,21 @@ export default function UserHomePage() {
     setOfflineSubmitting(true)
     setOfflineSubmitErr(null)
     try {
-      await api.post('/v1/offline-time', {
-        user_id: userId,
-        start_time: localDayAndTimeToISO(selectedDay, offlineFormStart),
-        end_time: localDayAndTimeToISO(selectedDay, offlineFormEnd),
-        description: desc,
-      })
+      const isSelf = sessionUserId === userId
+      const endpoint = isSelf ? '/v1/app/offline-time/request' : '/v1/app/offline-time/direct-add'
+      const body = isSelf
+        ? {
+            start_time: localDayAndTimeToISO(selectedDay, offlineFormStart),
+            end_time: localDayAndTimeToISO(selectedDay, offlineFormEnd),
+            description: desc,
+          }
+        : {
+            user_id: userId,
+            start_time: localDayAndTimeToISO(selectedDay, offlineFormStart),
+            end_time: localDayAndTimeToISO(selectedDay, offlineFormEnd),
+            description: desc,
+          }
+      await api.post(endpoint, body)
       setOfflineModalOpen(false)
       setOfflineFormDescription('')
       void loadDayData()
@@ -996,9 +1046,42 @@ export default function UserHomePage() {
     offlineFormStart,
     selectedDay,
     userId,
+    sessionUserId,
     loadDayData,
     loadMonthMarkers,
   ])
+
+  useEffect(() => {
+    if (!userId || !user) return
+    setWeeklyChartLoading(true)
+    const end = new Date()
+    const start = new Date()
+    start.setDate(start.getDate() - 6)
+    const DAY_ABBR = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    api
+      .get<{ days: { date: string; total_seconds: number }[] }>('/v1/reports/time', {
+        params: {
+          user_id: userId,
+          start: start.toISOString().slice(0, 10),
+          end: end.toISOString().slice(0, 10),
+          granularity: 'day',
+        },
+      })
+      .then(({ data }) => {
+        setWeeklyChartData(
+          (data.days ?? []).map((d) => {
+            const dow = new Date(d.date + 'T00:00:00').getDay()
+            return {
+              day: DAY_ABBR[dow === 0 ? 6 : dow - 1] ?? d.date.slice(5),
+              hours: Math.round((d.total_seconds / 3600) * 10) / 10,
+              seconds: d.total_seconds,
+            }
+          })
+        )
+      })
+      .catch(() => setWeeklyChartData([]))
+      .finally(() => setWeeklyChartLoading(false))
+  }, [userId, user])
 
   const tzLabel = formatUtcOffsetLabel()
 
@@ -1050,487 +1133,905 @@ export default function UserHomePage() {
     )
   }
 
+  const presenceStatusText =
+    presenceDot === 'green' ? 'Online' : presenceDot === 'yellow' ? 'Idle' : 'Offline'
+  const presenceStatusCls =
+    presenceDot === 'green'
+      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
+      : presenceDot === 'yellow'
+        ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
+        : 'bg-muted text-muted-foreground'
+
+  const tabItems: { key: UserDetailTab; label: string; icon: typeof Home }[] = [
+    { key: 'overview', label: 'Overview', icon: Home },
+    { key: 'time', label: 'Time', icon: Calendar },
+    { key: 'screenshots', label: 'Screenshots', icon: Camera },
+    { key: 'activity', label: 'Activity', icon: BarChart3 },
+  ]
+
+  const PIE_COLORS = [
+    '#2563eb',
+    '#7c3aed',
+    '#059669',
+    '#f59e0b',
+    '#ef4444',
+    '#8b5cf6',
+    '#06b6d4',
+    '#ec4899',
+  ]
+
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mb-4 overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border bg-muted px-4 py-4 sm:px-5">
-          <div className="flex min-w-0 flex-1 items-start gap-2 sm:gap-3">
-            <Link
-              href="/myhome"
-              className="mt-1 inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium text-muted-foreground transition-colors hover:bg-background/80 hover:text-foreground"
-              aria-label="Back to home"
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="mb-6">
+        <Link
+          href="/myhome"
+          className="mb-3 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden />
+          Back
+        </Link>
+        <div className="flex flex-wrap items-start gap-4">
+          <div
+            className={cn(
+              'rounded-full ring-2 ring-offset-2 ring-offset-background',
+              presenceDot === 'green'
+                ? 'ring-emerald-500'
+                : presenceDot === 'yellow'
+                  ? 'ring-amber-400'
+                  : 'ring-gray-400'
+            )}
+          >
+            <InitialsAvatar name={user?.name ?? '?'} size="lg" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-bold tracking-tight text-foreground">
+                {user?.name ?? '…'}
+              </h1>
+              <span
+                className={cn('rounded-full px-2 py-0.5 text-xs font-medium', presenceStatusCls)}
+              >
+                {presenceStatusText}
+              </span>
+              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium capitalize text-muted-foreground">
+                {user?.role ?? ''}
+              </span>
+            </div>
+            <p className="mt-0.5 text-sm text-muted-foreground">{user?.email ?? ''}</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">{tzLabel}</p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {canAddOfflineTime && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOfflineSubmitErr(null)
+                  setOfflineModalOpen(true)
+                  setActiveTab('time')
+                }}
+                className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted/60"
+              >
+                <Clock className="mr-1.5 inline h-3.5 w-3.5" />
+                Add Offline Time
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Tab bar ────────────────────────────────────────────────────────── */}
+      <div className="mb-6 flex border-b border-border">
+        {tabItems.map((t) => {
+          const active = activeTab === t.key
+          const Icon = t.icon
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setActiveTab(t.key)}
+              className={cn(
+                '-mb-px flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors',
+                active
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              )}
             >
-              <ArrowLeft className="h-4 w-4" aria-hidden />
-              Back
-            </Link>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-bold text-foreground">{user?.name ?? '…'}</h1>
-                <span
-                  className={cn(
-                    'h-2.5 w-2.5 shrink-0 rounded-full',
-                    presenceDot === 'green' &&
-                      'bg-emerald-500 shadow-[0_0_8px_rgba(34,197,94,0.45)]',
-                    presenceDot === 'yellow' &&
-                      'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.4)]',
-                    presenceDot === 'idle' && 'bg-muted-foreground/35'
-                  )}
-                  title={
-                    presenceDot === 'green'
-                      ? 'Tracking time now'
-                      : presenceDot === 'yellow'
-                        ? 'Stopped tracking in the last 10 minutes'
-                        : 'Not tracking'
-                  }
-                  aria-label={
-                    presenceDot === 'green'
-                      ? 'Tracking time now'
-                      : presenceDot === 'yellow'
-                        ? 'Stopped tracking recently'
-                        : 'Not currently tracking'
-                  }
-                />
+              <Icon className="h-4 w-4" />
+              {t.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* ── Overview Tab ───────────────────────────────────────────────────── */}
+      {activeTab === 'overview' && (
+        <div className="space-y-6">
+          {/* 2x2 stat grid */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-xl border border-border/60 border-l-2 border-l-blue-500 bg-card p-4 shadow-sm">
+              <p className="text-sm text-muted-foreground">Today</p>
+              <p className="mt-1 text-2xl font-bold tabular-nums">
+                {formatDurationSeconds(clippedSessionDaySeconds + offlineDaySeconds)}
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/60 border-l-2 border-l-blue-500 bg-card p-4 shadow-sm">
+              <p className="text-sm text-muted-foreground">This week</p>
+              <p className="mt-1 text-2xl font-bold tabular-nums">
+                {formatDurationSeconds(
+                  Object.values(calendarDayLoggedSeconds).reduce((a, b) => a + b, 0)
+                )}
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/60 border-l-2 border-l-violet-500 bg-card p-4 shadow-sm">
+              <p className="text-sm text-muted-foreground">This month</p>
+              <p className="mt-1 text-2xl font-bold tabular-nums">
+                {formatDurationSeconds(
+                  Object.values(calendarDayLoggedSeconds).reduce((a, b) => a + b, 0)
+                )}
+              </p>
+            </div>
+            <div className="rounded-xl border border-border/60 border-l-2 border-l-emerald-500 bg-card p-4 shadow-sm">
+              <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <Flame className="h-4 w-4 text-orange-500" />
+                Streak
+              </p>
+              <p className="mt-1 text-2xl font-bold tabular-nums">{userStreak} days</p>
+            </div>
+          </div>
+
+          {/* Weekly chart */}
+          <div className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              This week
+            </p>
+            {weeklyChartLoading ? (
+              <Skeleton className="h-44 w-full rounded-lg" />
+            ) : (
+              <div className="h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart
+                    data={weeklyChartData}
+                    margin={{ top: 4, right: 4, bottom: 0, left: -20 }}
+                  >
+                    <defs>
+                      <linearGradient id="userAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="hsl(var(--brand-primary))" stopOpacity={0.4} />
+                        <stop offset="100%" stopColor="hsl(var(--brand-primary))" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis
+                      dataKey="day"
+                      tick={{ fontSize: 11 }}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11 }}
+                      tickLine={false}
+                      axisLine={false}
+                      allowDecimals={false}
+                    />
+                    <RechartsTooltip
+                      content={(props: Record<string, unknown>) => {
+                        const { active, payload } = props as {
+                          active?: boolean
+                          payload?: Array<{ payload: { day: string; seconds: number } }>
+                        }
+                        if (!active || !payload?.[0]) return null
+                        const d = payload[0].payload
+                        return (
+                          <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm shadow-md">
+                            <p className="font-medium text-foreground">{d.day}</p>
+                            <p className="text-muted-foreground">
+                              {formatDurationSeconds(d.seconds)}
+                            </p>
+                          </div>
+                        )
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="hours"
+                      stroke="hsl(var(--brand-primary))"
+                      strokeWidth={2}
+                      fill="url(#userAreaGrad)"
+                      animationDuration={800}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
+          {/* Last 3 offline time entries */}
+          {offlineTimes.length > 0 && (
+            <div className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Recent offline time
+              </p>
+              <div className="space-y-2">
+                {offlineTimes.slice(0, 3).map((o) => (
+                  <div
+                    key={o.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-background/40 px-3 py-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {o.description}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(o.start_time).toLocaleDateString()} · {o.status}
+                      </p>
+                    </div>
+                    <span className="shrink-0 font-mono text-sm tabular-nums text-foreground">
+                      {formatDurationSeconds(
+                        Math.round(
+                          (new Date(o.end_time).getTime() - new Date(o.start_time).getTime()) / 1000
+                        )
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Time Tab (existing content) ────────────────────────────────────── */}
+      {activeTab === 'time' && (
+        <div className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
+          <div className="border-b border-border px-3 py-3 sm:px-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  className="text-muted-foreground hover:text-foreground"
-                  aria-label="Settings"
+                  onClick={prevMonth}
+                  className="rounded p-1.5 text-muted-foreground hover:bg-muted"
+                  aria-label="Previous month"
                 >
-                  <Settings className="h-4 w-4" />
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+                <span className="min-w-[140px] text-center font-medium text-foreground">
+                  {new Date(viewYear, viewMonth, 1).toLocaleString('default', {
+                    month: 'long',
+                    year: 'numeric',
+                  })}
+                </span>
+                <button
+                  type="button"
+                  onClick={nextMonth}
+                  className="rounded p-1.5 text-muted-foreground hover:bg-muted"
+                  aria-label="Next month"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={goToday}
+                  className="ml-2 text-sm font-medium text-primary hover:underline"
+                >
+                  Today
                 </button>
               </div>
             </div>
+            <div
+              className="mt-3 grid w-full max-w-full gap-1 pb-1 sm:gap-1.5"
+              style={{
+                gridTemplateColumns: `repeat(${calendarDays.length}, minmax(0, 1fr))`,
+              }}
+            >
+              {calendarDays.map((d) => {
+                const dow = d.getDay()
+                const isWeekend = dow === 0 || dow === 6
+                const selected = isSameLocalDay(d, selectedDay)
+                const label = d.toLocaleDateString('en', { weekday: 'short' })
+                const dayKey = localDayKey(d)
+                const loggedSec = calendarDayLoggedSeconds[dayKey] ?? 0
+                const dayFillRatio = Math.min(1, loggedSec / expectedSecondsPerDay)
+                return (
+                  <button
+                    key={d.toISOString()}
+                    type="button"
+                    onClick={() => setSelectedDay(startOfLocalDay(d))}
+                    className={cn(
+                      'flex min-w-0 w-full flex-col overflow-hidden rounded-none border p-0 leading-none transition-colors',
+                      selected
+                        ? 'border-primary bg-primary/12 text-primary ring-1 ring-inset ring-primary/35'
+                        : cn(
+                            'border-transparent bg-muted/60 hover:bg-muted',
+                            isWeekend ? 'text-destructive/80' : 'text-muted-foreground'
+                          )
+                    )}
+                  >
+                    <div className="flex flex-col items-center justify-center gap-0.5 px-1 py-1.5 sm:px-1.5 sm:py-2">
+                      <span className="max-w-full truncate text-[6px] font-normal uppercase tracking-wide opacity-80 sm:text-[7px]">
+                        {label}
+                      </span>
+                      <span className="tabular-nums text-[10px] font-semibold sm:text-[11px]">
+                        {d.getDate()}
+                      </span>
+                    </div>
+                    <div
+                      className="relative h-2 w-full min-h-[6px] shrink-0 overflow-hidden bg-muted/40 sm:h-2.5"
+                      aria-hidden
+                    >
+                      <div
+                        className={cn(
+                          'h-full max-w-full rounded-none transition-[width] duration-300 ease-out',
+                          DAY_LOGGED_FILL_CLASS
+                        )}
+                        style={{
+                          width: loggedSec > 0 ? `max(3px, ${dayFillRatio * 100}%)` : 0,
+                        }}
+                      />
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
           </div>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span className="hidden sm:inline">{tzLabel}</span>
-            <Settings className="h-4 w-4 text-muted-foreground/70" />
-          </div>
-        </div>
 
-        <div className="border-b border-border px-3 py-3 sm:px-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={prevMonth}
-                className="rounded p-1.5 text-muted-foreground hover:bg-muted"
-                aria-label="Previous month"
-              >
-                <ChevronLeft className="h-5 w-5" />
-              </button>
-              <span className="min-w-[140px] text-center font-medium text-foreground">
-                {new Date(viewYear, viewMonth, 1).toLocaleString('default', {
+          <div className="grid gap-4 border-b border-border p-4 sm:grid-cols-2 sm:p-6">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">
+                {selectedDay.toLocaleDateString('en', {
+                  weekday: 'long',
                   month: 'long',
-                  year: 'numeric',
+                  day: 'numeric',
                 })}
-              </span>
+              </p>
+              <div className="mt-1 flex items-start justify-between gap-3">
+                <p className="min-w-0 text-4xl font-bold tabular-nums text-foreground">
+                  {formatDurationSeconds(clippedSessionDaySeconds + offlineDaySeconds)}
+                </p>
+                {dayActivityScorePct != null ? (
+                  <span className="shrink-0 pt-1.5 text-right text-[11px] font-medium leading-tight text-muted-foreground sm:text-xs">
+                    Activity
+                    <br />
+                    <span className="tabular-nums text-foreground/90">{dayActivityScorePct}%</span>
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <div className="min-w-0">
+              <div
+                className="flex gap-0 border-b border-border"
+                role="tablist"
+                aria-label="Tasks and app usage for this day"
+              >
+                <button
+                  id="rollup-tab-tasks"
+                  type="button"
+                  role="tab"
+                  aria-selected={dailyRollupTab === 'tasks'}
+                  aria-controls="rollup-panel-tasks"
+                  className={cn(
+                    '-mb-px border-b-2 px-1 py-2 text-xs font-semibold uppercase tracking-wide transition-colors sm:px-2',
+                    dailyRollupTab === 'tasks'
+                      ? 'border-primary text-foreground'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                  )}
+                  onClick={() => setDailyRollupTab('tasks')}
+                >
+                  Tasks
+                </button>
+                <button
+                  id="rollup-tab-apps"
+                  type="button"
+                  role="tab"
+                  aria-selected={dailyRollupTab === 'apps'}
+                  aria-controls="rollup-panel-apps"
+                  className={cn(
+                    '-mb-px border-b-2 px-1 py-2 text-xs font-semibold uppercase tracking-wide transition-colors sm:px-2',
+                    dailyRollupTab === 'apps'
+                      ? 'border-primary text-foreground'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
+                  )}
+                  onClick={() => setDailyRollupTab('apps')}
+                >
+                  Apps & URLs
+                </button>
+              </div>
+              {dailyRollupTab === 'tasks' ? (
+                <div
+                  id="rollup-panel-tasks"
+                  role="tabpanel"
+                  aria-labelledby="rollup-tab-tasks"
+                  className="min-w-0 pt-3"
+                >
+                  <div
+                    className={cn(
+                      'space-y-2 text-sm',
+                      rollupExpandedTasks &&
+                        'max-h-64 min-h-0 overflow-y-auto overscroll-contain pr-0.5'
+                    )}
+                  >
+                    {taskRollup.length ? (
+                      visibleTasks.map(([key, row]) => (
+                        <div
+                          key={key}
+                          className="flex items-center justify-between gap-2 border-b border-border/60 pb-2 last:border-0"
+                        >
+                          <span className="truncate text-foreground/90">{row.name}</span>
+                          <span className="shrink-0 tabular-nums font-medium text-foreground">
+                            {formatDurationSeconds(Math.round(row.seconds))}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-muted-foreground">No tasks for this day.</p>
+                    )}
+                  </div>
+                  {tasksRollupHasMore ? (
+                    <button
+                      type="button"
+                      onClick={() => setRollupExpandedTasks((e) => !e)}
+                      className="mt-2 text-sm font-medium text-primary hover:underline"
+                    >
+                      {rollupExpandedTasks
+                        ? 'Show less'
+                        : `Show more (${taskRollup.length - ROLLUP_PREVIEW_LIMIT})`}
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <div
+                  id="rollup-panel-apps"
+                  role="tabpanel"
+                  aria-labelledby="rollup-tab-apps"
+                  className="min-w-0 pt-3"
+                >
+                  <div
+                    className={cn(
+                      'space-y-2 text-sm',
+                      rollupExpandedApps &&
+                        'max-h-64 min-h-0 overflow-y-auto overscroll-contain pr-0.5'
+                    )}
+                  >
+                    {appRollup.length ? (
+                      visibleApps.map(([label, sec]) => (
+                        <div
+                          key={label}
+                          className="flex items-center justify-between gap-2 border-b border-border/60 pb-2 last:border-0"
+                        >
+                          <span className="truncate text-foreground/90" title={label}>
+                            {label}
+                          </span>
+                          <span className="shrink-0 tabular-nums font-medium text-foreground">
+                            {formatDurationSeconds(Math.round(sec))}
+                          </span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-muted-foreground">No app activity for this day.</p>
+                    )}
+                  </div>
+                  {appsRollupHasMore ? (
+                    <button
+                      type="button"
+                      onClick={() => setRollupExpandedApps((e) => !e)}
+                      className="mt-2 text-sm font-medium text-primary hover:underline"
+                    >
+                      {rollupExpandedApps
+                        ? 'Show less'
+                        : `Show more (${appRollup.length - ROLLUP_PREVIEW_LIMIT})`}
+                    </button>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="px-4 py-4 sm:px-6">
+            <div className="mb-6 w-full min-w-0">
+              <div
+                className="mb-1 grid min-w-0 text-[7px] leading-none text-muted-foreground/85 sm:text-[8px]"
+                style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))' }}
+              >
+                {HOURS_24.map((h) => (
+                  <span
+                    key={h}
+                    className="block truncate text-center tabular-nums"
+                    title={hourSlotTitle(h)}
+                  >
+                    {hourSlotLabel(h)}
+                  </span>
+                ))}
+              </div>
+              <div className="relative h-10 overflow-hidden rounded-md border border-border bg-muted/50 sm:h-11">
+                <div
+                  className="pointer-events-none absolute inset-0 grid min-w-0"
+                  style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))' }}
+                  aria-hidden
+                >
+                  {HOURS_24.map((h) => (
+                    <div
+                      key={h}
+                      className={cn(
+                        'border-r border-border/25 last:border-r-0',
+                        h % 6 === 0 && 'border-border/45'
+                      )}
+                    />
+                  ))}
+                </div>
+                <div className="absolute inset-x-1 bottom-1 top-1 z-[1]">
+                  <div className="relative h-full overflow-hidden rounded-sm bg-muted-foreground/15">
+                    {blocks.map((b, i) => {
+                      const g = displayGroups[i]
+                      const barTitle = g
+                        ? `${mergedGroupTaskLabel(g) ?? 'Tracked time'} — ${formatDurationSeconds(Math.max(0, Math.round((g.clipEnd - g.clipStart) / 1000)))}`
+                        : 'Tracked time'
+                      return (
+                        <div
+                          key={b.key}
+                          className="absolute bottom-0 top-0 z-[1] bg-emerald-500/90"
+                          style={{ left: `${b.left}%`, width: `${Math.max(b.width, 0.25)}%` }}
+                          title={barTitle}
+                        />
+                      )
+                    })}
+                    {offlineBarBlocks.map((b) => (
+                      <div
+                        key={`off-${b.key}`}
+                        className="absolute bottom-0 top-0 z-[2] bg-amber-500/90"
+                        style={{ left: `${b.left}%`, width: `${Math.max(b.width, 0.25)}%` }}
+                        title="Offline / manual time"
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {loadErr ? <p className="text-sm text-destructive">{loadErr}</p> : null}
+            {loading ? <p className="text-muted-foreground">Loading…</p> : null}
+
+            {!loading &&
+              timelineRows.map((row) => {
+                if (row.kind === 'offline') {
+                  const { entry, clipStart, clipEnd } = row
+                  const start = new Date(clipStart)
+                  const end = new Date(clipEnd)
+                  const rangeLabel = `${start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })} – ${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}`
+                  const sec = Math.max(0, Math.round((clipEnd - clipStart) / 1000))
+                  const showDel = canDeleteOfflineEntry(entry)
+                  return (
+                    <div
+                      key={`off-${entry.id}`}
+                      className="mb-8 border-l-4 border-l-amber-500/90 border-t border-border pt-6 pl-4 first:border-t-0 first:pt-0"
+                    >
+                      <div className="mb-3 space-y-1">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                              Offline / manual time
+                            </p>
+                            <h3 className="mt-0.5 text-sm font-semibold text-foreground">
+                              {entry.description}
+                            </h3>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            {showDel ? (
+                              <button
+                                type="button"
+                                className="text-xs text-destructive hover:underline"
+                                onClick={() => void handleDeleteOffline(entry.id)}
+                              >
+                                Delete
+                              </button>
+                            ) : null}
+                            <span className="text-sm font-semibold tabular-nums text-foreground">
+                              {formatDurationSeconds(sec)}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground tabular-nums">{rangeLabel}</p>
+                      </div>
+                    </div>
+                  )
+                }
+
+                const g = row.group
+                const start = new Date(g.clipStart)
+                const end = new Date(g.clipEnd)
+                const rangeLabel = `${start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })} – ${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}`
+                const sessionIdSet = new Set(g.members.map((m) => m.id))
+                const shots = screenshots
+                  .filter((sh) => sh.session_id != null && sessionIdSet.has(sh.session_id))
+                  .sort((a, b) => new Date(a.taken_at).getTime() - new Date(b.taken_at).getTime())
+                const taskLabel = mergedGroupTaskLabel(g)
+                const groupSecondsTracked = Math.max(
+                  0,
+                  Math.round((g.clipEnd - g.clipStart) / 1000)
+                )
+
+                return (
+                  <div
+                    key={g.key}
+                    className="mb-8 border-t border-border pt-6 first:border-t-0 first:pt-0"
+                  >
+                    <div className="mb-3 space-y-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <h3 className="min-w-0 truncate text-sm font-semibold text-foreground">
+                          {taskLabel ?? 'Tracked time'}
+                        </h3>
+                        <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
+                          {formatDurationSeconds(groupSecondsTracked)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground tabular-nums">{rangeLabel}</p>
+                    </div>
+                    {shots.length > 0 ? (
+                      <ScreenshotGallery
+                        screenshots={shots}
+                        cacheScope={screenshotCacheScope || undefined}
+                        showBlur
+                        canManage={canManageScreenshots}
+                        onBlur={canManageScreenshots ? handleScreenshotBlur : undefined}
+                        onDelete={canManageScreenshots ? handleScreenshotDelete : undefined}
+                      />
+                    ) : null}
+                  </div>
+                )
+              })}
+
+            {!loading && timelineRows.length === 0 ? (
+              <p className="text-muted-foreground">No tracked or offline time for this day.</p>
+            ) : null}
+
+            <div className="mt-8 flex flex-wrap gap-6 border-t border-border pt-6 text-sm">
+              {canAddOfflineTime ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOfflineSubmitErr(null)
+                    setOfflineModalOpen(true)
+                  }}
+                  className="border-b border-dotted border-muted-foreground/50 text-muted-foreground hover:text-foreground"
+                >
+                  + Add offline time
+                </button>
+              ) : null}
               <button
                 type="button"
-                onClick={nextMonth}
-                className="rounded p-1.5 text-muted-foreground hover:bg-muted"
-                aria-label="Next month"
+                onClick={() => setHistoryInfoOpen(true)}
+                className="border-b border-dotted border-muted-foreground/50 text-muted-foreground hover:text-foreground"
               >
-                <ChevronRight className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
-                onClick={goToday}
-                className="ml-2 text-sm font-medium text-primary hover:underline"
-              >
-                Today
+                History of changes
               </button>
             </div>
           </div>
-          <div
-            className="mt-3 grid w-full max-w-full gap-1 pb-1 sm:gap-1.5"
-            style={{
-              gridTemplateColumns: `repeat(${calendarDays.length}, minmax(0, 1fr))`,
-            }}
-          >
-            {calendarDays.map((d) => {
-              const dow = d.getDay()
-              const isWeekend = dow === 0 || dow === 6
-              const selected = isSameLocalDay(d, selectedDay)
-              const label = d.toLocaleDateString('en', { weekday: 'short' })
-              const dayKey = localDayKey(d)
-              const loggedSec = calendarDayLoggedSeconds[dayKey] ?? 0
-              const dayFillRatio = Math.min(1, loggedSec / expectedSecondsPerDay)
-              return (
-                <button
-                  key={d.toISOString()}
-                  type="button"
-                  onClick={() => setSelectedDay(startOfLocalDay(d))}
-                  className={cn(
-                    'flex min-w-0 w-full flex-col overflow-hidden rounded-none border p-0 leading-none transition-colors',
-                    selected
-                      ? 'border-primary bg-primary/12 text-primary ring-1 ring-inset ring-primary/35'
-                      : cn(
-                          'border-transparent bg-muted/60 hover:bg-muted',
-                          isWeekend ? 'text-destructive/80' : 'text-muted-foreground'
-                        )
-                  )}
-                >
-                  <div className="flex flex-col items-center justify-center gap-0.5 px-1 py-1.5 sm:px-1.5 sm:py-2">
-                    <span className="max-w-full truncate text-[6px] font-normal uppercase tracking-wide opacity-80 sm:text-[7px]">
-                      {label}
-                    </span>
-                    <span className="tabular-nums text-[10px] font-semibold sm:text-[11px]">
-                      {d.getDate()}
-                    </span>
-                  </div>
-                  <div
-                    className="relative h-2 w-full min-h-[6px] shrink-0 overflow-hidden bg-muted/40 sm:h-2.5"
-                    aria-hidden
-                  >
-                    <div
-                      className={cn(
-                        'h-full max-w-full rounded-none transition-[width] duration-300 ease-out',
-                        DAY_LOGGED_FILL_CLASS
-                      )}
-                      style={{
-                        width: loggedSec > 0 ? `max(3px, ${dayFillRatio * 100}%)` : 0,
-                      }}
-                    />
-                  </div>
-                </button>
-              )
-            })}
-          </div>
         </div>
+      )}
 
-        <div className="grid gap-4 border-b border-border p-4 sm:grid-cols-2 sm:p-6">
-          <div>
-            <p className="text-sm font-medium text-muted-foreground">
+      {/* ── Screenshots Tab ────────────────────────────────────────────────── */}
+      {activeTab === 'screenshots' && (
+        <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <p className="text-sm font-semibold text-foreground">
               {selectedDay.toLocaleDateString('en', {
                 weekday: 'long',
                 month: 'long',
                 day: 'numeric',
               })}
             </p>
-            <div className="mt-1 flex items-start justify-between gap-3">
-              <p className="min-w-0 text-4xl font-bold tabular-nums text-foreground">
-                {formatDurationSeconds(clippedSessionDaySeconds + offlineDaySeconds)}
-              </p>
-              {dayActivityScorePct != null ? (
-                <span className="shrink-0 pt-1.5 text-right text-[11px] font-medium leading-tight text-muted-foreground sm:text-xs">
-                  Activity
-                  <br />
-                  <span className="tabular-nums text-foreground/90">{dayActivityScorePct}%</span>
-                </span>
-              ) : null}
-            </div>
+            <input
+              type="date"
+              className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+              value={`${selectedDay.getFullYear()}-${String(selectedDay.getMonth() + 1).padStart(2, '0')}-${String(selectedDay.getDate()).padStart(2, '0')}`}
+              onChange={(e) => {
+                const d = new Date(e.target.value + 'T00:00:00')
+                if (!isNaN(d.getTime())) setSelectedDay(startOfLocalDay(d))
+              }}
+            />
           </div>
-          <div className="min-w-0">
-            <div
-              className="flex gap-0 border-b border-border"
-              role="tablist"
-              aria-label="Tasks and app usage for this day"
-            >
-              <button
-                id="rollup-tab-tasks"
-                type="button"
-                role="tab"
-                aria-selected={dailyRollupTab === 'tasks'}
-                aria-controls="rollup-panel-tasks"
-                className={cn(
-                  '-mb-px border-b-2 px-1 py-2 text-xs font-semibold uppercase tracking-wide transition-colors sm:px-2',
-                  dailyRollupTab === 'tasks'
-                    ? 'border-primary text-foreground'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                )}
-                onClick={() => setDailyRollupTab('tasks')}
-              >
-                Tasks
-              </button>
-              <button
-                id="rollup-tab-apps"
-                type="button"
-                role="tab"
-                aria-selected={dailyRollupTab === 'apps'}
-                aria-controls="rollup-panel-apps"
-                className={cn(
-                  '-mb-px border-b-2 px-1 py-2 text-xs font-semibold uppercase tracking-wide transition-colors sm:px-2',
-                  dailyRollupTab === 'apps'
-                    ? 'border-primary text-foreground'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                )}
-                onClick={() => setDailyRollupTab('apps')}
-              >
-                Apps & URLs
-              </button>
+          {loading ? (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <Skeleton key={i} className="aspect-video rounded-lg" />
+              ))}
             </div>
-            {dailyRollupTab === 'tasks' ? (
-              <div
-                id="rollup-panel-tasks"
-                role="tabpanel"
-                aria-labelledby="rollup-tab-tasks"
-                className="min-w-0 pt-3"
-              >
-                <div
-                  className={cn(
-                    'space-y-2 text-sm',
-                    rollupExpandedTasks &&
-                      'max-h-64 min-h-0 overflow-y-auto overscroll-contain pr-0.5'
-                  )}
-                >
-                  {taskRollup.length ? (
-                    visibleTasks.map(([key, row]) => (
-                      <div
-                        key={key}
-                        className="flex items-center justify-between gap-2 border-b border-border/60 pb-2 last:border-0"
-                      >
-                        <span className="truncate text-foreground/90">{row.name}</span>
-                        <span className="shrink-0 tabular-nums font-medium text-foreground">
-                          {formatDurationSeconds(Math.round(row.seconds))}
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-muted-foreground">No tasks for this day.</p>
-                  )}
-                </div>
-                {tasksRollupHasMore ? (
-                  <button
-                    type="button"
-                    onClick={() => setRollupExpandedTasks((e) => !e)}
-                    className="mt-2 text-sm font-medium text-primary hover:underline"
-                  >
-                    {rollupExpandedTasks
-                      ? 'Show less'
-                      : `Show more (${taskRollup.length - ROLLUP_PREVIEW_LIMIT})`}
-                  </button>
-                ) : null}
-              </div>
+          ) : (
+            <div
+              style={{ columnCount: 3, columnGap: '0.75rem' }}
+              className="[column-count:1] sm:[column-count:2] lg:[column-count:3]"
+            >
+              {screenshots.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No screenshots for this day.
+                </p>
+              ) : (
+                <ScreenshotGallery
+                  screenshots={screenshots}
+                  cacheScope={screenshotCacheScope || undefined}
+                  showBlur
+                  canManage={canManageScreenshots}
+                  onBlur={canManageScreenshots ? handleScreenshotBlur : undefined}
+                  onDelete={canManageScreenshots ? handleScreenshotDelete : undefined}
+                />
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Activity Tab ───────────────────────────────────────────────────── */}
+      {activeTab === 'activity' && (
+        <div className="space-y-6">
+          {/* Date picker */}
+          <div className="flex items-center gap-3">
+            <p className="text-sm font-semibold text-foreground">
+              {selectedDay.toLocaleDateString('en', {
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric',
+              })}
+            </p>
+            <input
+              type="date"
+              className="rounded-md border border-border bg-background px-2 py-1 text-sm"
+              value={`${selectedDay.getFullYear()}-${String(selectedDay.getMonth() + 1).padStart(2, '0')}-${String(selectedDay.getDate()).padStart(2, '0')}`}
+              onChange={(e) => {
+                const d = new Date(e.target.value + 'T00:00:00')
+                if (!isNaN(d.getTime())) setSelectedDay(startOfLocalDay(d))
+              }}
+            />
+          </div>
+
+          {/* Hourly bar chart */}
+          <div className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Hourly activity
+            </p>
+            {loading ? (
+              <Skeleton className="h-48 w-full rounded-lg" />
             ) : (
-              <div
-                id="rollup-panel-apps"
-                role="tabpanel"
-                aria-labelledby="rollup-tab-apps"
-                className="min-w-0 pt-3"
-              >
-                <div
-                  className={cn(
-                    'space-y-2 text-sm',
-                    rollupExpandedApps &&
-                      'max-h-64 min-h-0 overflow-y-auto overscroll-contain pr-0.5'
-                  )}
-                >
-                  {appRollup.length ? (
-                    visibleApps.map(([label, sec]) => (
-                      <div
-                        key={label}
-                        className="flex items-center justify-between gap-2 border-b border-border/60 pb-2 last:border-0"
-                      >
-                        <span className="truncate text-foreground/90" title={label}>
-                          {label}
-                        </span>
-                        <span className="shrink-0 tabular-nums font-medium text-foreground">
-                          {formatDurationSeconds(Math.round(sec))}
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-muted-foreground">No app activity for this day.</p>
-                  )}
-                </div>
-                {appsRollupHasMore ? (
-                  <button
-                    type="button"
-                    onClick={() => setRollupExpandedApps((e) => !e)}
-                    className="mt-2 text-sm font-medium text-primary hover:underline"
+              <div className="h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={HOURS_24.map((h) => {
+                      const hStart = startOfLocalDay(selectedDay).getTime() + h * 3600_000
+                      const hEnd = hStart + 3600_000
+                      let sec = 0
+                      for (const log of activityLogs) {
+                        const ws = new Date(log.window_start).getTime()
+                        const we = new Date(log.window_end).getTime()
+                        const a = Math.max(hStart, ws)
+                        const b = Math.min(hEnd, we)
+                        if (b > a) sec += (b - a) / 1000
+                      }
+                      return { hour: `${h}`, minutes: Math.round(sec / 60) }
+                    })}
+                    margin={{ top: 4, right: 4, bottom: 0, left: -20 }}
                   >
-                    {rollupExpandedApps
-                      ? 'Show less'
-                      : `Show more (${appRollup.length - ROLLUP_PREVIEW_LIMIT})`}
-                  </button>
-                ) : null}
+                    <XAxis
+                      dataKey="hour"
+                      tick={{ fontSize: 10 }}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10 }}
+                      tickLine={false}
+                      axisLine={false}
+                      allowDecimals={false}
+                    />
+                    <RechartsTooltip
+                      content={(props: Record<string, unknown>) => {
+                        const { active, payload } = props as {
+                          active?: boolean
+                          payload?: Array<{ payload: { hour: string; minutes: number } }>
+                        }
+                        if (!active || !payload?.[0]) return null
+                        const d = payload[0].payload
+                        return (
+                          <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm shadow-md">
+                            <p className="font-medium text-foreground">{d.hour}:00</p>
+                            <p className="text-muted-foreground">{d.minutes} min active</p>
+                          </div>
+                        )
+                      }}
+                    />
+                    <Bar dataKey="minutes" fill="hsl(var(--brand-primary))" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             )}
           </div>
-        </div>
 
-        <div className="px-4 py-4 sm:px-6">
-          <div className="mb-6 w-full min-w-0">
-            <div
-              className="mb-1 grid min-w-0 text-[7px] leading-none text-muted-foreground/85 sm:text-[8px]"
-              style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))' }}
-            >
-              {HOURS_24.map((h) => (
-                <span
-                  key={h}
-                  className="block truncate text-center tabular-nums"
-                  title={hourSlotTitle(h)}
-                >
-                  {hourSlotLabel(h)}
-                </span>
-              ))}
-            </div>
-            <div className="relative h-10 overflow-hidden rounded-md border border-border bg-muted/50 sm:h-11">
-              <div
-                className="pointer-events-none absolute inset-0 grid min-w-0"
-                style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))' }}
-                aria-hidden
-              >
-                {HOURS_24.map((h) => (
-                  <div
-                    key={h}
-                    className={cn(
-                      'border-r border-border/25 last:border-r-0',
-                      h % 6 === 0 && 'border-border/45'
-                    )}
-                  />
-                ))}
-              </div>
-              <div className="absolute inset-x-1 bottom-1 top-1 z-[1]">
-                <div className="relative h-full overflow-hidden rounded-sm bg-muted-foreground/15">
-                  {blocks.map((b, i) => {
-                    const g = displayGroups[i]
-                    const barTitle = g
-                      ? `${mergedGroupTaskLabel(g) ?? 'Tracked time'} — ${formatDurationSeconds(Math.max(0, Math.round((g.clipEnd - g.clipStart) / 1000)))}`
-                      : 'Tracked time'
-                    return (
-                      <div
-                        key={b.key}
-                        className="absolute bottom-0 top-0 z-[1] bg-emerald-500/90"
-                        style={{ left: `${b.left}%`, width: `${Math.max(b.width, 0.25)}%` }}
-                        title={barTitle}
-                      />
-                    )
-                  })}
-                  {offlineBarBlocks.map((b) => (
-                    <div
-                      key={`off-${b.key}`}
-                      className="absolute bottom-0 top-0 z-[2] bg-amber-500/90"
-                      style={{ left: `${b.left}%`, width: `${Math.max(b.width, 0.25)}%` }}
-                      title="Offline / manual time"
-                    />
-                  ))}
+          {/* App usage pie chart + ranked list */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                App usage
+              </p>
+              {appRollup.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No app activity for this day.
+                </p>
+              ) : (
+                <div className="h-52">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={(() => {
+                          const top8 = appRollup.slice(0, 8)
+                          const rest = appRollup.slice(8).reduce((s, [, v]) => s + v, 0)
+                          const items = top8.map(([name, sec]) => ({
+                            name,
+                            value: Math.round(sec / 60),
+                          }))
+                          if (rest > 0) items.push({ name: 'Other', value: Math.round(rest / 60) })
+                          return items
+                        })()}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={40}
+                        outerRadius={80}
+                        dataKey="value"
+                        paddingAngle={2}
+                      >
+                        {appRollup.slice(0, 9).map((_, i) => (
+                          <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
-              </div>
+              )}
             </div>
-          </div>
-
-          {loadErr ? <p className="text-sm text-destructive">{loadErr}</p> : null}
-          {loading ? <p className="text-muted-foreground">Loading…</p> : null}
-
-          {!loading &&
-            timelineRows.map((row) => {
-              if (row.kind === 'offline') {
-                const { entry, clipStart, clipEnd } = row
-                const start = new Date(clipStart)
-                const end = new Date(clipEnd)
-                const rangeLabel = `${start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })} – ${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}`
-                const sec = Math.max(0, Math.round((clipEnd - clipStart) / 1000))
-                const showDel = canDeleteOfflineEntry(entry)
-                return (
-                  <div
-                    key={`off-${entry.id}`}
-                    className="mb-8 border-l-4 border-l-amber-500/90 border-t border-border pt-6 pl-4 first:border-t-0 first:pt-0"
-                  >
-                    <div className="mb-3 space-y-1">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                            Offline / manual time
-                          </p>
-                          <h3 className="mt-0.5 text-sm font-semibold text-foreground">
-                            {entry.description}
-                          </h3>
-                        </div>
+            <div className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Ranked apps
+              </p>
+              <div className="max-h-64 space-y-2 overflow-y-auto">
+                {appRollup.length === 0 ? (
+                  <p className="py-4 text-sm text-muted-foreground">No data</p>
+                ) : (
+                  appRollup.map(([label, sec], i) => {
+                    const totalSec = appRollup.reduce((s, [, v]) => s + v, 0)
+                    const pct = totalSec > 0 ? Math.round((sec / totalSec) * 100) : 0
+                    return (
+                      <div key={label} className="flex items-center gap-2">
+                        <div
+                          className="h-2 w-2 shrink-0 rounded-full"
+                          style={{ background: PIE_COLORS[i % PIE_COLORS.length] }}
+                        />
+                        <span
+                          className="min-w-0 flex-1 truncate text-sm text-foreground"
+                          title={label}
+                        >
+                          {label}
+                        </span>
                         <div className="flex shrink-0 items-center gap-2">
-                          {showDel ? (
-                            <button
-                              type="button"
-                              className="text-xs text-destructive hover:underline"
-                              onClick={() => void handleDeleteOffline(entry.id)}
-                            >
-                              Delete
-                            </button>
-                          ) : null}
-                          <span className="text-sm font-semibold tabular-nums text-foreground">
-                            {formatDurationSeconds(sec)}
+                          <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                            <div
+                              className="h-full rounded-full"
+                              style={{
+                                width: `${pct}%`,
+                                background: PIE_COLORS[i % PIE_COLORS.length],
+                              }}
+                            />
+                          </div>
+                          <span className="w-8 text-right font-mono text-xs tabular-nums text-muted-foreground">
+                            {pct}%
+                          </span>
+                          <span className="w-14 text-right font-mono text-xs tabular-nums text-foreground">
+                            {formatDurationSeconds(Math.round(sec))}
                           </span>
                         </div>
                       </div>
-                      <p className="text-xs text-muted-foreground tabular-nums">{rangeLabel}</p>
-                    </div>
-                  </div>
-                )
-              }
-
-              const g = row.group
-              const start = new Date(g.clipStart)
-              const end = new Date(g.clipEnd)
-              const rangeLabel = `${start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })} – ${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}`
-              const sessionIdSet = new Set(g.members.map((m) => m.id))
-              const shots = screenshots
-                .filter((sh) => sh.session_id != null && sessionIdSet.has(sh.session_id))
-                .sort((a, b) => new Date(a.taken_at).getTime() - new Date(b.taken_at).getTime())
-              const taskLabel = mergedGroupTaskLabel(g)
-              const groupSecondsTracked = Math.max(0, Math.round((g.clipEnd - g.clipStart) / 1000))
-
-              return (
-                <div
-                  key={g.key}
-                  className="mb-8 border-t border-border pt-6 first:border-t-0 first:pt-0"
-                >
-                  <div className="mb-3 space-y-1">
-                    <div className="flex items-center justify-between gap-3">
-                      <h3 className="min-w-0 truncate text-sm font-semibold text-foreground">
-                        {taskLabel ?? 'Tracked time'}
-                      </h3>
-                      <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
-                        {formatDurationSeconds(groupSecondsTracked)}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground tabular-nums">{rangeLabel}</p>
-                  </div>
-                  {shots.length > 0 ? (
-                    <ScreenshotGallery
-                      screenshots={shots}
-                      cacheScope={screenshotCacheScope || undefined}
-                      showBlur
-                      canManage={canManageScreenshots}
-                      onBlur={canManageScreenshots ? handleScreenshotBlur : undefined}
-                      onDelete={canManageScreenshots ? handleScreenshotDelete : undefined}
-                    />
-                  ) : null}
-                </div>
-              )
-            })}
-
-          {!loading && timelineRows.length === 0 ? (
-            <p className="text-muted-foreground">No tracked or offline time for this day.</p>
-          ) : null}
-
-          <div className="mt-8 flex flex-wrap gap-6 border-t border-border pt-6 text-sm">
-            {canAddOfflineTime ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setOfflineSubmitErr(null)
-                  setOfflineModalOpen(true)
-                }}
-                className="border-b border-dotted border-muted-foreground/50 text-muted-foreground hover:text-foreground"
-              >
-                + Add offline time
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => setHistoryInfoOpen(true)}
-              className="border-b border-dotted border-muted-foreground/50 text-muted-foreground hover:text-foreground"
-            >
-              History of changes
-            </button>
+                    )
+                  })
+                )}
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-
-      <p className="mt-4 text-center">
-        <Link href="/myhome" className="text-sm text-primary hover:underline">
-          Back to home
-        </Link>
-      </p>
+      )}
 
       {portalReady && offlineModalOpen
         ? createPortal(

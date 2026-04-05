@@ -43,6 +43,15 @@
     --ring: 221 83% 53%;
 
     --radius: 0.75rem;
+
+    /* Sprint 0 design tokens — brand + surfaces (light) */
+    --brand-primary: 221 83% 53%;
+    --brand-secondary: 258 90% 66%;
+    --brand-accent: 160 84% 39%;
+    --surface-raised: 0 0% 100%;
+    --surface-overlay: 240 5% 94%;
+    --border-subtle: 220 13% 91%;
+    --text-tertiary: 220 9% 46%;
   }
 
   .dark {
@@ -71,6 +80,15 @@
     --border: 240 4% 16%;
     --input: 240 4% 14%;
     --ring: 217 92% 60%;
+
+    /* Sprint 0 design tokens — brand + surfaces (dark) */
+    --brand-primary: 221 83% 53%;
+    --brand-secondary: 258 90% 66%;
+    --brand-accent: 160 84% 39%;
+    --surface-raised: 222 47% 11%;
+    --surface-overlay: 222 47% 8%;
+    --border-subtle: 222 20% 18%;
+    --text-tertiary: 220 9% 46%;
   }
 
   html {

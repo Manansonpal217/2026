@@ -20,16 +20,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <div className="flex min-h-[calc(100vh-3.75rem)] flex-col md:flex-row">
           <AppShellSidebar />
           <div className="flex min-w-0 flex-1 flex-col border-border md:border-l">
-            <header className="border-b border-border bg-muted/10 px-4 py-5 sm:px-6 lg:px-8">
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                {isPlatformAdmin ? 'Platform admin' : 'Organizations'}
-              </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {isPlatformAdmin
-                  ? 'Manage organizations and view users across tenants.'
-                  : 'Browse every organization in the directory.'}
-              </p>
-            </header>
             <div className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</div>
           </div>
         </div>

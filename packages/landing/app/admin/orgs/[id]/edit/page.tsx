@@ -21,15 +21,16 @@ const selectClass = cn(
 )
 
 export default function EditOrgPage() {
-  const { id } = useParams<{ id: string }>()
+  const params = useParams<{ id: string }>()
+  const id = typeof params?.id === 'string' ? params.id : ''
   const searchParams = useSearchParams()
   const router = useRouter()
 
-  const [name, setName] = useState(searchParams.get('name') ?? '')
-  const [slug, setSlug] = useState(searchParams.get('slug') ?? '')
-  const [plan, setPlan] = useState(searchParams.get('plan') ?? 'trial')
+  const [name, setName] = useState(searchParams?.get('name') ?? '')
+  const [slug, setSlug] = useState(searchParams?.get('slug') ?? '')
+  const [plan, setPlan] = useState(searchParams?.get('plan') ?? 'trial')
   const [status, setStatus] = useState<'active' | 'suspended'>(
-    (searchParams.get('status') as 'active' | 'suspended') ?? 'active'
+    (searchParams?.get('status') as 'active' | 'suspended') ?? 'active'
   )
 
   const [saving, setSaving] = useState(false)

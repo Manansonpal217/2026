@@ -6,7 +6,6 @@ const config: Config = {
     extend: {
       colors: {
         background: 'hsl(var(--background) / <alpha-value>)',
-        surface: 'hsl(var(--surface) / <alpha-value>)',
         foreground: 'hsl(var(--foreground) / <alpha-value>)',
         card: {
           DEFAULT: 'hsl(var(--card) / <alpha-value>)',
@@ -31,8 +30,22 @@ const config: Config = {
         success: 'hsl(var(--success) / <alpha-value>)',
         warning: 'hsl(var(--warning) / <alpha-value>)',
         border: 'hsl(var(--border) / <alpha-value>)',
+        'border-subtle': 'hsl(var(--border-subtle) / <alpha-value>)',
         input: 'hsl(var(--input) / <alpha-value>)',
         ring: 'hsl(var(--ring) / <alpha-value>)',
+        brand: {
+          primary: 'hsl(var(--brand-primary) / <alpha-value>)',
+          secondary: 'hsl(var(--brand-secondary) / <alpha-value>)',
+          accent: 'hsl(var(--brand-accent) / <alpha-value>)',
+        },
+        surface: {
+          DEFAULT: 'hsl(var(--surface) / <alpha-value>)',
+          raised: 'hsl(var(--surface-raised) / <alpha-value>)',
+          overlay: 'hsl(var(--surface-overlay) / <alpha-value>)',
+        },
+        fg: {
+          tertiary: 'hsl(var(--text-tertiary) / <alpha-value>)',
+        },
       },
       fontFamily: {
         sans: ['var(--font-geist-sans)', 'system-ui', 'sans-serif'],
@@ -72,6 +85,7 @@ const config: Config = {
         'marquee-logos': 'marquee-logos 28s linear infinite',
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
+        'skeleton-pulse': 'skeleton-pulse 1.5s ease-in-out infinite',
       },
       keyframes: {
         'accordion-down': {
@@ -113,6 +127,10 @@ const config: Config = {
         'gradient-text': {
           '0%, 100%': { backgroundPosition: '0% 50%' },
           '50%': { backgroundPosition: '100% 50%' },
+        },
+        'skeleton-pulse': {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0.45' },
         },
       },
     },

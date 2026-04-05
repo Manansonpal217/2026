@@ -1,51 +1,125 @@
 'use client'
 
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSession } from 'next-auth/react'
-import { Building2, LayoutDashboard, Settings2, UserCog, Users } from 'lucide-react'
+import {
+  Bell,
+  Building2,
+  Camera,
+  Clock,
+  FileText,
+  LayoutDashboard,
+  Settings,
+  Shield,
+  UserCog,
+  Users,
+} from 'lucide-react'
 import {
   canShowConfigurationSidebar,
+  hasTeamConfigurationLink,
+  isManagerOrAbove,
   isOrgAdminOnly,
   isOrgAdminRole,
   isOrgSuperAdmin,
-  hasTeamConfigurationLink,
 } from '@/lib/roles'
 import { cn } from '@/lib/utils'
+import { api } from '@/lib/api'
+import { useNotificationStore } from '@/stores/notificationStore'
+import { useSSE } from '@/hooks/useSSE'
+import type { AppNotification } from '@/stores/notificationStore'
+import { NotificationCenter } from '@/components/NotificationCenter'
 
-const workspacePoliciesLink = {
-  href: '/myhome/organization/settings',
-  label: 'Workspace',
-  icon: Settings2,
-} as const
+// ── Offline pending badge ───────────────────────────────────────────────────────
 
-const orgUsersLink = {
-  href: '/myhome/organization/users',
-  icon: UserCog,
-} as const
+function OfflinePendingBadge() {
+  const [count, setCount] = useState(0)
 
-const platformOrgsLink = {
-  href: '/admin/orgs',
-  label: 'Organizations',
-  icon: Building2,
-} as const
+  useEffect(() => {
+    let mounted = true
+    const load = () =>
+      api
+        .get('/v1/app/offline-time/pending')
+        .then((r) => {
+          if (mounted) setCount(r.data.count ?? 0)
+        })
+        .catch(() => {})
+    load()
+    const id = setInterval(load, 30_000)
+    return () => {
+      mounted = false
+      clearInterval(id)
+    }
+  }, [])
 
-const platformUsersLink = {
-  href: '/admin/users',
-  icon: Users,
-} as const
-
-function homeActive(path: string): boolean {
-  return path === '/myhome' || path === '/myhome/'
+  if (count === 0) return null
+  return (
+    <span className="ml-auto rounded-full bg-amber-500 px-1.5 text-[10px] font-bold leading-[18px] text-white min-w-[18px] text-center">
+      {count}
+    </span>
+  )
 }
+
+// ── Notification bell ───────────────────────────────────────────────────────────
+
+function NotificationBell() {
+  const { unreadCount, hydrate, addNotification } = useNotificationStore()
+  const [centerOpen, setCenterOpen] = useState(false)
+  const [pulse, setPulse] = useState(false)
+  const prevCount = useRef(unreadCount)
+
+  useEffect(() => {
+    void hydrate()
+  }, [hydrate])
+
+  useSSE((evt) => {
+    if (evt.type && evt.payload) {
+      addNotification(evt.payload as AppNotification)
+    }
+  })
+
+  useEffect(() => {
+    if (unreadCount > prevCount.current) {
+      setPulse(true)
+      const t = setTimeout(() => setPulse(false), 1000)
+      return () => clearTimeout(t)
+    }
+    prevCount.current = unreadCount
+  }, [unreadCount])
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setCenterOpen(true)}
+        className="relative flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+        aria-label="Notifications"
+      >
+        <Bell className="h-4 w-4" />
+        {unreadCount > 0 && (
+          <span
+            className={cn(
+              'absolute -right-0.5 -top-0.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white transition-transform',
+              pulse && 'animate-[pulse_0.5s_ease-in-out_2]'
+            )}
+          >
+            {unreadCount > 99 ? '99+' : unreadCount}
+          </span>
+        )}
+      </button>
+      <NotificationCenter open={centerOpen} onClose={() => setCenterOpen(false)} />
+    </>
+  )
+}
+
+// ── Sidebar ─────────────────────────────────────────────────────────────────────
 
 export function AppShellSidebar() {
   const pathname = usePathname() ?? ''
   const { data: session, status } = useSession()
 
-  if (status === 'unauthenticated') {
-    return null
-  }
+  if (status === 'unauthenticated') return null
 
   if (status === 'loading') {
     return (
@@ -65,32 +139,25 @@ export function AppShellSidebar() {
   const role = session?.user?.role as string | undefined
   const isPlatformAdmin = session?.user?.is_platform_admin === true
 
-  const showWorkspacePolicies = isOrgAdminRole(role)
+  const isAdmin = isOrgAdminRole(role)
+  const isManager = isManagerOrAbove(role)
+  const showConfiguration = canShowConfigurationSidebar(role, isPlatformAdmin)
   const showOrgUsersLink = hasTeamConfigurationLink(role)
-
-  /** All-tenants org directory: any org super_admin, not only platform admins. */
   const showPlatformOrgs = isOrgSuperAdmin(role)
-  /** Cross-tenant user directory: org super_admin (read) or platform admin with org admin role. */
   const showPlatformUsers = isOrgSuperAdmin(role) || (isPlatformAdmin && isOrgAdminOnly(role))
 
-  const orgUsersActive =
-    pathname === orgUsersLink.href || pathname.startsWith(`${orgUsersLink.href}/`)
-
-  const hasWorkspaceLinks = showWorkspacePolicies || showOrgUsersLink
-  const hasPlatformLinks = showPlatformOrgs || showPlatformUsers
-
-  /** Two user lists exist; label the org-scoped one so it is not confused with the tenant-wide directory. */
   const orgUsersNavLabel = showOrgUsersLink && showPlatformUsers ? 'This organization' : 'Users'
-  const platformUsersNavLabel = 'All users'
 
-  const showConfigurationSection = canShowConfigurationSidebar(role, isPlatformAdmin)
+  function isActive(href: string): boolean {
+    return pathname === href || pathname.startsWith(href + '/')
+  }
 
   const linkCls = (active: boolean) =>
     cn(
-      'flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+      'flex items-center gap-2 rounded-r-lg px-3 py-2 text-sm font-medium transition-colors',
       active
-        ? 'bg-primary text-primary-foreground shadow-sm'
-        : 'text-muted-foreground hover:bg-muted/70 hover:text-foreground'
+        ? 'border-l-2 border-brand-primary bg-brand-primary/10 text-brand-primary'
+        : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
     )
 
   return (
@@ -100,67 +167,136 @@ export function AppShellSidebar() {
         'md:sticky md:top-[3.75rem] md:z-40 md:h-[calc(100vh-3.75rem)]'
       )}
     >
-      <nav className="flex h-full flex-col gap-1 overflow-y-auto p-3" aria-label="Application">
-        <Link href="/myhome" className={linkCls(homeActive(pathname))}>
+      <nav className="flex h-full flex-col gap-0.5 overflow-y-auto p-3" aria-label="Application">
+        {/* Main section */}
+        <Link href="/myhome/dashboard" className={linkCls(isActive('/myhome/dashboard'))}>
           <LayoutDashboard className="h-4 w-4 shrink-0" aria-hidden />
-          Home
+          Dashboard
         </Link>
 
-        {showConfigurationSection ? (
-          <>
-            <p className="mt-3 px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Configuration
-            </p>
-            <div className="flex flex-col gap-0.5 border-l-2 border-border/80 pl-2 md:ml-2 md:pl-3">
-              {showWorkspacePolicies ? (
-                <Link
-                  href={workspacePoliciesLink.href}
-                  className={linkCls(pathname === workspacePoliciesLink.href)}
-                >
-                  <Settings2 className="h-4 w-4 shrink-0 opacity-90" aria-hidden />
-                  {workspacePoliciesLink.label}
-                </Link>
-              ) : null}
+        <Link href="/myhome" className={linkCls(pathname === '/myhome' || pathname === '/myhome/')}>
+          <Clock className="h-4 w-4 shrink-0" aria-hidden />
+          My Time
+        </Link>
 
-              {showOrgUsersLink ? (
-                <Link href={orgUsersLink.href} className={linkCls(orgUsersActive)}>
-                  <UserCog className="h-4 w-4 shrink-0 opacity-90" aria-hidden />
+        <Link href="/myhome/offline-time" className={linkCls(isActive('/myhome/offline-time'))}>
+          <Clock className="h-4 w-4 shrink-0" aria-hidden />
+          Offline Time
+          {isManager && <OfflinePendingBadge />}
+        </Link>
+
+        <Link href="/myhome/reports" className={linkCls(isActive('/myhome/reports'))}>
+          <FileText className="h-4 w-4 shrink-0" aria-hidden />
+          Reports
+        </Link>
+
+        <hr className="my-2 border-border/50" />
+
+        {/* Team — MANAGER+ only */}
+        {isManager && (
+          <>
+            <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Team
+            </p>
+            <Link href="/myhome/team" className={linkCls(isActive('/myhome/team'))}>
+              <Users className="h-4 w-4 shrink-0" aria-hidden />
+              Team
+            </Link>
+            <hr className="my-2 border-border/50" />
+          </>
+        )}
+
+        {/* Organization — ADMIN+ only */}
+        {showConfiguration && (
+          <>
+            <p className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Organization
+            </p>
+            <div className="flex flex-col gap-0.5">
+              {showOrgUsersLink && (
+                <Link
+                  href="/myhome/organization/users"
+                  className={linkCls(isActive('/myhome/organization/users'))}
+                >
+                  <UserCog className="h-4 w-4 shrink-0" aria-hidden />
                   {orgUsersNavLabel}
                 </Link>
-              ) : null}
+              )}
 
-              {hasWorkspaceLinks && hasPlatformLinks ? (
-                <div className="my-2 hidden h-px bg-border md:block" role="separator" />
-              ) : null}
+              {isAdmin && (
+                <>
+                  <Link
+                    href="/myhome/organization/team"
+                    className={linkCls(isActive('/myhome/organization/team'))}
+                  >
+                    <Users className="h-4 w-4 shrink-0" aria-hidden />
+                    Teams
+                  </Link>
+                  <Link
+                    href="/myhome/organization/settings"
+                    className={linkCls(isActive('/myhome/organization/settings'))}
+                  >
+                    <Settings className="h-4 w-4 shrink-0" aria-hidden />
+                    Settings
+                  </Link>
+                  <Link
+                    href="/myhome/organization/audit"
+                    className={linkCls(isActive('/myhome/organization/audit'))}
+                  >
+                    <Shield className="h-4 w-4 shrink-0" aria-hidden />
+                    Audit Log
+                  </Link>
+                </>
+              )}
 
-              {showPlatformOrgs ? (
-                <Link
-                  href={platformOrgsLink.href}
-                  className={linkCls(
-                    pathname === platformOrgsLink.href ||
-                      pathname.startsWith(platformOrgsLink.href + '/')
+              {(showPlatformOrgs || showPlatformUsers || isPlatformAdmin) && (
+                <>
+                  <div className="my-2 hidden h-px bg-border/50 md:block" role="separator" />
+                  <p className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                    Platform
+                  </p>
+                  {isPlatformAdmin && (
+                    <Link href="/admin/dashboard" className={linkCls(isActive('/admin/dashboard'))}>
+                      <LayoutDashboard className="h-4 w-4 shrink-0" aria-hidden />
+                      Platform Dashboard
+                    </Link>
                   )}
-                >
-                  <Building2 className="h-4 w-4 shrink-0" aria-hidden />
-                  {platformOrgsLink.label}
-                </Link>
-              ) : null}
-
-              {showPlatformUsers ? (
-                <Link
-                  href={platformUsersLink.href}
-                  className={linkCls(
-                    pathname === platformUsersLink.href ||
-                      pathname.startsWith(platformUsersLink.href + '/')
+                  {(showPlatformOrgs || isPlatformAdmin) && (
+                    <Link href="/admin/orgs" className={linkCls(isActive('/admin/orgs'))}>
+                      <Building2 className="h-4 w-4 shrink-0" aria-hidden />
+                      Organizations
+                    </Link>
                   )}
-                >
-                  <Users className="h-4 w-4 shrink-0" aria-hidden />
-                  {platformUsersNavLabel}
-                </Link>
-              ) : null}
+                  {(showPlatformUsers || isPlatformAdmin) && (
+                    <Link href="/admin/users" className={linkCls(isActive('/admin/users'))}>
+                      <Users className="h-4 w-4 shrink-0" aria-hidden />
+                      All users
+                    </Link>
+                  )}
+                  {isPlatformAdmin && (
+                    <Link href="/admin/billing" className={linkCls(isActive('/admin/billing'))}>
+                      <FileText className="h-4 w-4 shrink-0" aria-hidden />
+                      Billing
+                    </Link>
+                  )}
+                </>
+              )}
             </div>
+
+            <hr className="my-2 border-border/50" />
           </>
-        ) : null}
+        )}
+
+        {/* Settings */}
+        <Link href="/myhome/settings" className={linkCls(isActive('/myhome/settings'))}>
+          <Settings className="h-4 w-4 shrink-0" aria-hidden />
+          Settings
+        </Link>
+
+        {/* Spacer + notification bell at bottom */}
+        <div className="mt-auto flex items-center justify-between px-1 pt-4">
+          <NotificationBell />
+        </div>
       </nav>
     </aside>
   )

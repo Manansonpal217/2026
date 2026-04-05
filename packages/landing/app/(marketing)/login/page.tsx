@@ -38,7 +38,12 @@ function AuthPanel() {
     if (status !== 'authenticated') return
     const sessionErr = (session as { error?: string } | null)?.error
     if (sessionErr === 'RefreshAccessTokenError') return
-    window.location.href = callbackUrl
+    const isPlatformAdmin = session?.user?.is_platform_admin === true
+    if (isPlatformAdmin && callbackUrl === '/myhome') {
+      window.location.href = '/admin/dashboard'
+    } else {
+      window.location.href = callbackUrl
+    }
   }, [status, callbackUrl, session])
 
   const [email, setEmail] = useState('')

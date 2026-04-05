@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import Script from 'next/script'
 import { Inter } from 'next/font/google'
 import { SessionRoot } from '@/components/SessionRoot'
 import { ThemeProvider } from '@/components/theme-provider'
@@ -28,6 +29,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body
         className={`${inter.variable} relative min-h-screen overflow-x-hidden font-sans antialiased`}
       >
+        {process.env.NODE_ENV === 'development' ? (
+          <Script
+            src="https://mcp.figma.com/mcp/html-to-design/capture.js"
+            strategy="afterInteractive"
+          />
+        ) : null}
         <ThemeProvider>
           <SessionRoot>
             <div className="fixed inset-0 -z-10 bg-background" aria-hidden />
