@@ -129,6 +129,33 @@ async function fetchOrgSettings(): Promise<{
   }
 }
 
+let resolvedSettingsCache: Record<string, string> | null = null
+let resolvedSettingsCacheExpiry = 0
+const SETTINGS_CACHE_TTL_MS = 5 * 60 * 1000
+
+async function fetchResolvedSettings(): Promise<Record<string, string> | null> {
+  const now = Date.now()
+  if (resolvedSettingsCache && now < resolvedSettingsCacheExpiry) return resolvedSettingsCache
+  const token = await ensureValidSession(mainWindow ?? undefined).catch(() => null)
+  if (!token) return resolvedSettingsCache
+  try {
+    const res = await fetch(`${API_URL}/v1/app/settings/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) return resolvedSettingsCache
+    const data = (await res.json()) as { settings: Record<string, string> }
+    resolvedSettingsCache = data.settings
+    resolvedSettingsCacheExpiry = now + SETTINGS_CACHE_TTL_MS
+    return resolvedSettingsCache
+  } catch {
+    return resolvedSettingsCache
+  }
+}
+
+function invalidateResolvedSettingsCache(): void {
+  resolvedSettingsCacheExpiry = 0
+}
+
 function showTrackingStoppedNotification(reason: StopReason): void {
   if (!Notification.isSupported()) {
     console.warn('[idleManager] Notifications not supported — cannot show tracking stopped')
@@ -283,7 +310,10 @@ async function performAutoRestart(): Promise<void> {
         )
       }
       const orgSettings = await fetchOrgSettings()
-      const screenshotIntervalSec = orgSettings?.screenshot_interval_seconds ?? 60
+      const resolved = await fetchResolvedSettings()
+      const screenshotIntervalSec = resolved?.ss_capture_interval_seconds
+        ? Number(resolved.ss_capture_interval_seconds)
+        : (orgSettings?.screenshot_interval_seconds ?? 60)
       console.log(
         '[timer] Screenshot interval from org (auto-restart):',
         screenshotIntervalSec,
@@ -549,6 +579,7 @@ function registerTimerHandlers(): void {
   // auth:check — compatibility alias (used by renderer App.tsx)
   // Fetches user from /me so we get name/email for avatar (JWT only has sub, org_id, role)
   ipcMain.handle('auth:check', async () => {
+    invalidateResolvedSettingsCache()
     const result = await ensureValidSessionDetailed(mainWindow ?? undefined).catch(() => null)
 
     if (!result?.ok) {
@@ -711,6 +742,7 @@ function registerTimerHandlers(): void {
           )
         }
         const orgSettings = await fetchOrgSettings()
+        const resolved = await fetchResolvedSettings()
         const idleTimeoutIntervals = orgSettings?.idle_timeout_intervals ?? 3
         const idleDetectionEnabled = orgSettings?.idle_detection_enabled ?? true
         if (idleDetectionEnabled && !isInputMonitorAvailable()) {
@@ -730,7 +762,9 @@ function registerTimerHandlers(): void {
             },
           }
         )
-        const screenshotIntervalSec = orgSettings?.screenshot_interval_seconds ?? 60
+        const screenshotIntervalSec = resolved?.ss_capture_interval_seconds
+          ? Number(resolved.ss_capture_interval_seconds)
+          : (orgSettings?.screenshot_interval_seconds ?? 60)
         console.log('[timer] Screenshot interval from org:', screenshotIntervalSec, 's')
         startScreenshotScheduler(sessionId, screenshotIntervalSec, (takenAt) => {
           mainWindow?.webContents.send('screenshot:captured', { taken_at: takenAt })
