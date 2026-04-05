@@ -12,6 +12,8 @@ let budgetAlertQueue: Queue | null = null
 let retentionQueue: Queue | null = null
 let timeLogPushQueue: Queue | null = null
 let agentMaintenanceQueue: Queue | null = null
+let reportEmailQueue: Queue | null = null
+let pdfExportQueue: Queue | null = null
 
 export function initQueues(cfg: Config): void {
   config = cfg
@@ -92,6 +94,26 @@ export function getAgentMaintenanceQueue(): Queue {
   return agentMaintenanceQueue
 }
 
+export function getReportEmailQueue(): Queue {
+  if (!reportEmailQueue) {
+    reportEmailQueue = new Queue('report-emails', {
+      connection: { url: getConfig().REDIS_URL },
+      defaultJobOptions: { attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
+    })
+  }
+  return reportEmailQueue
+}
+
+export function getPdfExportQueue(): Queue {
+  if (!pdfExportQueue) {
+    pdfExportQueue = new Queue('pdf-export', {
+      connection: { url: getConfig().REDIS_URL },
+      defaultJobOptions: { attempts: 2, backoff: { type: 'exponential', delay: 3000 } },
+    })
+  }
+  return pdfExportQueue
+}
+
 /** Register BullMQ repeatable jobs (idempotent jobIds in Redis). */
 export async function scheduleRepeatableJobs(): Promise<void> {
   const retention = getRetentionQueue()
@@ -114,6 +136,16 @@ export async function scheduleRepeatableJobs(): Promise<void> {
     {},
     { repeat: { pattern: '*/2 * * * *' }, jobId: 'agent-offline-check' }
   )
+  await agentMaint.add(
+    'expire-offline-requests',
+    {},
+    { repeat: { pattern: '0 2 * * *' }, jobId: 'offline-expire-daily' }
+  )
+  await agentMaint.add(
+    'calculate-streaks',
+    {},
+    { repeat: { pattern: '5 0 * * *' }, jobId: 'streak-daily' }
+  )
 }
 
 /** Start all BullMQ workers. Call once during app startup. */
@@ -125,6 +157,8 @@ export async function startWorkers(cfg: Config): Promise<Worker[]> {
   const { budgetAlertWorker } = await import('./workers/budgetAlert.js')
   const { emailWorker } = await import('./workers/emailWorker.js')
   const { agentMaintenanceWorker } = await import('./workers/agentMaintenanceWorker.js')
+  const { reportEmailWorker } = await import('./workers/reportEmailWorker.js')
+  const { pdfExportWorker } = await import('./workers/pdfExportWorker.js')
 
   return [
     screenshotWorker(cfg),
@@ -134,5 +168,7 @@ export async function startWorkers(cfg: Config): Promise<Worker[]> {
     budgetAlertWorker(cfg),
     emailWorker(cfg),
     agentMaintenanceWorker(cfg),
+    reportEmailWorker(cfg),
+    pdfExportWorker(cfg),
   ]
 }
