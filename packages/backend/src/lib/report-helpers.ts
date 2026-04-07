@@ -25,18 +25,27 @@ export function parseIds(raw: string | string[] | undefined): string[] | undefin
   return Array.isArray(raw) ? raw : [raw]
 }
 
+export type ResolveUserIdsOptions = {
+  /** When set, results are limited to members of this team (must belong to the same org). */
+  teamId?: string
+}
+
 /**
  * Resolve accessible user IDs for the request.
  * Managers are scoped to their direct reports + self.
  * Admin/Owner see all org users.
- * Returns the resolved user IDs array or sends a 403 and returns null.
+ * Optional `teamId` intersects the resolved set with that team's members.
+ * Returns the resolved user IDs array or sends a 403/404 and returns null.
  */
 export async function resolveUserIds(
   req: AuthenticatedRequest,
   reply: FastifyReply,
-  requestedUserIds?: string[]
+  requestedUserIds?: string[],
+  options?: ResolveUserIdsOptions
 ): Promise<string[] | null> {
   const user = req.user!
+
+  let resolved: string[]
 
   if (requestedUserIds && requestedUserIds.length > 0) {
     if (!mayActAsPeopleManager(user.role)) {
@@ -45,36 +54,56 @@ export async function resolveUserIds(
         reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied' })
         return null
       }
-      return [user.id]
+      resolved = [user.id]
+    } else {
+      const accessible = await filterAccessibleUserIds(user, requestedUserIds)
+      if (accessible.length !== requestedUserIds.length) {
+        reply
+          .status(403)
+          .send({ code: 'FORBIDDEN', message: 'Access denied for one or more users' })
+        return null
+      }
+      resolved = accessible
     }
-    const accessible = await filterAccessibleUserIds(user, requestedUserIds)
-    if (accessible.length !== requestedUserIds.length) {
-      reply.status(403).send({ code: 'FORBIDDEN', message: 'Access denied for one or more users' })
-      return null
-    }
-    return accessible
-  }
-
-  // No specific users requested — scope by role
-  if (!mayActAsPeopleManager(user.role)) {
-    return [user.id]
-  }
-
-  if (user.role === 'MANAGER') {
-    // Manager sees self + direct reports
+  } else if (!mayActAsPeopleManager(user.role)) {
+    resolved = [user.id]
+  } else if (user.role === 'MANAGER') {
     const reports = await prisma.user.findMany({
       where: { manager_id: user.id, org_id: user.org_id, status: 'ACTIVE' },
       select: { id: true },
     })
-    return [user.id, ...reports.map((r) => r.id)]
+    resolved = [user.id, ...reports.map((r) => r.id)]
+  } else {
+    const allUsers = await prisma.user.findMany({
+      where: { org_id: user.org_id, status: 'ACTIVE' },
+      select: { id: true },
+    })
+    resolved = allUsers.map((u) => u.id)
   }
 
-  // ADMIN/OWNER — all org users
-  const allUsers = await prisma.user.findMany({
-    where: { org_id: user.org_id, status: 'ACTIVE' },
-    select: { id: true },
-  })
-  return allUsers.map((u) => u.id)
+  if (options?.teamId) {
+    const team = await prisma.team.findFirst({
+      where: { id: options.teamId, org_id: user.org_id },
+      select: { id: true },
+    })
+    if (!team) {
+      reply.status(404).send({ code: 'NOT_FOUND', message: 'Team not found' })
+      return null
+    }
+    const members = await prisma.teamMember.findMany({
+      where: { team_id: options.teamId },
+      select: { user_id: true },
+    })
+    const memberSet = new Set(members.map((m) => m.user_id))
+    resolved = resolved.filter((id) => memberSet.has(id))
+  }
+
+  return resolved
+}
+
+/** Map idle sensitivity (minutes) to max activity score still treated as "idle" (1–99). */
+export function idleScoreThresholdFromMinutes(minutes: number): number {
+  return Math.max(1, Math.min(99, 100 - minutes * 3))
 }
 
 /** Build the meta object for report responses. */

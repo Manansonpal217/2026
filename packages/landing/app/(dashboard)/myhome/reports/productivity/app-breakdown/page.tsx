@@ -9,7 +9,7 @@ import { ReportStatCards } from '@/components/reports/ReportStatCards'
 import { ReportTable, type Column } from '@/components/reports/ReportTable'
 import { ExportBar } from '@/components/reports/ExportBar'
 
-interface AppRow {
+interface AppRow extends Record<string, unknown> {
   app_name: string
   category: string
   total_sec: number
@@ -65,10 +65,34 @@ export default function AppBreakdownPage() {
     apps.length > 0 ? apps.reduce((best, a) => (a.total_sec > best.total_sec ? a : best)) : null
 
   const cards = [
-    { title: 'Total Apps', value: String(apps.length), icon: AppWindow },
-    { title: 'Productive Apps', value: String(productiveCount), icon: CheckCircle },
-    { title: 'Unproductive Apps', value: String(unproductiveCount), icon: XCircle },
-    { title: 'Top App', value: topApp?.app_name ?? '—', icon: Star },
+    {
+      label: 'Total Apps',
+      value: String(apps.length),
+      icon: AppWindow,
+      accent: 'border-l-blue-500',
+      iconColor: 'text-blue-500',
+    },
+    {
+      label: 'Productive Apps',
+      value: String(productiveCount),
+      icon: CheckCircle,
+      accent: 'border-l-emerald-500',
+      iconColor: 'text-emerald-500',
+    },
+    {
+      label: 'Unproductive Apps',
+      value: String(unproductiveCount),
+      icon: XCircle,
+      accent: 'border-l-red-500',
+      iconColor: 'text-red-500',
+    },
+    {
+      label: 'Top App',
+      value: topApp?.app_name ?? '—',
+      icon: Star,
+      accent: 'border-l-amber-500',
+      iconColor: 'text-amber-500',
+    },
   ]
 
   const pieData = [...apps]
@@ -77,25 +101,49 @@ export default function AppBreakdownPage() {
     .map((a) => ({ name: a.app_name, value: +(a.total_sec / 3600).toFixed(2) }))
 
   const columns: Column<AppRow>[] = [
-    { key: 'app_name', header: 'App Name' },
-    { key: 'category', header: 'Category' },
+    {
+      key: 'app_name',
+      label: 'App Name',
+      render: (row) => row.app_name,
+      sortable: true,
+      sortValue: (row) => row.app_name,
+    },
+    {
+      key: 'category',
+      label: 'Category',
+      render: (row) => row.category,
+      sortable: true,
+      sortValue: (row) => row.category,
+    },
     {
       key: 'type',
-      header: 'Type',
-      render: (v) => (
+      label: 'Type',
+      render: (row) => (
         <span
-          className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${TYPE_COLORS[String(v)] ?? ''}`}
+          className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${TYPE_COLORS[row.type] ?? ''}`}
         >
-          {String(v)}
+          {row.type}
         </span>
       ),
+      sortable: true,
+      sortValue: (row) => row.type,
     },
     {
       key: 'total_sec',
-      header: 'Hours',
-      render: (v) => (Number(v) / 3600).toFixed(1),
+      label: 'Hours',
+      render: (row) => (row.total_sec / 3600).toFixed(1),
+      sortable: true,
+      sortValue: (row) => row.total_sec,
+      align: 'right',
     },
-    { key: 'session_count', header: 'Sessions' },
+    {
+      key: 'session_count',
+      label: 'Sessions',
+      render: (row) => row.session_count,
+      sortable: true,
+      sortValue: (row) => row.session_count,
+      align: 'right',
+    },
   ]
 
   return (
@@ -120,7 +168,7 @@ export default function AppBreakdownPage() {
                 cx="50%"
                 cy="50%"
                 outerRadius={100}
-                label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                label={({ name, percent }) => `${name} (${((percent ?? 0) * 100).toFixed(0)}%)`}
               >
                 {pieData.map((_, i) => (
                   <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />

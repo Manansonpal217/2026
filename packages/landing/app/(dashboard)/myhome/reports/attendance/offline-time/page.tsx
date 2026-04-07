@@ -9,7 +9,8 @@ import { ReportStatCards } from '@/components/reports/ReportStatCards'
 import { ReportTable, type Column } from '@/components/reports/ReportTable'
 import { ExportBar } from '@/components/reports/ExportBar'
 
-interface OfflineTimeEntry {
+interface OfflineTimeEntry extends Record<string, unknown> {
+  row_key: string
   user_id: string
   user_name: string
   reason: string
@@ -37,7 +38,15 @@ export default function OfflineTimeReportPage() {
     if (filters.userIds.length) params.user_ids = filters.userIds.join(',')
     api
       .get('/v1/reports/attendance/offline-time', { params })
-      .then((r) => setEntries(r.data.data.entries))
+      .then((r) => {
+        const raw = r.data.data.entries as Array<Omit<OfflineTimeEntry, 'row_key'>>
+        setEntries(
+          raw.map((e, i) => ({
+            ...e,
+            row_key: `${e.user_id}-${e.requested_start}-${i}`,
+          })) as OfflineTimeEntry[]
+        )
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [filters])
@@ -48,10 +57,34 @@ export default function OfflineTimeReportPage() {
   const totalHours = entries.reduce((s, e) => s + e.duration_hours, 0).toFixed(1)
 
   const cards = [
-    { title: 'Total Requests', value: total, icon: Calendar },
-    { title: 'Approved', value: approved, icon: CheckCircle },
-    { title: 'Pending', value: pending, icon: AlertTriangle },
-    { title: 'Total Hours Off', value: totalHours, icon: Clock },
+    {
+      label: 'Total Requests',
+      value: total,
+      icon: Calendar,
+      accent: 'border-l-blue-500',
+      iconColor: 'text-blue-500',
+    },
+    {
+      label: 'Approved',
+      value: approved,
+      icon: CheckCircle,
+      accent: 'border-l-emerald-500',
+      iconColor: 'text-emerald-500',
+    },
+    {
+      label: 'Pending',
+      value: pending,
+      icon: AlertTriangle,
+      accent: 'border-l-amber-500',
+      iconColor: 'text-amber-500',
+    },
+    {
+      label: 'Total Hours Off',
+      value: totalHours,
+      icon: Clock,
+      accent: 'border-l-violet-500',
+      iconColor: 'text-violet-500',
+    },
   ]
 
   const pieData = Object.entries(
@@ -62,22 +95,55 @@ export default function OfflineTimeReportPage() {
   ).map(([name, value]) => ({ name, value }))
 
   const columns: Column<OfflineTimeEntry>[] = [
-    { key: 'user_name', label: 'User' },
-    { key: 'reason', label: 'Reason' },
-    { key: 'requested_start', label: 'Start' },
-    { key: 'requested_end', label: 'End' },
-    { key: 'duration_hours', label: 'Hours', render: (v) => v.duration_hours.toFixed(1) },
+    {
+      key: 'user_name',
+      label: 'User',
+      render: (row) => row.user_name,
+      sortable: true,
+      sortValue: (row) => row.user_name,
+    },
+    {
+      key: 'reason',
+      label: 'Reason',
+      render: (row) => row.reason,
+      sortable: true,
+      sortValue: (row) => row.reason,
+    },
+    {
+      key: 'requested_start',
+      label: 'Start',
+      render: (row) => row.requested_start,
+      sortable: true,
+      sortValue: (row) => row.requested_start,
+    },
+    {
+      key: 'requested_end',
+      label: 'End',
+      render: (row) => row.requested_end,
+      sortable: true,
+      sortValue: (row) => row.requested_end,
+    },
+    {
+      key: 'duration_hours',
+      label: 'Hours',
+      render: (row) => row.duration_hours.toFixed(1),
+      sortable: true,
+      sortValue: (row) => row.duration_hours,
+      align: 'right',
+    },
     {
       key: 'status',
       label: 'Status',
-      render: (v) => (
+      render: (row) => (
         <span
           className="inline-block rounded-full px-2 py-0.5 text-xs font-medium text-white"
-          style={{ backgroundColor: STATUS_COLORS[v.status] ?? '#6b7280' }}
+          style={{ backgroundColor: STATUS_COLORS[row.status] ?? '#6b7280' }}
         >
-          {v.status}
+          {row.status}
         </span>
       ),
+      sortable: true,
+      sortValue: (row) => row.status,
     },
   ]
 
@@ -113,7 +179,7 @@ export default function OfflineTimeReportPage() {
           </PieChart>
         </ResponsiveContainer>
       </div>
-      <ReportTable columns={columns} data={entries} loading={loading} keyField="user_id" />
+      <ReportTable columns={columns} data={entries} loading={loading} keyField="row_key" />
       <ExportBar
         reportType="attendance-offline-time"
         params={{ from: filters?.from ?? '', to: filters?.to ?? '' }}

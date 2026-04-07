@@ -9,6 +9,7 @@ import type { AuthenticatedRequest } from '../../../middleware/authenticate.js'
 import type { Config } from '../../../config.js'
 import { Permission } from '../../../lib/permissions.js'
 import { resolveUserIds, parseIds, reportMeta } from '../../../lib/report-helpers.js'
+import { timeApprovalTotalsFilter } from '../../../lib/time-approval-scope.js'
 
 const querySchema = z.object({
   from: z.string().datetime({ offset: true }),
@@ -61,14 +62,18 @@ export async function billingBillableHoursRoutes(
         return reply.send({ data: [], meta: reportMeta(from, to, 0) })
       }
 
+      const approvalFilter = approval_status
+        ? { approval_status }
+        : await timeApprovalTotalsFilter(user.org_id)
+
       const sessions = await db.timeSession.findMany({
         where: {
           org_id: user.org_id,
           user_id: { in: userIds },
           project_id: { in: billableProjectIds },
-          started_at: { gte: fromDate },
-          ended_at: { lte: toDate },
-          ...(approval_status ? { approval_status } : {}),
+          ended_at: { not: null },
+          started_at: { gte: fromDate, lte: toDate },
+          ...approvalFilter,
         },
         select: {
           id: true,

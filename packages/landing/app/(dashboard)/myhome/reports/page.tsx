@@ -679,6 +679,109 @@ export default function ReportsPage() {
           )}
         </div>
       </div>
+
+      {/* ── Detailed Reports Directory ────────────────────────────────────────── */}
+      <div className="mt-8">
+        <h2 className="mb-4 text-lg font-bold text-foreground">Detailed Reports</h2>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          {/* Productivity */}
+          <ReportCategory
+            icon={Zap}
+            title="Productivity"
+            color="text-violet-500"
+            links={[
+              { href: '/myhome/reports/productivity/summary', label: 'Summary' },
+              { href: '/myhome/reports/productivity/app-breakdown', label: 'App Breakdown' },
+              { href: '/myhome/reports/productivity/hourly-heatmap', label: 'Hourly Heatmap' },
+              { href: '/myhome/reports/productivity/idle-time', label: 'Idle Time' },
+              { href: '/myhome/reports/productivity/streaks', label: 'Streaks' },
+            ]}
+          />
+          {/* Attendance */}
+          <ReportCategory
+            icon={Calendar}
+            title="Attendance"
+            color="text-blue-500"
+            links={[
+              { href: '/myhome/reports/attendance/daily-log', label: 'Daily Log' },
+              { href: '/myhome/reports/attendance/late-start', label: 'Late Starts' },
+              { href: '/myhome/reports/attendance/offline-time', label: 'Offline Time' },
+              { href: '/myhome/reports/attendance/overtime', label: 'Overtime' },
+              { href: '/myhome/reports/attendance/absenteeism', label: 'Absenteeism' },
+            ]}
+          />
+          {/* Projects */}
+          <ReportCategory
+            icon={FolderOpen}
+            title="Projects"
+            color="text-emerald-500"
+            links={[
+              { href: '/myhome/reports/projects/allocation', label: 'Allocation' },
+              { href: '/myhome/reports/projects/budget-vs-actuals', label: 'Budget vs Actuals' },
+              { href: '/myhome/reports/projects/task-accuracy', label: 'Task Accuracy' },
+              { href: '/myhome/reports/projects/user-contribution', label: 'User Contribution' },
+            ]}
+          />
+          {/* Compliance */}
+          <ReportCategory
+            icon={Shield}
+            title="Compliance"
+            color="text-amber-500"
+            links={[
+              { href: '/myhome/reports/compliance/screenshot-audit', label: 'Screenshot Audit' },
+              { href: '/myhome/reports/compliance/manual-time', label: 'Manual Time' },
+              { href: '/myhome/reports/compliance/audit-log', label: 'Audit Log' },
+              { href: '/myhome/reports/compliance/data-retention', label: 'Data Retention' },
+            ]}
+          />
+          {/* Billing */}
+          <ReportCategory
+            icon={CreditCard}
+            title="Billing"
+            color="text-pink-500"
+            links={[
+              { href: '/myhome/reports/billing/billable-hours', label: 'Billable Hours' },
+              { href: '/myhome/reports/billing/cost-estimate', label: 'Cost Estimate' },
+              { href: '/myhome/reports/billing/seat-utilization', label: 'Seat Utilization' },
+            ]}
+          />
+        </div>
+      </div>
     </main>
+  )
+}
+
+/* ── Report category card ──────────────────────────────────────────────────── */
+
+function ReportCategory({
+  icon: Icon,
+  title,
+  color,
+  links,
+}: {
+  icon: typeof Zap
+  title: string
+  color: string
+  links: { href: string; label: string }[]
+}) {
+  return (
+    <div className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
+      <div className="mb-3 flex items-center gap-2">
+        <Icon className={cn('h-4 w-4', color)} />
+        <h3 className="text-sm font-semibold">{title}</h3>
+      </div>
+      <div className="space-y-1">
+        {links.map((link) => (
+          <Link
+            key={link.href}
+            href={link.href}
+            className="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+          >
+            <span>{link.label}</span>
+            <ChevronRight className="h-3 w-3 opacity-50" />
+          </Link>
+        ))}
+      </div>
+    </div>
   )
 }

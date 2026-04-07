@@ -25,7 +25,12 @@ export function ReportStatCards({ cards, loading }: { cards: StatCardDef[]; load
   }
 
   return (
-    <div className={cn('grid gap-3', `grid-cols-2 lg:grid-cols-${Math.min(cards.length, 4)}`)}>
+    <div
+      className={cn(
+        'grid gap-3',
+        cards.length <= 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2 lg:grid-cols-4'
+      )}
+    >
       {cards.map((card) => {
         const Icon = card.icon
         return (

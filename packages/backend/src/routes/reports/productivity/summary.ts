@@ -10,12 +10,13 @@ import type { AuthenticatedRequest } from '../../../middleware/authenticate.js'
 import type { Config } from '../../../config.js'
 import { Permission } from '../../../lib/permissions.js'
 import { resolveUserIds, parseIds, reportMeta } from '../../../lib/report-helpers.js'
+import { timeApprovalTotalsFilter } from '../../../lib/time-approval-scope.js'
 
 const querySchema = z.object({
   from: z.coerce.date(),
   to: z.coerce.date(),
   user_ids: z.string().optional(),
-  team_id: z.string().uuid().optional(),
+  team_id: z.string().min(1).optional(),
 })
 
 export async function productivitySummaryRoutes(
@@ -37,11 +38,19 @@ export async function productivitySummaryRoutes(
       const orgId = user.org_id
 
       const requestedIds = query.user_ids ? parseIds(query.user_ids) : undefined
-      const userIds = await resolveUserIds(req, reply, requestedIds)
+      const userIds = await resolveUserIds(req, reply, requestedIds, {
+        teamId: query.team_id,
+      })
       if (userIds === null) return
 
       const userIdFilter =
         userIds.length > 0 ? Prisma.sql`AND ts.user_id IN (${Prisma.join(userIds)})` : Prisma.empty
+
+      const approval = await timeApprovalTotalsFilter(orgId)
+      const approvalSql =
+        'approval_status' in approval
+          ? Prisma.sql`AND ts.approval_status = 'APPROVED'`
+          : Prisma.empty
 
       const summaries = await db.$queryRaw<
         Array<{
@@ -83,7 +92,9 @@ export async function productivitySummaryRoutes(
         FROM "TimeSession" ts
         WHERE ts.org_id = ${orgId}
           AND ts.started_at >= ${from}
-          AND ts.ended_at <= ${to}
+          AND ts.started_at <= ${to}
+          AND ts.ended_at IS NOT NULL
+          ${approvalSql}
           ${userIdFilter}
         GROUP BY ts.user_id
         ORDER BY avg_activity_score DESC NULLS LAST
@@ -111,7 +122,9 @@ export async function productivitySummaryRoutes(
         FROM "TimeSession" ts
         WHERE ts.org_id = ${orgId}
           AND ts.started_at >= ${from}
-          AND ts.ended_at <= ${to}
+          AND ts.started_at <= ${to}
+          AND ts.ended_at IS NOT NULL
+          ${approvalSql}
           ${userIdFilter}
         GROUP BY ts.user_id, DATE(ts.started_at)
         ORDER BY ts.user_id, date
@@ -127,18 +140,40 @@ export async function productivitySummaryRoutes(
         dailyMap.set(row.user_id, arr)
       }
 
-      const data = summaries.map((s) => ({
-        user_id: s.user_id,
-        total_tracked_seconds: Number(s.total_tracked_seconds),
-        avg_activity_score:
-          s.avg_activity_score != null ? Math.round(s.avg_activity_score * 100) / 100 : null,
-        idle_percent: s.idle_percent != null ? Math.round(s.idle_percent * 100) / 100 : null,
-        screenshot_count: Number(s.screenshot_count),
-        session_count: Number(s.session_count),
-        daily_breakdown: dailyMap.get(s.user_id) ?? [],
-      }))
+      const names = await db.user.findMany({
+        where: { org_id: orgId, id: { in: summaries.map((x) => x.user_id) } },
+        select: { id: true, name: true },
+      })
+      const nameById = new Map(names.map((u) => [u.id, u.name]))
 
-      return { data, meta: reportMeta(from, to, data.length) }
+      const users = summaries.map((s) => {
+        const totalSec = Number(s.total_tracked_seconds)
+        const idleP = (s.idle_percent ?? 0) / 100
+        const act = s.avg_activity_score ?? 0
+        const productiveSec = Math.max(0, Math.round(totalSec * (1 - idleP) * (act / 100)))
+        const unproductiveSec = Math.max(0, Math.round(totalSec * idleP))
+        let neutralSec = totalSec - productiveSec - unproductiveSec
+        if (neutralSec < 0) neutralSec = 0
+
+        return {
+          user_id: s.user_id,
+          user_name: nameById.get(s.user_id) ?? 'Unknown',
+          total_sec: totalSec,
+          productive_sec: productiveSec,
+          neutral_sec: neutralSec,
+          unproductive_sec: unproductiveSec,
+          productivity_score: Math.min(100, Math.round(act)),
+          total_tracked_seconds: totalSec,
+          avg_activity_score:
+            s.avg_activity_score != null ? Math.round(s.avg_activity_score * 100) / 100 : null,
+          idle_percent: s.idle_percent != null ? Math.round(s.idle_percent * 100) / 100 : null,
+          screenshot_count: Number(s.screenshot_count),
+          session_count: Number(s.session_count),
+          daily_breakdown: dailyMap.get(s.user_id) ?? [],
+        }
+      })
+
+      return { data: { users }, meta: reportMeta(from, to, users.length) }
     },
   })
 }

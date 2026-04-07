@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { Download, FileText, Loader2 } from 'lucide-react'
 import { useSession } from 'next-auth/react'
 import { api } from '@/lib/api'
-import { isManagerOrAbove } from '@/lib/roles'
 import { Button } from '@/components/ui/button'
 
 type ExportBarProps = {

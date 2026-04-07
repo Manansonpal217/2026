@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Clock, Calendar, Activity, BarChart3 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { ReportFilters, type ReportFilterValues } from '@/components/reports/ReportFilters'
@@ -66,17 +66,33 @@ export default function HourlyHeatmapPage() {
 
   const cards = [
     {
-      title: 'Peak Hour',
+      label: 'Peak Hour',
       value: peakHourEntry ? `${String(peakHourEntry.hour).padStart(2, '0')}:00` : '—',
       icon: Clock,
+      accent: 'border-l-blue-500',
+      iconColor: 'text-blue-500',
     },
     {
-      title: 'Busiest Day',
+      label: 'Busiest Day',
       value: dayTotals.some((d) => d > 0) ? DAYS[busiestDayIdx] : '—',
       icon: Calendar,
+      accent: 'border-l-violet-500',
+      iconColor: 'text-violet-500',
     },
-    { title: 'Total Active Hours', value: totalActiveHours.toFixed(1), icon: Activity },
-    { title: 'Avg Daily Hours', value: avgDailyHours.toFixed(1), icon: BarChart3 },
+    {
+      label: 'Total Active Hours',
+      value: totalActiveHours.toFixed(1),
+      icon: Activity,
+      accent: 'border-l-emerald-500',
+      iconColor: 'text-emerald-500',
+    },
+    {
+      label: 'Avg Daily Hours',
+      value: avgDailyHours.toFixed(1),
+      icon: BarChart3,
+      accent: 'border-l-amber-500',
+      iconColor: 'text-amber-500',
+    },
   ]
 
   function intensity(day: number, hour: number): string {
@@ -120,10 +136,8 @@ export default function HourlyHeatmapPage() {
               ))}
               {/* Data rows */}
               {DAYS.map((day, di) => (
-                <>
-                  <div key={`label-${di}`} className="flex items-center text-xs font-medium">
-                    {day}
-                  </div>
+                <Fragment key={day}>
+                  <div className="flex items-center text-xs font-medium">{day}</div>
                   {HOURS.map((h) => (
                     <div
                       key={`${di}-${h}`}
@@ -131,7 +145,7 @@ export default function HourlyHeatmapPage() {
                       title={`${day} ${h}:00 — ${((grid.map.get(`${di}-${h}`) ?? 0) / 60).toFixed(0)} min`}
                     />
                   ))}
-                </>
+                </Fragment>
               ))}
             </div>
           </div>

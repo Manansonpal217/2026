@@ -9,7 +9,7 @@ import { ReportStatCards } from '@/components/reports/ReportStatCards'
 import { ReportTable, type Column } from '@/components/reports/ReportTable'
 import { ExportBar } from '@/components/reports/ExportBar'
 
-interface UserRow {
+interface UserRow extends Record<string, unknown> {
   user_id: string
   user_name: string
   total_screenshots: number
@@ -44,21 +44,75 @@ export default function ScreenshotAuditPage() {
     : 0
 
   const cards = [
-    { title: 'Total Screenshots', value: totalScreenshots.toLocaleString(), icon: Camera },
-    { title: 'Blurred', value: totalBlurred.toLocaleString(), icon: EyeOff },
-    { title: 'Deleted', value: totalDeleted.toLocaleString(), icon: Trash2 },
-    { title: 'Avg Compliance Rate', value: `${avgCompliance.toFixed(1)}%`, icon: Shield },
+    {
+      label: 'Total Screenshots',
+      value: totalScreenshots.toLocaleString(),
+      icon: Camera,
+      accent: 'border-l-blue-500',
+      iconColor: 'text-blue-500',
+    },
+    {
+      label: 'Blurred',
+      value: totalBlurred.toLocaleString(),
+      icon: EyeOff,
+      accent: 'border-l-amber-500',
+      iconColor: 'text-amber-500',
+    },
+    {
+      label: 'Deleted',
+      value: totalDeleted.toLocaleString(),
+      icon: Trash2,
+      accent: 'border-l-red-500',
+      iconColor: 'text-red-500',
+    },
+    {
+      label: 'Avg Compliance Rate',
+      value: `${avgCompliance.toFixed(1)}%`,
+      icon: Shield,
+      accent: 'border-l-emerald-500',
+      iconColor: 'text-emerald-500',
+    },
   ]
 
   const columns: Column<UserRow>[] = [
-    { key: 'user_name', header: 'User' },
-    { key: 'total_screenshots', header: 'Total' },
-    { key: 'blurred_count', header: 'Blurred' },
-    { key: 'deleted_count', header: 'Deleted' },
+    {
+      key: 'user_name',
+      label: 'User',
+      render: (row) => row.user_name,
+      sortable: true,
+      sortValue: (row) => row.user_name,
+    },
+    {
+      key: 'total_screenshots',
+      label: 'Total',
+      render: (row) => row.total_screenshots,
+      sortable: true,
+      sortValue: (row) => row.total_screenshots,
+      align: 'right',
+    },
+    {
+      key: 'blurred_count',
+      label: 'Blurred',
+      render: (row) => row.blurred_count,
+      sortable: true,
+      sortValue: (row) => row.blurred_count,
+      align: 'right',
+    },
+    {
+      key: 'deleted_count',
+      label: 'Deleted',
+      render: (row) => row.deleted_count,
+      sortable: true,
+      sortValue: (row) => row.deleted_count,
+      align: 'right',
+    },
     {
       key: 'compliance_rate',
-      header: 'Compliance Rate %',
-      render: (v) => `${Number(v).toFixed(1)}%`,
+      label: 'Compliance Rate %',
+      render: (row) => `${row.compliance_rate.toFixed(1)}%`,
+      sortable: true,
+      sortValue: (row) => row.compliance_rate,
+      align: 'right',
     },
   ]
 
@@ -83,7 +137,7 @@ export default function ScreenshotAuditPage() {
           </ResponsiveContainer>
         </div>
       )}
-      <ReportTable columns={columns} data={users} loading={loading} />
+      <ReportTable columns={columns} data={users} loading={loading} keyField="user_id" />
       <ExportBar
         reportType="screenshot-audit"
         params={{ from: filters?.from ?? '', to: filters?.to ?? '' }}

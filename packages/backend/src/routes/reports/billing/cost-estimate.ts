@@ -9,6 +9,7 @@ import type { AuthenticatedRequest } from '../../../middleware/authenticate.js'
 import type { Config } from '../../../config.js'
 import { Permission } from '../../../lib/permissions.js'
 import { resolveUserIds, parseIds, reportMeta } from '../../../lib/report-helpers.js'
+import { reportSessionWhere } from '../../../lib/report-session-filter.js'
 
 const querySchema = z.object({
   from: z.string().datetime({ offset: true }),
@@ -44,15 +45,16 @@ export async function billingCostEstimateRoutes(
       const fromDate = new Date(from)
       const toDate = new Date(to)
 
-      // Get sessions grouped by user
+      const sessionWhere = await reportSessionWhere(
+        user.org_id,
+        userIds,
+        fromDate,
+        toDate,
+        projectIds ? { project_id: { in: projectIds } } : {}
+      )
+
       const sessions = await db.timeSession.findMany({
-        where: {
-          org_id: user.org_id,
-          user_id: { in: userIds },
-          started_at: { gte: fromDate },
-          ended_at: { lte: toDate },
-          ...(projectIds ? { project_id: { in: projectIds } } : {}),
-        },
+        where: sessionWhere,
         select: { user_id: true, duration_sec: true, started_at: true },
       })
 
@@ -98,24 +100,39 @@ export async function billingCostEstimateRoutes(
       })
       const userLookup = new Map(users.map((u) => [u.id, u.name]))
 
-      const data = [...userHoursMap.entries()].map(([uid, totalSec]) => {
+      const rows = [...userHoursMap.entries()].map(([uid, totalSec]) => {
         const hours = Math.round((totalSec / 3600) * 100) / 100
         const rate = rateLookup.get(uid)
         const missingRate = !rate
         const ratePerHour = rate?.rate_per_hour ?? 0
         const cost = Math.round(ratePerHour * hours * 100) / 100
+        const currency = rate?.currency ?? 'INR'
 
         return {
+          user_id: uid,
           user_name: userLookup.get(uid) ?? 'Unknown',
+          total_hours: hours,
           rate_per_hour: ratePerHour,
-          currency: rate?.currency ?? 'USD',
-          hours,
-          cost,
+          currency,
+          estimated_cost: cost,
           missing_rate: missingRate,
         }
       })
 
-      return reply.send({ data, meta: reportMeta(from, to, data.length) })
+      const totalCost = rows.reduce((s, r) => s + r.estimated_cost, 0)
+      const currency = rows.find((r) => !r.missing_rate)?.currency ?? rows[0]?.currency ?? 'INR'
+      const missingRateCount = rows.filter((r) => r.missing_rate).length
+
+      return reply.send({
+        data: {
+          users: rows,
+          total_cost: Math.round(totalCost * 100) / 100,
+          currency,
+          missing_rate_count: missingRateCount,
+          has_rates: missingRateCount < rows.length,
+        },
+        meta: reportMeta(from, to, rows.length),
+      })
     },
   })
 }

@@ -9,7 +9,8 @@ import { ReportStatCards } from '@/components/reports/ReportStatCards'
 import { ReportTable, type Column } from '@/components/reports/ReportTable'
 import { ExportBar } from '@/components/reports/ExportBar'
 
-interface LateStartEntry {
+interface LateStartEntry extends Record<string, unknown> {
+  row_key: string
   user_id: string
   user_name: string
   date: string
@@ -30,7 +31,15 @@ export default function LateStartReportPage() {
     if (filters.userIds.length) params.user_ids = filters.userIds.join(',')
     api
       .get('/v1/reports/attendance/late-start', { params })
-      .then((r) => setEntries(r.data.data.entries))
+      .then((r) => {
+        const raw = r.data.data.entries as Array<Omit<LateStartEntry, 'row_key'>>
+        setEntries(
+          raw.map((e) => ({
+            ...e,
+            row_key: `${e.user_id}-${e.date}`,
+          })) as LateStartEntry[]
+        )
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [filters])
@@ -49,10 +58,34 @@ export default function LateStartReportPage() {
   const onTimeRate = totalLate === 0 ? '100%' : '-'
 
   const cards = [
-    { title: 'Total Late Starts', value: totalLate, icon: AlertTriangle },
-    { title: 'Avg Minutes Late', value: avgMinutes, icon: Clock },
-    { title: 'Most Late User', value: mostLate, icon: Users },
-    { title: 'On-Time Rate', value: onTimeRate, icon: Calendar },
+    {
+      label: 'Total Late Starts',
+      value: totalLate,
+      icon: AlertTriangle,
+      accent: 'border-l-amber-500',
+      iconColor: 'text-amber-500',
+    },
+    {
+      label: 'Avg Minutes Late',
+      value: avgMinutes,
+      icon: Clock,
+      accent: 'border-l-orange-500',
+      iconColor: 'text-orange-500',
+    },
+    {
+      label: 'Most Late User',
+      value: mostLate,
+      icon: Users,
+      accent: 'border-l-red-500',
+      iconColor: 'text-red-500',
+    },
+    {
+      label: 'On-Time Rate',
+      value: onTimeRate,
+      icon: Calendar,
+      accent: 'border-l-emerald-500',
+      iconColor: 'text-emerald-500',
+    },
   ]
 
   const chartData = Object.values(
@@ -64,11 +97,42 @@ export default function LateStartReportPage() {
   )
 
   const columns: Column<LateStartEntry>[] = [
-    { key: 'user_name', label: 'User' },
-    { key: 'date', label: 'Date' },
-    { key: 'scheduled_start', label: 'Scheduled Start' },
-    { key: 'actual_start', label: 'Actual Start' },
-    { key: 'late_minutes', label: 'Late (min)' },
+    {
+      key: 'user_name',
+      label: 'User',
+      render: (row) => row.user_name,
+      sortable: true,
+      sortValue: (row) => row.user_name,
+    },
+    {
+      key: 'date',
+      label: 'Date',
+      render: (row) => row.date,
+      sortable: true,
+      sortValue: (row) => row.date,
+    },
+    {
+      key: 'scheduled_start',
+      label: 'Scheduled Start',
+      render: (row) => row.scheduled_start,
+      sortable: true,
+      sortValue: (row) => row.scheduled_start,
+    },
+    {
+      key: 'actual_start',
+      label: 'Actual Start',
+      render: (row) => row.actual_start,
+      sortable: true,
+      sortValue: (row) => row.actual_start,
+    },
+    {
+      key: 'late_minutes',
+      label: 'Late (min)',
+      render: (row) => row.late_minutes,
+      sortable: true,
+      sortValue: (row) => row.late_minutes,
+      align: 'right',
+    },
   ]
 
   return (
@@ -92,7 +156,7 @@ export default function LateStartReportPage() {
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <ReportTable columns={columns} data={entries} loading={loading} keyField="user_id" />
+      <ReportTable columns={columns} data={entries} loading={loading} keyField="row_key" />
       <ExportBar
         reportType="attendance-late-start"
         params={{ from: filters?.from ?? '', to: filters?.to ?? '' }}

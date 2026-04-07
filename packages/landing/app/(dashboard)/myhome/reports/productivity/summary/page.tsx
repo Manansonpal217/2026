@@ -9,7 +9,7 @@ import { ReportStatCards } from '@/components/reports/ReportStatCards'
 import { ReportTable, type Column } from '@/components/reports/ReportTable'
 import { ExportBar } from '@/components/reports/ExportBar'
 
-interface UserRow {
+interface UserRow extends Record<string, unknown> {
   user_id: string
   user_name: string
   total_sec: number
@@ -51,10 +51,34 @@ export default function ProductivitySummaryPage() {
       : null
 
   const cards = [
-    { title: 'Total Hours', value: totalHours.toFixed(1), icon: Clock },
-    { title: 'Avg Productivity Score', value: `${avgScore.toFixed(0)}%`, icon: TrendingUp },
-    { title: 'Most Productive User', value: topUser?.user_name ?? '—', icon: User },
-    { title: 'Total Users', value: String(users.length), icon: Users },
+    {
+      label: 'Total Hours',
+      value: totalHours.toFixed(1),
+      icon: Clock,
+      accent: 'border-l-blue-500',
+      iconColor: 'text-blue-500',
+    },
+    {
+      label: 'Avg Productivity Score',
+      value: `${avgScore.toFixed(0)}%`,
+      icon: TrendingUp,
+      accent: 'border-l-violet-500',
+      iconColor: 'text-violet-500',
+    },
+    {
+      label: 'Most Productive User',
+      value: topUser?.user_name ?? '—',
+      icon: User,
+      accent: 'border-l-emerald-500',
+      iconColor: 'text-emerald-500',
+    },
+    {
+      label: 'Total Users',
+      value: String(users.length),
+      icon: Users,
+      accent: 'border-l-amber-500',
+      iconColor: 'text-amber-500',
+    },
   ]
 
   const chartData = users.map((u) => ({
@@ -65,34 +89,55 @@ export default function ProductivitySummaryPage() {
   }))
 
   const columns: Column<UserRow>[] = [
-    { key: 'user_name', header: 'User' },
+    {
+      key: 'user_name',
+      label: 'User',
+      render: (row) => row.user_name,
+      sortable: true,
+      sortValue: (row) => row.user_name,
+    },
     {
       key: 'total_sec',
-      header: 'Total Hours',
-      render: (v) => (Number(v) / 3600).toFixed(1),
+      label: 'Total Hours',
+      render: (row) => (row.total_sec / 3600).toFixed(1),
+      sortable: true,
+      sortValue: (row) => row.total_sec,
+      align: 'right',
     },
     {
       key: 'productive_sec',
-      header: 'Productive %',
-      render: (v, row) =>
+      label: 'Productive %',
+      render: (row) =>
         row.total_sec > 0 ? `${((row.productive_sec / row.total_sec) * 100).toFixed(1)}%` : '0%',
+      sortable: true,
+      sortValue: (row) => (row.total_sec > 0 ? (row.productive_sec / row.total_sec) * 100 : 0),
+      align: 'right',
     },
     {
       key: 'neutral_sec',
-      header: 'Neutral %',
-      render: (v, row) =>
+      label: 'Neutral %',
+      render: (row) =>
         row.total_sec > 0 ? `${((row.neutral_sec / row.total_sec) * 100).toFixed(1)}%` : '0%',
+      sortable: true,
+      sortValue: (row) => (row.total_sec > 0 ? (row.neutral_sec / row.total_sec) * 100 : 0),
+      align: 'right',
     },
     {
       key: 'unproductive_sec',
-      header: 'Unproductive %',
-      render: (v, row) =>
+      label: 'Unproductive %',
+      render: (row) =>
         row.total_sec > 0 ? `${((row.unproductive_sec / row.total_sec) * 100).toFixed(1)}%` : '0%',
+      sortable: true,
+      sortValue: (row) => (row.total_sec > 0 ? (row.unproductive_sec / row.total_sec) * 100 : 0),
+      align: 'right',
     },
     {
       key: 'productivity_score',
-      header: 'Score',
-      render: (v) => `${Number(v).toFixed(0)}%`,
+      label: 'Score',
+      render: (row) => `${row.productivity_score.toFixed(0)}%`,
+      sortable: true,
+      sortValue: (row) => row.productivity_score,
+      align: 'right',
     },
   ]
 

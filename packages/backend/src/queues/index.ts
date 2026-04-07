@@ -14,6 +14,7 @@ let timeLogPushQueue: Queue | null = null
 let agentMaintenanceQueue: Queue | null = null
 let reportEmailQueue: Queue | null = null
 let pdfExportQueue: Queue | null = null
+let scheduledReportQueue: Queue | null = null
 
 export function initQueues(cfg: Config): void {
   config = cfg
@@ -114,6 +115,17 @@ export function getPdfExportQueue(): Queue {
   return pdfExportQueue
 }
 
+/** Queue for org-scheduled report emails (CSV/PDF). Cron triggers not registered yet. */
+export function getScheduledReportQueue(): Queue {
+  if (!scheduledReportQueue) {
+    scheduledReportQueue = new Queue('scheduled-report', {
+      connection: { url: getConfig().REDIS_URL },
+      defaultJobOptions: { attempts: 2, backoff: { type: 'exponential', delay: 5000 } },
+    })
+  }
+  return scheduledReportQueue
+}
+
 /** Register BullMQ repeatable jobs (idempotent jobIds in Redis). */
 export async function scheduleRepeatableJobs(): Promise<void> {
   const retention = getRetentionQueue()
@@ -159,6 +171,7 @@ export async function startWorkers(cfg: Config): Promise<Worker[]> {
   const { agentMaintenanceWorker } = await import('./workers/agentMaintenanceWorker.js')
   const { reportEmailWorker } = await import('./workers/reportEmailWorker.js')
   const { pdfExportWorker } = await import('./workers/pdfExportWorker.js')
+  const { scheduledReportWorker } = await import('./workers/scheduledReportWorker.js')
 
   return [
     screenshotWorker(cfg),
@@ -170,5 +183,6 @@ export async function startWorkers(cfg: Config): Promise<Worker[]> {
     agentMaintenanceWorker(cfg),
     reportEmailWorker(cfg),
     pdfExportWorker(cfg),
+    scheduledReportWorker(cfg),
   ]
 }
