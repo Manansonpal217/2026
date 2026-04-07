@@ -15,7 +15,7 @@ const querySchema = z.object({
   to: z.string().datetime({ offset: true }),
   project_ids: z.union([z.string().uuid(), z.array(z.string().uuid())]).optional(),
   user_ids: z.union([z.string().uuid(), z.array(z.string().uuid())]).optional(),
-  approval_status: z.string().optional(),
+  approval_status: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional(),
 })
 
 export async function billingBillableHoursRoutes(

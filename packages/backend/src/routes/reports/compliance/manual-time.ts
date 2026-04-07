@@ -14,7 +14,7 @@ const querySchema = z.object({
   from: z.string().datetime({ offset: true }),
   to: z.string().datetime({ offset: true }),
   user_ids: z.union([z.string().uuid(), z.array(z.string().uuid())]).optional(),
-  approval_status: z.string().optional(),
+  approval_status: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional(),
 })
 
 export async function complianceManualTimeRoutes(
