@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Building2, CheckCircle2, Layers, Shield, UserPlus } from 'lucide-react'
 import { api } from '@/lib/api'
+import { adminToast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -46,7 +47,6 @@ function rowSwitch(
 export default function AdminCreateOrgPage() {
   const router = useRouter()
   const [submitting, setSubmitting] = useState(false)
-  const [formMessage, setFormMessage] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
   const [createdOrg, setCreatedOrg] = useState<{ id: string; name: string } | null>(null)
 
   const [orgName, setOrgName] = useState('')
@@ -57,7 +57,6 @@ export default function AdminCreateOrgPage() {
   const [workPlatform, setWorkPlatform] = useState<string>('jira_cloud')
 
   const [screenshotIntervalSeconds, setScreenshotIntervalSeconds] = useState(60)
-  const [screenshotRetentionDays, setScreenshotRetentionDays] = useState(30)
   const [blurScreenshots, setBlurScreenshots] = useState(false)
   const [timeApprovalRequired, setTimeApprovalRequired] = useState(false)
   const [idleDetectionEnabled, setIdleDetectionEnabled] = useState(true)
@@ -80,7 +79,6 @@ export default function AdminCreateOrgPage() {
     setPassword('')
     setWorkPlatform('jira_cloud')
     setScreenshotIntervalSeconds(60)
-    setScreenshotRetentionDays(30)
     setBlurScreenshots(false)
     setTimeApprovalRequired(false)
     setIdleDetectionEnabled(true)
@@ -94,13 +92,11 @@ export default function AdminCreateOrgPage() {
     setTrackUrl(false)
     setMfaRequiredAdmins(false)
     setMfaRequiredManagers(false)
-    setFormMessage(null)
     setCreatedOrg(null)
   }
 
   async function onCreate(e: FormEvent) {
     e.preventDefault()
-    setFormMessage(null)
     setSubmitting(true)
     try {
       const { data } = await api.post<{
@@ -114,7 +110,6 @@ export default function AdminCreateOrgPage() {
         work_platform: workPlatform,
         settings: {
           screenshot_interval_seconds: screenshotIntervalSeconds,
-          screenshot_retention_days: screenshotRetentionDays,
           blur_screenshots: blurScreenshots,
           time_approval_required: timeApprovalRequired,
           idle_detection_enabled: idleDetectionEnabled,
@@ -132,16 +127,16 @@ export default function AdminCreateOrgPage() {
       })
       if (data.organization?.id) {
         setCreatedOrg({ id: data.organization.id, name: data.organization.name })
-        setFormMessage({
-          type: 'ok',
-          text: 'A verification email was sent to the admin. For self-hosted Jira, generate an agent token below.',
-        })
+        adminToast.success(
+          'Organization created successfully',
+          'A verification email was sent to the admin. For self-hosted Jira, generate an agent token below.'
+        )
         router.refresh()
       }
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { message?: string } } }
       const msg = ax.response?.data?.message ?? 'Could not create organization.'
-      setFormMessage({ type: 'err', text: msg })
+      adminToast.error(msg)
     } finally {
       setSubmitting(false)
     }
@@ -173,9 +168,10 @@ export default function AdminCreateOrgPage() {
               <h2 className="text-xl font-semibold tracking-tight text-foreground">
                 {createdOrg.name} is ready
               </h2>
-              {formMessage?.type === 'ok' ? (
-                <p className="mt-1 text-sm text-muted-foreground">{formMessage.text}</p>
-              ) : null}
+              <p className="mt-1 text-sm text-muted-foreground">
+                A verification email was sent to the admin. For self-hosted Jira, generate an agent
+                token below.
+              </p>
             </div>
           </div>
         </div>
@@ -369,15 +365,10 @@ export default function AdminCreateOrgPage() {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="ss-ret">Retention (days)</Label>
-                      <Input
-                        id="ss-ret"
-                        type="number"
-                        min={7}
-                        max={365}
-                        value={screenshotRetentionDays}
-                        onChange={(e) => setScreenshotRetentionDays(Number(e.target.value))}
-                      />
+                      <Label>Retention policy</Label>
+                      <p className="rounded-md border border-input bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                        Fixed at 9 months (270 days) for all organizations.
+                      </p>
                     </div>
                   </div>
                   {rowSwitch('blur-ss', 'Blur screenshots', blurScreenshots, setBlurScreenshots)}
@@ -470,10 +461,6 @@ export default function AdminCreateOrgPage() {
             </Accordion>
           </CardContent>
         </Card>
-
-        {formMessage?.type === 'err' ? (
-          <p className="text-sm text-destructive">{formMessage.text}</p>
-        ) : null}
 
         <div className="flex flex-col-reverse gap-3 border-t border-border pt-6 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" asChild>

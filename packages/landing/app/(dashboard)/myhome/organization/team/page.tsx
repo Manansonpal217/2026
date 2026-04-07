@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
 
-export default function OrganizationTeamAliasPage() {
-  redirect('/myhome/organization/users')
+export default function OrganizationTeamRedirectPage() {
+  redirect('/myhome/organization/people?tab=teams')
 }

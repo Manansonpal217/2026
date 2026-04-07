@@ -5,6 +5,7 @@ export const WORK_PLATFORMS = ['none', 'asana', 'jira_cloud', 'jira_self_hosted'
 export type WorkPlatform = (typeof WORK_PLATFORMS)[number]
 
 export const workPlatformSchema = z.enum(WORK_PLATFORMS)
+export const GLOBAL_SCREENSHOT_RETENTION_DAYS = 270
 
 /** Same bounds as admin PATCH — use for platform org create `settings` body. */
 export const orgSettingsScalarPatchSchema = z.object({
@@ -64,7 +65,7 @@ export function toPublicOrgSettings(orgSettings: OrgSettings | null) {
   if (!orgSettings) return null
   return {
     screenshot_interval_seconds: orgSettings.screenshot_interval_seconds,
-    screenshot_retention_days: orgSettings.screenshot_retention_days,
+    screenshot_retention_days: GLOBAL_SCREENSHOT_RETENTION_DAYS,
     blur_screenshots: orgSettings.blur_screenshots,
     time_approval_required: orgSettings.time_approval_required,
     idle_detection_enabled: orgSettings.idle_detection_enabled,

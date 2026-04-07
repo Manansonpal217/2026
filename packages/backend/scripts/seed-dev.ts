@@ -583,7 +583,25 @@ async function main() {
 
   console.log('  Offline time entries created.')
 
+  const bobPendingOt = await prisma.offlineTime.findFirst({
+    where: { org_id: acme.id, user_id: bob.id, status: 'PENDING', description: 'Family event' },
+    select: { id: true },
+  })
+  const alicePendingOt = await prisma.offlineTime.findFirst({
+    where: {
+      org_id: acme.id,
+      user_id: alice.id,
+      status: 'PENDING',
+      description: 'Moving apartment',
+    },
+    select: { id: true },
+  })
+  if (!bobPendingOt?.id || !alicePendingOt?.id) {
+    throw new Error('Seed: expected Bob and Alice pending offline time rows for notifications')
+  }
+
   // ── Notifications ──────────────────────────────────────────────────────────
+  // offline_time_id must match real OfflineTime rows so Approve/Reject in the UI works.
 
   await prisma.notification.createMany({
     data: [
@@ -595,7 +613,7 @@ async function main() {
           requester_name: 'Bob Williams',
           date: new Date(subDays(new Date(), 1)).toLocaleDateString(),
           hours: 3,
-          offline_time_id: uuid('ot'),
+          offline_time_id: bobPendingOt.id,
         },
         created_at: subHours(new Date(), 2),
       },
@@ -607,7 +625,7 @@ async function main() {
           requester_name: 'Alice Johnson',
           date: new Date(Date.now() + 2 * 86_400_000).toLocaleDateString(),
           hours: 4,
-          offline_time_id: uuid('ot'),
+          offline_time_id: alicePendingOt.id,
         },
         created_at: subHours(new Date(), 1),
       },

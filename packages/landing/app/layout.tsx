@@ -3,6 +3,7 @@ import Script from 'next/script'
 import { Inter } from 'next/font/google'
 import { SessionRoot } from '@/components/SessionRoot'
 import { ThemeProvider } from '@/components/theme-provider'
+import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
 
 const inter = Inter({
@@ -36,6 +37,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           />
         ) : null}
         <ThemeProvider>
+          <Toaster />
           <SessionRoot>
             <div className="fixed inset-0 -z-10 bg-background" aria-hidden />
             <div className="gradient-mesh fixed inset-0 -z-10" aria-hidden />

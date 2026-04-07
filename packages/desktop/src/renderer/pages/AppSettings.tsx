@@ -37,6 +37,7 @@ export default function AppSettingsPage() {
   const [syncSuccess, setSyncSuccess] = useState(false)
   const [repairing, setRepairing] = useState(false)
   const [repairMessage, setRepairMessage] = useState<string | null>(null)
+  const [repairConfirmOpen, setRepairConfirmOpen] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -82,15 +83,7 @@ export default function AppSettingsPage() {
     }
   }
 
-  const handleRepairAndResync = async () => {
-    const ok = window.confirm(
-      'Re-queue all completed time sessions and activity logs for upload, then sync until the queue is clear?\n\n' +
-        '• Fixes server rows that are missing project/task after an older desktop bug.\n' +
-        '• May take several minutes and use extra network; stay online and signed in.\n' +
-        '• Screenshots that already uploaded cannot be re-sent (local files are removed after upload).'
-    )
-    if (!ok) return
-
+  const runRepairAndResync = async () => {
     setRepairing(true)
     setRepairMessage(null)
     try {
@@ -267,7 +260,7 @@ export default function AppSettingsPage() {
                       <>
                         <button
                           type="button"
-                          onClick={() => void handleRepairAndResync()}
+                          onClick={() => setRepairConfirmOpen(true)}
                           disabled={repairing || section.action.loading}
                           className="flex w-full items-center gap-2 text-xs font-medium px-3 py-2 rounded-lg transition-colors duration-150 disabled:opacity-50 text-amber-200/95 bg-amber-500/10 border border-amber-500/25"
                         >
@@ -296,6 +289,57 @@ export default function AppSettingsPage() {
           </p>
         </div>
       </div>
+
+      {repairConfirmOpen ? (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/75 p-4"
+          onClick={() => setRepairConfirmOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="repair-confirm-title"
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-[rgba(255,255,255,0.08)] bg-[#111827] p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="repair-confirm-title" className="text-sm font-semibold text-[#f9fafb]">
+              Repair &amp; re-sync?
+            </h2>
+            <p className="mt-2 text-[11px] leading-relaxed text-[#9ca3af]">
+              Re-queue all completed time sessions and activity logs for upload, then sync until the
+              queue is clear.
+            </p>
+            <ul className="mt-3 list-disc space-y-2 pl-4 text-[10px] leading-relaxed text-[#9ca3af]">
+              <li>Fixes server rows that are missing project/task after an older desktop bug.</li>
+              <li>May take several minutes and use extra network; stay online and signed in.</li>
+              <li>
+                Screenshots that already uploaded cannot be re-sent (local files are removed after
+                upload).
+              </li>
+            </ul>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-[rgba(255,255,255,0.12)] px-3 py-2 text-xs font-medium text-[#d1d5db] hover:bg-[rgba(255,255,255,0.06)]"
+                onClick={() => setRepairConfirmOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-amber-500/90 px-3 py-2 text-xs font-semibold text-[#111827] hover:bg-amber-400"
+                onClick={() => {
+                  setRepairConfirmOpen(false)
+                  void runRepairAndResync()
+                }}
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

@@ -1,5 +1,9 @@
 import type { Prisma } from '@prisma/client'
-import type { OrgSettingsScalarPatch, WorkPlatform } from './org-settings-fields.js'
+import {
+  GLOBAL_SCREENSHOT_RETENTION_DAYS,
+  type OrgSettingsScalarPatch,
+  type WorkPlatform,
+} from './org-settings-fields.js'
 
 export const DISPOSABLE_SIGNUP_DOMAINS = [
   'mailinator.com',
@@ -50,6 +54,7 @@ export async function createOrgWithSuperAdmin(
       org_id: org.id,
       work_platform,
       ...(settingsData as Omit<Prisma.OrgSettingsUncheckedCreateInput, 'org_id' | 'work_platform'>),
+      screenshot_retention_days: GLOBAL_SCREENSHOT_RETENTION_DAYS,
     },
   })
   const user = await tx.user.create({

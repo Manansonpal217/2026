@@ -3,6 +3,7 @@
 import NextImage from 'next/image'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { EyeOff, Trash2, X, ZoomIn } from 'lucide-react'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { getCachedBlob, putCachedBlob } from '@/lib/screenshotThumbCache'
 
 export interface ScreenshotItem {
@@ -78,6 +79,7 @@ export function ScreenshotGallery({
     score: number
     is_blurred: boolean
   } | null>(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [resolvedThumbs, setResolvedThumbs] = useState<Record<string, string>>({})
   const [gridReady, setGridReady] = useState(false)
   const thumbBlobUrlsRef = useRef<Set<string>>(new Set())
@@ -284,14 +286,7 @@ export function ScreenshotGallery({
                           className="rounded-md bg-black/70 p-1.5 text-destructive hover:bg-destructive hover:text-destructive-foreground"
                           onClick={(e) => {
                             e.stopPropagation()
-                            if (
-                              typeof window !== 'undefined' &&
-                              window.confirm(
-                                'Delete this screenshot permanently? It will be removed from storage.'
-                              )
-                            ) {
-                              void onDelete(ss.id)
-                            }
+                            setDeleteConfirmId(ss.id)
                           }}
                         >
                           <Trash2 className="h-3.5 w-3.5" aria-hidden />
@@ -348,6 +343,20 @@ export function ScreenshotGallery({
           </div>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={deleteConfirmId != null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteConfirmId(null)
+        }}
+        title="Delete screenshot?"
+        description="Delete this screenshot permanently? It will be removed from storage."
+        variant="danger"
+        confirmLabel="Delete"
+        onConfirm={async () => {
+          if (deleteConfirmId && onDelete) await onDelete(deleteConfirmId)
+        }}
+      />
     </>
   )
 }

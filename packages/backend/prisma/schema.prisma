@@ -62,6 +62,12 @@ enum OfflineTimeSource {
   DIRECT_ADD
 }
 
+enum ProductivityType {
+  PRODUCTIVE
+  NEUTRAL
+  UNPRODUCTIVE
+}
+
 enum NotificationType {
   OFFLINE_TIME_SUBMITTED
   OFFLINE_TIME_APPROVED
@@ -92,11 +98,14 @@ model Organization {
   integrations Integration[]
   audit_logs   AuditLog[]
   offline_times OfflineTime[]
-  agent_tokens   AgentToken[]
-  agent_commands AgentCommand[]
-  agent_heartbeat AgentHeartbeat?
-  jira_issues    JiraIssue[]
-  teams          Team[]
+  agent_tokens       AgentToken[]
+  agent_commands     AgentCommand[]
+  agent_heartbeat    AgentHeartbeat?
+  jira_issues        JiraIssue[]
+  teams              Team[]
+  work_schedules     WorkSchedule[]
+  productivity_rules ProductivityRule[]
+  user_rates         UserRate[]
 }
 
 model OrgSettings {
@@ -174,6 +183,8 @@ model User {
   invites_sent        Invite[]       @relation("InvitedBy")
   managed_teams       Team[]         @relation("TeamManager")
   team_memberships    TeamMember[]
+  work_schedules      WorkSchedule[]
+  user_rates          UserRate[]
 
   @@unique([email, org_id])
   @@index([org_id])
@@ -221,6 +232,7 @@ model Project {
   name         String
   color        String   @default("#6366f1")
   archived     Boolean  @default(false)
+  is_billable  Boolean  @default(false)
   budget_hours Float?
   created_at   DateTime @default(now())
   updated_at   DateTime @updatedAt
@@ -525,10 +537,12 @@ model JiraIssue {
   assignee_email  String?
   priority        String?
   due_date        DateTime?
-  labels          String[]  @default([])
-  raw_payload     Json
-  synced_at       DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
+  labels                String[]  @default([])
+  original_estimate_sec Int?
+  story_points          Float?
+  raw_payload           Json
+  synced_at             DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
 
   organization Organization @relation(fields: [org_id], references: [id])
 
@@ -565,4 +579,50 @@ model TeamMember {
 
   @@unique([team_id, user_id])
   @@index([user_id])
+}
+
+model WorkSchedule {
+  id          String   @id @default(cuid())
+  org_id      String
+  user_id     String?
+  days_of_week Int[]   // 0=Sun … 6=Sat
+  start_time  String   // "HH:MM"
+  end_time    String
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  organization Organization @relation(fields: [org_id], references: [id])
+  user         User?        @relation(fields: [user_id], references: [id])
+
+  @@index([org_id])
+  @@index([org_id, user_id])
+}
+
+model ProductivityRule {
+  id         String           @id @default(cuid())
+  org_id     String
+  pattern    String
+  type       ProductivityType
+  created_at DateTime         @default(now())
+
+  organization Organization @relation(fields: [org_id], references: [id])
+
+  @@index([org_id])
+}
+
+model UserRate {
+  id             String    @id @default(cuid())
+  org_id         String
+  user_id        String
+  rate_per_hour  Decimal   @db.Decimal(10, 2)
+  currency       String    @default("INR")
+  effective_from DateTime
+  effective_to   DateTime?
+  created_at     DateTime  @default(now())
+
+  organization Organization @relation(fields: [org_id], references: [id])
+  user         User         @relation(fields: [user_id], references: [id])
+
+  @@index([org_id])
+  @@index([org_id, user_id])
 }

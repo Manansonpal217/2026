@@ -2,21 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isAxiosError } from 'axios'
-import {
-  BarChart2,
-  Building2,
-  Camera,
-  Check,
-  Globe,
-  Link2,
-  Search,
-  Shield,
-  Sliders,
-  UserCog,
-} from 'lucide-react'
-import * as Tabs from '@radix-ui/react-tabs'
+import { Building2, Camera, Check, Globe, Search, Shield, Sliders, UserCog } from 'lucide-react'
 import { api } from '@/lib/api'
-import { Button } from '@/components/ui/button'
+import { adminToast } from '@/lib/toast'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -45,10 +33,14 @@ type OrgSettings = {
 }
 
 type OrgInfo = { name: string; timezone: string }
+type MeResponse = {
+  user?: { org_name?: string }
+  org?: { name?: string; timezone?: string }
+}
 
 const DEFAULTS: OrgSettings = {
   screenshot_interval_seconds: 60,
-  screenshot_retention_days: 30,
+  screenshot_retention_days: 270,
   blur_screenshots: false,
   activity_weight_keyboard: 0.5,
   activity_weight_mouse: 0.3,
@@ -90,27 +82,6 @@ function SwitchRow({
   )
 }
 
-function Toast({ msg, type, onRetry }: { msg: string; type: 'ok' | 'err'; onRetry?: () => void }) {
-  return (
-    <div
-      className={cn(
-        'fixed bottom-6 right-6 z-[300] flex items-center gap-3 rounded-xl border px-4 py-3 text-sm shadow-lg animate-in slide-in-from-bottom-4 fade-in duration-300',
-        type === 'ok'
-          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
-          : 'border-destructive/30 bg-destructive/10 text-destructive'
-      )}
-    >
-      {type === 'ok' && <Check className="h-4 w-4 shrink-0" />}
-      <span>{msg}</span>
-      {type === 'err' && onRetry && (
-        <button type="button" onClick={onRetry} className="ml-1 font-medium underline">
-          Try again
-        </button>
-      )}
-    </div>
-  )
-}
-
 const INTERVAL_SNAPS = [1, 5, 10, 15, 30, 60]
 
 function snapToNearest(val: number): number {
@@ -124,6 +95,50 @@ function snapToNearest(val: number): number {
     }
   }
   return closest
+}
+
+function getUtcOffsetLabel(timeZone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      timeZoneName: 'shortOffset',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date())
+    const raw = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT'
+    if (raw === 'GMT' || raw === 'UTC') return 'UTC+00:00'
+    const normalized = raw.replace('GMT', 'UTC')
+    const match = normalized.match(/^UTC([+-])(\d{1,2})(?::?(\d{2}))?$/)
+    if (!match) return normalized
+    const [, sign, h, m = '00'] = match
+    return `UTC${sign}${h.padStart(2, '0')}:${m}`
+  } catch {
+    return 'UTC+00:00'
+  }
+}
+
+function getUtcOffsetMinutes(timeZone: string): number {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      timeZoneName: 'shortOffset',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date())
+    const raw = parts.find((p) => p.type === 'timeZoneName')?.value ?? 'GMT'
+    if (raw === 'GMT' || raw === 'UTC') return 0
+    const normalized = raw.replace('GMT', 'UTC')
+    const match = normalized.match(/^UTC([+-])(\d{1,2})(?::?(\d{2}))?$/)
+    if (!match) return 0
+    const sign = match[1] === '-' ? -1 : 1
+    const hours = Number(match[2])
+    const minutes = Number(match[3] ?? '0')
+    return sign * (hours * 60 + minutes)
+  } catch {
+    return 0
+  }
 }
 
 /* ─── Settings hook ──────────────────────────────────────────────────────────── */
@@ -141,12 +156,12 @@ function useOrgSettings() {
       const [settingsRes, orgRes] = await Promise.all([
         api.get<{ settings: OrgSettings | null }>('/v1/admin/settings'),
         api
-          .get<{ org: OrgInfo }>('/v1/app/auth/me')
+          .get<MeResponse>('/v1/app/auth/me')
           .then((r) => ({
             data: {
               org: {
-                name: (r.data as { org_name?: string }).org_name ?? '',
-                timezone: (r.data as { org_timezone?: string }).org_timezone ?? 'UTC',
+                name: r.data.org?.name ?? r.data.user?.org_name ?? '',
+                timezone: r.data.org?.timezone ?? 'UTC',
               },
             },
           }))
@@ -160,7 +175,7 @@ function useOrgSettings() {
       setOrg(o)
       baselineOrg.current = { ...o }
     } catch {
-      /* noop */
+      adminToast.error('Could not load organization settings.')
     } finally {
       setLoading(false)
     }
@@ -187,21 +202,46 @@ function GeneralTab({
   onSaved: () => void
 }) {
   const [saving, setSaving] = useState(false)
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const timezoneOptions = useMemo<{ value: string; label: string }[]>(
+    () =>
+      (typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : ['UTC'])
+        .map((tz) => ({
+          value: tz,
+          label: `${getUtcOffsetLabel(tz)} — ${tz}`,
+          offsetMinutes: getUtcOffsetMinutes(tz),
+        }))
+        .sort((a, b) => a.offsetMinutes - b.offsetMinutes || a.value.localeCompare(b.value))
+        .map(({ value, label }) => ({ value, label })),
+    []
+  )
 
   const isDirty = org.timezone !== baselineOrg.current.timezone
 
   async function save() {
+    if (saving) return
     setSaving(true)
     try {
       await api.patch('/v1/admin/settings', { timezone: org.timezone })
       baselineOrg.current = { ...org }
       onSaved()
     } catch {
-      /* handled via toast */
+      adminToast.error('Failed to save settings.')
     } finally {
       setSaving(false)
     }
   }
+
+  useEffect(() => {
+    if (!isDirty) return
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      void save()
+    }, 500)
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+    }
+  }, [isDirty, org.timezone])
 
   return (
     <div className="space-y-6">
@@ -220,25 +260,24 @@ function GeneralTab({
           </div>
           <div>
             <Label htmlFor="tz-select">Timezone</Label>
-            <Input
+            <select
               id="tz-select"
-              className="mt-1"
+              className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               value={org.timezone}
               onChange={(e) => setOrg({ ...org, timezone: e.target.value })}
-              placeholder="e.g. America/New_York"
-            />
+            >
+              {timezoneOptions.map((tz) => (
+                <option key={tz.value} value={tz.value}>
+                  {tz.label}
+                </option>
+              ))}
+            </select>
             <p className="mt-1 text-xs text-muted-foreground">
               IANA timezone for scheduled reports and cron.
             </p>
           </div>
         </div>
       </section>
-
-      {isDirty && (
-        <Button onClick={() => void save()} disabled={saving}>
-          {saving ? 'Saving…' : 'Save General'}
-        </Button>
-      )}
     </div>
   )
 }
@@ -257,20 +296,17 @@ function ScreenshotsTab({
   onSaved: () => void
 }) {
   const [saving, setSaving] = useState(false)
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const intervalMin = Math.round(form.screenshot_interval_seconds / 60)
 
-  const isDirty =
-    form.screenshot_interval_seconds !== baseline.current.screenshot_interval_seconds ||
-    form.screenshot_retention_days !== baseline.current.screenshot_retention_days ||
-    form.blur_screenshots !== baseline.current.blur_screenshots
+  const isDirty = form.screenshot_interval_seconds !== baseline.current.screenshot_interval_seconds
 
   async function save() {
+    if (saving) return
     setSaving(true)
     try {
       const { data } = await api.patch<{ settings: OrgSettings }>('/v1/admin/settings', {
         screenshot_interval_seconds: form.screenshot_interval_seconds,
-        screenshot_retention_days: form.screenshot_retention_days,
-        blur_screenshots: form.blur_screenshots,
       })
       if (data.settings) {
         baseline.current = { ...baseline.current, ...data.settings }
@@ -278,11 +314,22 @@ function ScreenshotsTab({
       }
       onSaved()
     } catch {
-      /* noop */
+      adminToast.error('Failed to save settings.')
     } finally {
       setSaving(false)
     }
   }
+
+  useEffect(() => {
+    if (!isDirty) return
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      void save()
+    }, 500)
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+    }
+  }, [isDirty, form.screenshot_interval_seconds])
 
   return (
     <div className="space-y-6">
@@ -299,6 +346,7 @@ function ScreenshotsTab({
               type="range"
               min={1}
               max={60}
+              step={1}
               value={intervalMin}
               onChange={(e) => {
                 const snapped = snapToNearest(Number(e.target.value))
@@ -310,273 +358,22 @@ function ScreenshotsTab({
               {intervalMin} minute{intervalMin !== 1 ? 's' : ''}
             </span>
           </div>
-          <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
-            {INTERVAL_SNAPS.map((s) => (
-              <span key={s}>{s}m</span>
-            ))}
-          </div>
-        </div>
-
-        <div className="mt-6">
-          <Label htmlFor="ss_ret">Retention (days)</Label>
-          <Input
-            id="ss_ret"
-            type="number"
-            min={7}
-            max={365}
-            className="mt-1 max-w-xs"
-            value={form.screenshot_retention_days}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, screenshot_retention_days: Number(e.target.value) || 30 }))
-            }
-          />
-        </div>
-
-        <div className="mt-6 space-y-2">
-          <SwitchRow
-            id="blur_ss"
-            label="Blur screenshots by default"
-            checked={form.blur_screenshots}
-            onCheckedChange={(v) => setForm((f) => ({ ...f, blur_screenshots: v }))}
-          />
-        </div>
-      </section>
-
-      {isDirty && (
-        <Button onClick={() => void save()} disabled={saving}>
-          {saving ? 'Saving…' : 'Save Screenshots'}
-        </Button>
-      )}
-    </div>
-  )
-}
-
-/* ─── Activity Tab ───────────────────────────────────────────────────────────── */
-
-function ActivityTab({
-  form,
-  setForm,
-  baseline,
-  onSaved,
-}: {
-  form: OrgSettings
-  setForm: React.Dispatch<React.SetStateAction<OrgSettings>>
-  baseline: React.MutableRefObject<OrgSettings>
-  onSaved: () => void
-}) {
-  const [saving, setSaving] = useState(false)
-
-  const kbPct = Math.round(form.activity_weight_keyboard * 100)
-  const mPct = Math.round(form.activity_weight_mouse * 100)
-  const mvPct = Math.round(form.activity_weight_movement * 100)
-  const sum =
-    form.activity_weight_keyboard + form.activity_weight_mouse + form.activity_weight_movement
-  const valid = Math.abs(sum - 1) <= 0.02
-
-  const isDirty =
-    form.activity_weight_keyboard !== baseline.current.activity_weight_keyboard ||
-    form.activity_weight_mouse !== baseline.current.activity_weight_mouse ||
-    form.activity_weight_movement !== baseline.current.activity_weight_movement ||
-    form.track_keyboard !== baseline.current.track_keyboard ||
-    form.track_mouse !== baseline.current.track_mouse ||
-    form.track_app_usage !== baseline.current.track_app_usage ||
-    form.track_url !== baseline.current.track_url ||
-    form.expected_daily_work_minutes !== baseline.current.expected_daily_work_minutes
-
-  function setWeight(key: 'keyboard' | 'mouse' | 'movement', val: number) {
-    setForm((f) => {
-      const updated = { ...f }
-      if (key === 'keyboard') updated.activity_weight_keyboard = val / 100
-      else if (key === 'mouse') updated.activity_weight_mouse = val / 100
-      else updated.activity_weight_movement = val / 100
-      return updated
-    })
-  }
-
-  async function save() {
-    setSaving(true)
-    try {
-      const { data } = await api.patch<{ settings: OrgSettings }>('/v1/admin/settings', {
-        activity_weight_keyboard: form.activity_weight_keyboard,
-        activity_weight_mouse: form.activity_weight_mouse,
-        activity_weight_movement: form.activity_weight_movement,
-        track_keyboard: form.track_keyboard,
-        track_mouse: form.track_mouse,
-        track_app_usage: form.track_app_usage,
-        track_url: form.track_url,
-        expected_daily_work_minutes: form.expected_daily_work_minutes,
-      })
-      if (data.settings) {
-        baseline.current = { ...baseline.current, ...data.settings }
-        setForm((f) => ({ ...f, ...data.settings }))
-      }
-      onSaved()
-    } catch {
-      /* noop */
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <div className="space-y-6">
-      <section className="rounded-xl border border-border bg-card/40 p-4 sm:p-6">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-          <BarChart2 className="h-5 w-5 text-primary" />
-          Activity Weights
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Must sum to 100%. Current: {kbPct + mPct + mvPct}%
-          {!valid && <span className="ml-1 text-red-500">(invalid)</span>}
-        </p>
-
-        <div className="mt-4 space-y-4">
-          {[
-            { key: 'keyboard' as const, label: 'Keyboard', val: kbPct },
-            { key: 'mouse' as const, label: 'Mouse', val: mPct },
-            { key: 'movement' as const, label: 'Movement', val: mvPct },
-          ].map(({ key, label, val }) => (
-            <div key={key}>
-              <div className="flex items-center justify-between">
-                <Label>{label}</Label>
-                <span className="font-mono text-sm tabular-nums">{val}%</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                value={val}
-                onChange={(e) => setWeight(key, Number(e.target.value))}
-                className="mt-1 h-2 w-full cursor-pointer appearance-none rounded-full bg-muted accent-primary"
-              />
-            </div>
-          ))}
-        </div>
-
-        <p className="mt-3 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-          With these weights, 60 keystrokes/min ≈ {Math.round(kbPct * 0.6)}% activity score
-        </p>
-      </section>
-
-      <section className="rounded-xl border border-border bg-card/40 p-4 sm:p-6">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-          <Sliders className="h-5 w-5 text-primary" />
-          Tracking & Work
-        </h2>
-        <div className="mt-4 space-y-2">
-          <SwitchRow
-            id="tr_kb"
-            label="Track keyboard"
-            checked={form.track_keyboard}
-            onCheckedChange={(v) => setForm((f) => ({ ...f, track_keyboard: v }))}
-          />
-          <SwitchRow
-            id="tr_mouse"
-            label="Track mouse"
-            checked={form.track_mouse}
-            onCheckedChange={(v) => setForm((f) => ({ ...f, track_mouse: v }))}
-          />
-          <SwitchRow
-            id="tr_app"
-            label="Track app usage"
-            checked={form.track_app_usage}
-            onCheckedChange={(v) => setForm((f) => ({ ...f, track_app_usage: v }))}
-          />
-          <SwitchRow
-            id="tr_url"
-            label="Track URLs"
-            checked={form.track_url}
-            onCheckedChange={(v) => setForm((f) => ({ ...f, track_url: v }))}
-          />
-        </div>
-        <div className="mt-4">
-          <Label htmlFor="exp_daily">Expected daily work (minutes)</Label>
-          <Input
-            id="exp_daily"
-            type="number"
-            min={15}
-            max={1440}
-            className="mt-1 max-w-xs"
-            value={form.expected_daily_work_minutes}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, expected_daily_work_minutes: Number(e.target.value) || 480 }))
-            }
-          />
-        </div>
-      </section>
-
-      {isDirty && (
-        <Button onClick={() => void save()} disabled={saving || !valid}>
-          {saving ? 'Saving…' : 'Save Activity'}
-        </Button>
-      )}
-    </div>
-  )
-}
-
-/* ─── Integrations Tab ───────────────────────────────────────────────────────── */
-
-function IntegrationsTab() {
-  const [integrations, setIntegrations] = useState<{ provider: string; status: string }[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    api
-      .get<{ integrations: { provider: string; status: string }[] }>('/v1/integrations')
-      .then(({ data }) => setIntegrations(data.integrations ?? []))
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [])
-
-  return (
-    <div className="space-y-6">
-      <section className="rounded-xl border border-border bg-card/40 p-4 sm:p-6">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-          <Link2 className="h-5 w-5 text-primary" />
-          Integrations
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Connected integrations and their status.
-        </p>
-        {loading ? (
-          <div className="mt-4 space-y-2">
-            {[1, 2].map((i) => (
-              <Skeleton key={i} className="h-12 w-full rounded-lg" />
-            ))}
-          </div>
-        ) : integrations.length === 0 ? (
-          <div className="mt-4 rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-            No integrations connected. Connect Jira or Asana from the desktop app.
-          </div>
-        ) : (
-          <div className="mt-4 space-y-2">
-            {integrations.map((i) => (
-              <div
-                key={i.provider}
-                className="flex items-center justify-between rounded-lg border border-border/60 bg-background/40 px-3 py-2.5"
-              >
-                <div className="flex items-center gap-2">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-xs font-bold text-primary">
-                    {i.provider.slice(0, 2).toUpperCase()}
-                  </div>
-                  <span className="text-sm font-medium capitalize text-foreground">
-                    {i.provider}
-                  </span>
-                </div>
-                <span
-                  className={cn(
-                    'rounded-full px-2 py-0.5 text-xs font-medium',
-                    i.status === 'active'
-                      ? 'bg-emerald-500/15 text-emerald-600'
-                      : 'bg-muted text-muted-foreground'
-                  )}
+          <div className="relative mt-2 h-7">
+            {INTERVAL_SNAPS.map((s) => {
+              const leftPct = ((s - 1) / (60 - 1)) * 100
+              return (
+                <div
+                  key={s}
+                  className="absolute -translate-x-1/2 text-[10px] text-muted-foreground"
+                  style={{ left: `${leftPct}%` }}
                 >
-                  {i.status}
-                </span>
-              </div>
-            ))}
+                  <div className="mx-auto h-1.5 w-px bg-border" />
+                  <span className="block mt-0.5 whitespace-nowrap">{s}m</span>
+                </div>
+              )
+            })}
           </div>
-        )}
+        </div>
       </section>
     </div>
   )
@@ -596,6 +393,7 @@ function SecurityTab({
   onSaved: () => void
 }) {
   const [saving, setSaving] = useState(false)
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isDirty =
     form.mfa_required_for_admins !== baseline.current.mfa_required_for_admins ||
@@ -604,6 +402,7 @@ function SecurityTab({
     form.allow_employee_offline_time !== baseline.current.allow_employee_offline_time
 
   async function save() {
+    if (saving) return
     setSaving(true)
     try {
       const { data } = await api.patch<{ settings: OrgSettings }>('/v1/admin/settings', {
@@ -618,35 +417,25 @@ function SecurityTab({
       }
       onSaved()
     } catch {
-      /* noop */
+      adminToast.error('Failed to save settings.')
     } finally {
       setSaving(false)
     }
   }
 
+  useEffect(() => {
+    if (!isDirty) return
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      void save()
+    }, 500)
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+    }
+  }, [isDirty, form.time_approval_required, form.allow_employee_offline_time])
+
   return (
     <div className="space-y-6">
-      <section className="rounded-xl border border-border bg-card/40 p-4 sm:p-6">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-          <Shield className="h-5 w-5 text-primary" />
-          MFA Requirements
-        </h2>
-        <div className="mt-4 space-y-2">
-          <SwitchRow
-            id="mfa_admins"
-            label="Require MFA for admins"
-            checked={form.mfa_required_for_admins}
-            onCheckedChange={(v) => setForm((f) => ({ ...f, mfa_required_for_admins: v }))}
-          />
-          <SwitchRow
-            id="mfa_mgr"
-            label="Require MFA for managers"
-            checked={form.mfa_required_for_managers}
-            onCheckedChange={(v) => setForm((f) => ({ ...f, mfa_required_for_managers: v }))}
-          />
-        </div>
-      </section>
-
       <section className="rounded-xl border border-border bg-card/40 p-4 sm:p-6">
         <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
           <Sliders className="h-5 w-5 text-primary" />
@@ -667,19 +456,6 @@ function SecurityTab({
           />
         </div>
       </section>
-
-      <section className="rounded-xl border border-dashed border-border bg-card/40 p-4 sm:p-6">
-        <h2 className="text-lg font-semibold text-muted-foreground">Session Timeout</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Coming soon — configure auto-logout duration for inactive sessions.
-        </p>
-      </section>
-
-      {isDirty && (
-        <Button onClick={() => void save()} disabled={saving}>
-          {saving ? 'Saving…' : 'Save Security'}
-        </Button>
-      )}
     </div>
   )
 }
@@ -695,61 +471,55 @@ type OverrideRow = {
 }
 type UserRow = { id: string; name: string; email: string; role: string; status: string }
 
+type OverrideDefaults = Record<string, string>
+
 const OVERRIDE_KEY_META: {
   key: string
   label: string
   section: string
   type: 'boolean' | 'number'
-  systemDefault: string
 }[] = [
   {
     key: 'ss_capture_enabled',
     label: 'Screenshot capture enabled',
     section: 'Screenshots',
     type: 'boolean',
-    systemDefault: 'true',
   },
   {
     key: 'ss_capture_interval_seconds',
     label: 'Screenshot interval (sec)',
     section: 'Screenshots',
     type: 'number',
-    systemDefault: '600',
   },
   {
     key: 'ss_delete_allowed',
     label: 'Allow screenshot deletion',
     section: 'Screenshots',
     type: 'boolean',
-    systemDefault: 'false',
   },
   {
     key: 'ss_blur_allowed',
     label: 'Allow screenshot blur',
     section: 'Screenshots',
     type: 'boolean',
-    systemDefault: 'false',
   },
   {
     key: 'ss_click_notification_enabled',
     label: 'Click notification on capture',
     section: 'Screenshots',
     type: 'boolean',
-    systemDefault: 'true',
   },
   {
     key: 'expected_daily_work_minutes',
     label: 'Expected daily work (min)',
     section: 'Activity',
     type: 'number',
-    systemDefault: '480',
   },
   {
     key: 'jira_connected',
     label: 'Jira connected',
     section: 'Integrations',
     type: 'boolean',
-    systemDefault: 'false',
   },
 ]
 
@@ -766,12 +536,18 @@ function SaveIndicator({ visible }: { visible: boolean }) {
   )
 }
 
-function UserOverridePanel({ userId, userName }: { userId: string; userName: string }) {
+function UserOverridePanel({
+  userId,
+  userName,
+  systemDefaults,
+}: {
+  userId: string
+  userName: string
+  systemDefaults: OverrideDefaults
+}) {
   const [overrides, setOverrides] = useState<OverrideRow[]>([])
   const [loading, setLoading] = useState(true)
   const [savedKey, setSavedKey] = useState<string | null>(null)
-  const [errorKey, setErrorKey] = useState<string | null>(null)
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async () => {
@@ -782,7 +558,7 @@ function UserOverridePanel({ userId, userName }: { userId: string; userName: str
       )
       setOverrides(data.overrides)
     } catch {
-      /* noop */
+      adminToast.error('Could not load overrides for this user.')
     } finally {
       setLoading(false)
     }
@@ -800,7 +576,6 @@ function UserOverridePanel({ userId, userName }: { userId: string; userName: str
 
   const showSaved = useCallback((key: string) => {
     setSavedKey(key)
-    setErrorKey(null)
     if (savedTimer.current) clearTimeout(savedTimer.current)
     savedTimer.current = setTimeout(() => setSavedKey(null), 1500)
   }, [])
@@ -813,19 +588,17 @@ function UserOverridePanel({ userId, userName }: { userId: string; userName: str
         if (exists) return old.map((o) => (o.feature_key === key ? { ...o, value } : o))
         return [...old, { id: '', org_id: '', user_id: userId, feature_key: key, value }]
       })
-      setErrorKey(null)
       try {
         await api.put(`/v1/admin/settings/users/${userId}/${key}`, { value })
         showSaved(key)
       } catch (err: unknown) {
         setOverrides(prev)
-        setErrorKey(key)
-        let msg = 'Failed to save'
+        let msg = 'Failed to save override.'
         if (isAxiosError(err)) {
           const d = err.response?.data as { message?: string }
           if (d?.message) msg = d.message
         }
-        setErrorMsg(msg)
+        adminToast.error(msg)
       }
     },
     [userId, overrides, showSaved]
@@ -835,126 +608,133 @@ function UserOverridePanel({ userId, userName }: { userId: string; userName: str
     async (key: string) => {
       const prev = overrides.slice()
       setOverrides((old) => old.filter((o) => o.feature_key !== key))
-      setErrorKey(null)
       try {
         await api.delete(`/v1/admin/settings/users/${userId}/${key}`)
         showSaved(key)
       } catch {
         setOverrides(prev)
-        setErrorKey(key)
-        setErrorMsg('Failed to revert')
+        adminToast.error('Failed to revert override.')
       }
     },
     [userId, overrides, showSaved]
   )
 
-  if (loading)
-    return (
-      <div className="mt-4 space-y-3">
-        {[1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-12 w-full rounded-lg" />
-        ))}
-      </div>
-    )
-
   const sections = [...new Set(OVERRIDE_KEY_META.map((m) => m.section))]
   return (
-    <div className="pt-4">
+    <div className="relative min-h-[320px] pt-4">
       <h3 className="text-sm font-semibold text-foreground">{userName}</h3>
       <p className="text-xs text-muted-foreground">
         Override org defaults for this user. Changes auto-save.
       </p>
-      {sections.map((section) => (
-        <div key={section} className="mt-5">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            {section}
-          </p>
-          <div className="space-y-2">
-            {OVERRIDE_KEY_META.filter((m) => m.section === section).map((meta) => {
-              const hasOverride = overrideMap.has(meta.key)
-              const currentValue = overrideMap.get(meta.key) ?? meta.systemDefault
-              return (
-                <div
-                  key={meta.key}
-                  className="rounded-lg border border-border/60 bg-background/40 px-3 py-2.5"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm text-foreground">{meta.label}</p>
-                      <p className="text-[10px] text-muted-foreground">
-                        Default: {meta.systemDefault}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <SaveIndicator visible={savedKey === meta.key} />
-                      {errorKey === meta.key && (
-                        <span className="text-[10px] text-red-500">{errorMsg}</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="mt-2 flex items-center gap-3">
-                    <label className="flex cursor-pointer items-center gap-1.5 text-xs">
-                      <input
-                        type="radio"
-                        name={`mode-${meta.key}`}
-                        checked={!hasOverride}
-                        onChange={() => {
-                          if (hasOverride) void deleteOverride(meta.key)
-                        }}
-                        className="accent-primary"
-                      />
-                      Use org default
-                    </label>
-                    <label className="flex cursor-pointer items-center gap-1.5 text-xs">
-                      <input
-                        type="radio"
-                        name={`mode-${meta.key}`}
-                        checked={hasOverride}
-                        onChange={() => {
-                          if (!hasOverride) void putOverride(meta.key, meta.systemDefault)
-                        }}
-                        className="accent-primary"
-                      />
-                      Override
-                    </label>
-                    {hasOverride && meta.type === 'boolean' && (
-                      <Switch
-                        checked={currentValue === 'true'}
-                        onCheckedChange={(v) => void putOverride(meta.key, String(v))}
-                        className="ml-auto"
-                      />
-                    )}
-                    {hasOverride && meta.type === 'number' && (
-                      <Input
-                        type="number"
-                        className="ml-auto w-28"
-                        value={currentValue}
-                        onBlur={(e) => {
-                          const num = Number(e.target.value)
-                          if (Number.isFinite(num) && String(num) !== currentValue)
-                            void putOverride(meta.key, String(num))
-                        }}
-                        onChange={(e) =>
-                          setOverrides((old) =>
-                            old.map((o) =>
-                              o.feature_key === meta.key ? { ...o, value: e.target.value } : o
-                            )
-                          )
-                        }
-                      />
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+      {loading && overrides.length === 0 ? (
+        <div className="mt-4 space-y-3">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-20 w-full rounded-lg" />
+          ))}
         </div>
-      ))}
+      ) : (
+        <div
+          className={cn('transition-opacity duration-150', loading ? 'opacity-60' : 'opacity-100')}
+        >
+          {sections.map((section) => (
+            <div key={section} className="mt-5">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {section}
+              </p>
+              <div className="space-y-2">
+                {OVERRIDE_KEY_META.filter((m) => m.section === section).map((meta) => {
+                  const hasOverride = overrideMap.has(meta.key)
+                  const systemDefault = systemDefaults[meta.key] ?? ''
+                  const currentValue = overrideMap.get(meta.key) ?? systemDefault
+                  return (
+                    <div
+                      key={meta.key}
+                      className="rounded-lg border border-border/60 bg-background/40 px-3 py-2.5"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-foreground">{meta.label}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            Default: {systemDefault}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <SaveIndicator visible={savedKey === meta.key} />
+                        </div>
+                      </div>
+                      <div className="mt-2 flex items-center gap-3">
+                        <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+                          <input
+                            type="radio"
+                            name={`mode-${meta.key}`}
+                            checked={!hasOverride}
+                            onChange={() => {
+                              if (hasOverride) void deleteOverride(meta.key)
+                            }}
+                            className="accent-primary"
+                          />
+                          Use org default
+                        </label>
+                        <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+                          <input
+                            type="radio"
+                            name={`mode-${meta.key}`}
+                            checked={hasOverride}
+                            onChange={() => {
+                              if (!hasOverride) void putOverride(meta.key, systemDefault)
+                            }}
+                            className="accent-primary"
+                          />
+                          Override
+                        </label>
+                        {hasOverride && meta.type === 'boolean' && (
+                          <Switch
+                            checked={currentValue === 'true'}
+                            onCheckedChange={(v) => void putOverride(meta.key, String(v))}
+                            className="ml-auto"
+                          />
+                        )}
+                        {hasOverride && meta.type === 'number' && (
+                          <Input
+                            type="number"
+                            className="ml-auto w-28"
+                            value={currentValue}
+                            onBlur={(e) => {
+                              const num = Number(e.target.value)
+                              if (!Number.isFinite(num)) return
+                              // Always persist on blur in override mode; currentValue is locally edited.
+                              void putOverride(meta.key, String(num))
+                            }}
+                            onChange={(e) =>
+                              setOverrides((old) =>
+                                old.map((o) =>
+                                  o.feature_key === meta.key ? { ...o, value: e.target.value } : o
+                                )
+                              )
+                            }
+                          />
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {loading && overrides.length > 0 ? (
+        <div className="pointer-events-none absolute inset-0 flex items-start justify-center rounded-lg bg-background/25 pt-4">
+          <span className="rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground shadow-sm">
+            Loading overrides...
+          </span>
+        </div>
+      ) : null}
     </div>
   )
 }
 
-function UserOverridesTab() {
+function UserOverridesTab({ systemDefaults }: { systemDefaults: OverrideDefaults }) {
   const [search, setSearch] = useState('')
   const [users, setUsers] = useState<UserRow[]>([])
   const [loadingUsers, setLoadingUsers] = useState(false)
@@ -969,6 +749,7 @@ function UserOverridesTab() {
       })
       setUsers(data.users ?? [])
     } catch {
+      adminToast.error('Could not load users.')
       setUsers([])
     } finally {
       setLoadingUsers(false)
@@ -986,93 +767,97 @@ function UserOverridesTab() {
     }
   }, [search, searchUsers])
 
+  useEffect(() => {
+    if (users.length === 0) {
+      setSelectedUser(null)
+      return
+    }
+    if (!selectedUser || !users.some((u) => u.id === selectedUser.id)) {
+      setSelectedUser(users[0])
+    }
+  }, [users, selectedUser])
+
   return (
-    <div>
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Search users..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9"
-        />
-      </div>
-      {loadingUsers ? (
-        <div className="mt-3 space-y-2">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-10 w-full rounded-lg" />
-          ))}
-        </div>
-      ) : (
-        <div className="mt-3 max-h-48 space-y-1 overflow-y-auto">
-          {users.map((u) => (
-            <button
-              key={u.id}
-              type="button"
-              onClick={() => setSelectedUser(u)}
-              className={cn(
-                'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors',
-                selectedUser?.id === u.id
-                  ? 'bg-primary text-primary-foreground'
-                  : 'hover:bg-muted/70'
-              )}
-            >
-              <InitialsAvatar name={u.name} size="sm" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{u.name}</p>
-                <p
+    <div className="rounded-xl border border-border/60 bg-card/40 p-3 sm:p-4">
+      <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <div className="rounded-lg border border-border/60 bg-background/40 p-2.5">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search users..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          {loadingUsers ? (
+            <div className="mt-3 space-y-2">
+              {[1, 2, 3].map((i) => (
+                <Skeleton key={i} className="h-10 w-full rounded-lg" />
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 max-h-80 space-y-1 overflow-y-auto pr-1">
+              {users.map((u) => (
+                <button
+                  key={u.id}
+                  type="button"
+                  onClick={() => setSelectedUser(u)}
                   className={cn(
-                    'truncate text-xs',
+                    'flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors',
                     selectedUser?.id === u.id
-                      ? 'text-primary-foreground/70'
-                      : 'text-muted-foreground'
+                      ? 'border-primary/40 bg-primary/10'
+                      : 'border-transparent hover:border-border hover:bg-muted/70'
                   )}
                 >
-                  {u.email}
-                </p>
-              </div>
-            </button>
-          ))}
-          {!loadingUsers && users.length === 0 && (
-            <p className="py-4 text-center text-xs text-muted-foreground">No users found</p>
+                  <InitialsAvatar name={u.name} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-foreground">{u.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+                  </div>
+                </button>
+              ))}
+              {!loadingUsers && users.length === 0 && (
+                <p className="py-4 text-center text-xs text-muted-foreground">No users found</p>
+              )}
+            </div>
           )}
         </div>
-      )}
-      {selectedUser && (
-        <UserOverridePanel
-          key={selectedUser.id}
-          userId={selectedUser.id}
-          userName={selectedUser.name}
-        />
-      )}
+
+        <div className="rounded-lg border border-border/60 bg-background/40 p-3 sm:p-4">
+          {selectedUser ? (
+            <UserOverridePanel
+              userId={selectedUser.id}
+              userName={selectedUser.name}
+              systemDefaults={systemDefaults}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">Select a user to configure overrides.</p>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
 
 /* ─── Page ───────────────────────────────────────────────────────────────────── */
 
-const TAB_ITEMS: { key: string; label: string; icon: typeof Building2 }[] = [
-  { key: 'general', label: 'General', icon: Globe },
-  { key: 'screenshots', label: 'Screenshots', icon: Camera },
-  { key: 'activity', label: 'Activity', icon: BarChart2 },
-  { key: 'integrations', label: 'Integrations', icon: Link2 },
-  { key: 'overrides', label: 'Per-User Overrides', icon: UserCog },
-  { key: 'security', label: 'Security', icon: Shield },
-]
-
 export default function OrganizationSettingsPage() {
-  const [tab, setTab] = useState('general')
-  const [toast, setToast] = useState<{ msg: string; type: 'ok' | 'err' } | null>(null)
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const { loading, form, setForm, org, setOrg, baseline, baselineOrg, reload } = useOrgSettings()
+  const { loading, form, setForm, org, setOrg, baseline, baselineOrg } = useOrgSettings()
 
-  function showToast(msg: string, type: 'ok' | 'err') {
-    setToast({ msg, type })
-    if (toastTimer.current) clearTimeout(toastTimer.current)
-    toastTimer.current = setTimeout(() => setToast(null), 3000)
-  }
-
-  const onSaved = useCallback(() => showToast('Settings saved', 'ok'), [])
+  const onSaved = useCallback(() => adminToast.success('Settings saved'), [])
+  const overrideDefaults = useMemo<OverrideDefaults>(
+    () => ({
+      ss_capture_enabled: 'true',
+      ss_capture_interval_seconds: String(form.screenshot_interval_seconds),
+      ss_delete_allowed: 'false',
+      ss_blur_allowed: String(form.blur_screenshots),
+      ss_click_notification_enabled: 'true',
+      expected_daily_work_minutes: String(form.expected_daily_work_minutes),
+      jira_connected: 'false',
+    }),
+    [form]
+  )
 
   if (loading) {
     return (
@@ -1091,55 +876,39 @@ export default function OrganizationSettingsPage() {
     <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">
       <h1 className="mb-4 text-xl font-bold tracking-tight">Organization Settings</h1>
 
-      <Tabs.Root value={tab} onValueChange={setTab}>
-        <Tabs.List className="mb-6 flex flex-wrap border-b border-border">
-          {TAB_ITEMS.map((t) => {
-            const Icon = t.icon
-            return (
-              <Tabs.Trigger
-                key={t.key}
-                value={t.key}
-                className={cn(
-                  '-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
-                  tab === t.key
-                    ? 'border-primary text-foreground'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                <span className="hidden sm:inline">{t.label}</span>
-              </Tabs.Trigger>
-            )
-          })}
-        </Tabs.List>
-
-        <Tabs.Content value="general">
+      <div className="space-y-10">
+        <section className="space-y-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            <Globe className="h-4 w-4" />
+            General
+          </h2>
           <GeneralTab org={org} setOrg={setOrg} baselineOrg={baselineOrg} onSaved={onSaved} />
-        </Tabs.Content>
-        <Tabs.Content value="screenshots">
-          <ScreenshotsTab form={form} setForm={setForm} baseline={baseline} onSaved={onSaved} />
-        </Tabs.Content>
-        <Tabs.Content value="activity">
-          <ActivityTab form={form} setForm={setForm} baseline={baseline} onSaved={onSaved} />
-        </Tabs.Content>
-        <Tabs.Content value="integrations">
-          <IntegrationsTab />
-        </Tabs.Content>
-        <Tabs.Content value="overrides">
-          <UserOverridesTab />
-        </Tabs.Content>
-        <Tabs.Content value="security">
-          <SecurityTab form={form} setForm={setForm} baseline={baseline} onSaved={onSaved} />
-        </Tabs.Content>
-      </Tabs.Root>
+        </section>
 
-      {toast && (
-        <Toast
-          msg={toast.msg}
-          type={toast.type}
-          onRetry={toast.type === 'err' ? () => void reload() : undefined}
-        />
-      )}
+        <section className="space-y-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            <Camera className="h-4 w-4" />
+            Screenshots
+          </h2>
+          <ScreenshotsTab form={form} setForm={setForm} baseline={baseline} onSaved={onSaved} />
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            <Shield className="h-4 w-4" />
+            Security
+          </h2>
+          <SecurityTab form={form} setForm={setForm} baseline={baseline} onSaved={onSaved} />
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            <UserCog className="h-4 w-4" />
+            Per-User Overrides
+          </h2>
+          <UserOverridesTab systemDefaults={overrideDefaults} />
+        </section>
+      </div>
     </div>
   )
 }

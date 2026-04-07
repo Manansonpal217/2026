@@ -3,17 +3,35 @@
 import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
-import { signIn, useSession } from 'next-auth/react'
+import { getSession, signIn, useSession } from 'next-auth/react'
 import { Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { normalizeOrgRole } from '@/lib/roles'
 
 function safeCallback(raw: string | null): string {
   if (raw && raw.startsWith('/') && !raw.startsWith('//')) return raw
   return '/myhome'
+}
+
+/** Managers should land on team home (`/myhome`), not the analytics dashboard, when auth sends them back here from `/myhome/dashboard`. */
+function resolvePostLoginHref(
+  callbackUrl: string,
+  opts: { isPlatformAdmin: boolean; role: string | undefined }
+): string {
+  if (opts.isPlatformAdmin && callbackUrl === '/myhome') {
+    return '/admin/dashboard'
+  }
+  if (
+    normalizeOrgRole(opts.role) === 'manager' &&
+    (callbackUrl === '/myhome/dashboard' || callbackUrl === '/myhome/dashboard/')
+  ) {
+    return '/myhome'
+  }
+  return callbackUrl
 }
 
 function ErrorBar({ message }: { message: string }) {
@@ -38,12 +56,11 @@ function AuthPanel() {
     if (status !== 'authenticated') return
     const sessionErr = (session as { error?: string } | null)?.error
     if (sessionErr === 'RefreshAccessTokenError') return
-    const isPlatformAdmin = session?.user?.is_platform_admin === true
-    if (isPlatformAdmin && callbackUrl === '/myhome') {
-      window.location.href = '/admin/dashboard'
-    } else {
-      window.location.href = callbackUrl
-    }
+    const dest = resolvePostLoginHref(callbackUrl, {
+      isPlatformAdmin: session?.user?.is_platform_admin === true,
+      role: session?.user?.role as string | undefined,
+    })
+    window.location.href = dest
   }, [status, callbackUrl, session])
 
   const [email, setEmail] = useState('')
@@ -63,7 +80,11 @@ function AuthPanel() {
         redirect: false,
       })
       if (result?.ok) {
-        window.location.href = callbackUrl
+        const s = await getSession()
+        window.location.href = resolvePostLoginHref(callbackUrl, {
+          isPlatformAdmin: s?.user?.is_platform_admin === true,
+          role: s?.user?.role as string | undefined,
+        })
       } else {
         setSignInError('Invalid email or password. Please check your credentials.')
       }
@@ -184,8 +205,8 @@ export default function LoginPage() {
   return (
     <main className="relative flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-16 sm:py-24">
       <div className="relative w-full max-w-[440px]">
-        <Card className="border-border/80 shadow-auth-card dark:shadow-auth-card-dark">
-          <CardContent className="bg-gradient-to-br from-card via-card to-primary/[0.04] p-8 sm:p-10 dark:from-card dark:via-card dark:to-card">
+        <Card className="overflow-hidden rounded-2xl border-border/80 shadow-auth-card dark:shadow-auth-card-dark">
+          <CardContent className="rounded-2xl bg-gradient-to-br from-card via-card to-primary/[0.04] p-8 sm:p-10 dark:from-card dark:via-card dark:to-card">
             <Suspense fallback={<LoginFallback />}>
               <AuthPanel />
             </Suspense>

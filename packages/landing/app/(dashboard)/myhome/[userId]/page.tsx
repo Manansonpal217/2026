@@ -6,48 +6,19 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { isAxiosError } from 'axios'
-import {
-  ArrowLeft,
-  BarChart3,
-  Calendar,
-  Camera,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  Download,
-  Flame,
-  Home,
-  Settings,
-} from 'lucide-react'
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  Tooltip as RechartsTooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-} from 'recharts'
+import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react'
 import { api } from '@/lib/api'
 import {
   endOfLocalDay,
   formatDurationSeconds,
   formatNotesForDisplay,
-  formatUtcOffsetLabel,
   startOfLocalDay,
 } from '@/lib/format'
 import { ScreenshotGallery, type ScreenshotItem } from '@/components/ScreenshotGallery'
-import { InitialsAvatar } from '@/components/ui/initials-avatar'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
 import { buildScreenshotCacheScope, pruneScreenshotCache } from '@/lib/screenshotThumbCache'
 import { cn } from '@/lib/utils'
-
-type UserDetailTab = 'overview' | 'time' | 'screenshots' | 'activity'
 
 type UserResp = {
   user: {
@@ -80,6 +51,15 @@ type OfflineTimeRow = {
   created_at: string
 }
 
+/** Matches backend aggregates (e.g. team-summary): only approved offline time counts as worked time. */
+function offlineCountsTowardWorkedTime(o: OfflineTimeRow): boolean {
+  return o.status === 'APPROVED'
+}
+
+function offlineVisibleOnTimeline(o: OfflineTimeRow): boolean {
+  return o.status !== 'REJECTED' && o.status !== 'EXPIRED'
+}
+
 type SessionRow = {
   id: string
   started_at: string
@@ -91,7 +71,6 @@ type SessionRow = {
   time_deductions?: { range_start: string; range_end: string }[]
 }
 
-const RECENT_STOP_MS = 10 * 60 * 1000
 /** Task / Apps list: show this many rows before "Show more" (sorted by time, descending). */
 const ROLLUP_PREVIEW_LIMIT = 4
 
@@ -535,13 +514,6 @@ export default function UserHomePage() {
   const [rollupExpandedApps, setRollupExpandedApps] = useState(false)
   const [dailyRollupTab, setDailyRollupTab] = useState<'tasks' | 'apps'>('tasks')
 
-  const [activeTab, setActiveTab] = useState<UserDetailTab>('overview')
-  const [weeklyChartData, setWeeklyChartData] = useState<
-    { day: string; hours: number; seconds: number }[]
-  >([])
-  const [weeklyChartLoading, setWeeklyChartLoading] = useState(true)
-  const [userStreak, setUserStreak] = useState(0)
-
   const [offlineModalOpen, setOfflineModalOpen] = useState(false)
   const [historyInfoOpen, setHistoryInfoOpen] = useState(false)
   const [portalReady, setPortalReady] = useState(false)
@@ -550,6 +522,7 @@ export default function UserHomePage() {
   const [offlineFormStart, setOfflineFormStart] = useState('09:00')
   const [offlineFormEnd, setOfflineFormEnd] = useState('17:00')
   const [offlineFormDescription, setOfflineFormDescription] = useState('')
+  const [offlineDeleteId, setOfflineDeleteId] = useState<string | null>(null)
 
   const selectedIsToday = isSameLocalDay(selectedDay, new Date())
 
@@ -609,35 +582,70 @@ export default function UserHomePage() {
     const from = startOfLocalDay(selectedDay).toISOString()
     const to = endOfLocalDay(selectedDay).toISOString()
 
-    try {
-      const blockUi = blockUiUntilDayHydratedRef.current
-      if (blockUi) setLoading(true)
-      setLoadErr(null)
-      const [sessRes, ssRes, actRes, offRes] = await Promise.all([
-        api.get<{ sessions: SessionRow[] }>('/v1/sessions', {
-          params: { user_id: userId, from, to, limit: 200 },
-        }),
-        api.get<{ screenshots: ScreenshotItem[] }>('/v1/screenshots/', {
-          params: { user_id: userId, from, to, limit: 100 },
-        }),
-        api.get<{ activity_logs: ActivityLogRow[] }>('/v1/reports/activity', {
-          params: { user_id: userId, from, to, limit: 500 },
-        }),
-        api.get<{ offline_time: OfflineTimeRow[] }>('/v1/app/offline-time', {
-          params: { user_id: userId, from, to },
-        }),
-      ])
-      const rawSessions = sessRes.data.sessions ?? []
-      setSessions(rawSessions.map(normalizeSessionRow).filter((x): x is SessionRow => x != null))
-      setScreenshots(ssRes.data.screenshots ?? [])
-      setOfflineTimes(offRes.data.offline_time ?? [])
-      setActivityLogs(actRes.data.activity_logs ?? [])
-      blockUiUntilDayHydratedRef.current = false
-    } catch (e: unknown) {
-      setLoadErr(e instanceof Error ? e.message : 'Failed to load activity')
-    } finally {
-      setLoading(false)
+    const errMessage = (e: unknown) => {
+      if (e instanceof Error) return e.message
+      if (isAxiosError(e)) {
+        const m = (e.response?.data as { message?: string } | undefined)?.message?.trim()
+        return m || e.message
+      }
+      return 'Request failed'
     }
+
+    const blockUi = blockUiUntilDayHydratedRef.current
+    if (blockUi) setLoading(true)
+    setLoadErr(null)
+
+    const [sessOut, ssOut, actOut, offOut] = await Promise.allSettled([
+      api.get<{ sessions: SessionRow[] }>('/v1/sessions', {
+        params: { user_id: userId, from, to, limit: 200 },
+      }),
+      api.get<{ screenshots: ScreenshotItem[] }>('/v1/screenshots/', {
+        params: { user_id: userId, from, to, limit: 100 },
+      }),
+      api.get<{ activity_logs: ActivityLogRow[] }>('/v1/reports/activity', {
+        params: { user_id: userId, from, to, limit: 500 },
+      }),
+      api.get<{ offline_time: OfflineTimeRow[] }>('/v1/app/offline-time', {
+        params: { user_id: userId, from, to },
+      }),
+    ])
+
+    if (sessOut.status !== 'fulfilled') {
+      setSessions([])
+      setScreenshots([])
+      setActivityLogs([])
+      setOfflineTimes([])
+      setLoadErr(errMessage(sessOut.reason))
+      blockUiUntilDayHydratedRef.current = false
+      setLoading(false)
+      return
+    }
+
+    const rawSessions = sessOut.value.data.sessions ?? []
+    setSessions(rawSessions.map(normalizeSessionRow).filter((x): x is SessionRow => x != null))
+
+    if (ssOut.status === 'fulfilled') {
+      setScreenshots(ssOut.value.data.screenshots ?? [])
+    } else {
+      setScreenshots([])
+    }
+
+    // Activity report requires REPORTS_VIEW; sessions list does not — do not fail the whole day view.
+    if (actOut.status === 'fulfilled') {
+      setActivityLogs(actOut.value.data.activity_logs ?? [])
+    } else {
+      setActivityLogs([])
+    }
+
+    if (offOut.status === 'fulfilled') {
+      setOfflineTimes(offOut.value.data.offline_time ?? [])
+    } else {
+      setOfflineTimes([])
+      setLoadErr(errMessage(offOut.reason))
+    }
+
+    blockUiUntilDayHydratedRef.current = false
+    setLoading(false)
   }, [userId, user, selectedDay])
 
   const loadMonthMarkers = useCallback(async () => {
@@ -821,13 +829,34 @@ export default function UserHomePage() {
   )
 
   const offlineBarBlocks = useMemo(
-    () => offlineBlocksForDay(offlineTimes, selectedDay),
+    () => offlineBlocksForDay(offlineTimes.filter(offlineCountsTowardWorkedTime), selectedDay),
+    [offlineTimes, selectedDay]
+  )
+
+  const pendingOfflineBarBlocks = useMemo(
+    () =>
+      offlineBlocksForDay(
+        offlineTimes.filter((o) => o.status === 'PENDING'),
+        selectedDay
+      ),
     [offlineTimes, selectedDay]
   )
 
   const offlineDaySeconds = useMemo(() => {
     let t = 0
     for (const o of offlineTimes) {
+      if (!offlineCountsTowardWorkedTime(o)) continue
+      const r = offlineClippedRangeOnDay(o, selectedDay)
+      if (r) t += (r.clipEnd - r.clipStart) / 1000
+    }
+    return Math.round(t)
+  }, [offlineTimes, selectedDay])
+
+  /** Pending requests are visible in the detail list but do not count toward totals (matches team-summary / payroll). */
+  const pendingOfflineDaySeconds = useMemo(() => {
+    let t = 0
+    for (const o of offlineTimes) {
+      if (o.status !== 'PENDING') continue
       const r = offlineClippedRangeOnDay(o, selectedDay)
       if (r) t += (r.clipEnd - r.clipStart) / 1000
     }
@@ -836,7 +865,8 @@ export default function UserHomePage() {
 
   const dayOfflineFromMonth = useMemo(() => {
     const days = daysInMonth(viewYear, viewMonth)
-    return computeDayOfflineSecondsRecord(offlineEntriesMonth, days)
+    const approvedOnly = offlineEntriesMonth.filter(offlineCountsTowardWorkedTime)
+    return computeDayOfflineSecondsRecord(approvedOnly, days)
   }, [offlineEntriesMonth, viewYear, viewMonth])
 
   /** Merge API day total for selected day (authoritative) with month session + offline sums. */
@@ -868,6 +898,7 @@ export default function UserHomePage() {
     const rows: TimelineRow[] = []
     for (const g of displayGroups) rows.push({ kind: 'session', group: g })
     for (const o of offlineTimes) {
+      if (!offlineVisibleOnTimeline(o)) continue
       const r = offlineClippedRangeOnDay(o, selectedDay)
       if (!r || r.clipEnd - r.clipStart < MIN_CLIPPED_SEGMENT_MS) continue
       rows.push({ kind: 'offline', entry: o, clipStart: r.clipStart, clipEnd: r.clipEnd })
@@ -896,6 +927,47 @@ export default function UserHomePage() {
     allowEmployeeOfflineTime,
   ])
 
+  /** Mirrors backend `employeeMayAddOwnOffline` — when managers may add their own without a request queue. */
+  const employeeStyleMayAddOwnOffline = useMemo(() => {
+    if (sessionUserId !== userId || !user) return false
+    const o = user.can_add_offline_time
+    if (o === true) return true
+    if (o === false) return false
+    return allowEmployeeOfflineTime === true
+  }, [sessionUserId, userId, user, allowEmployeeOfflineTime])
+
+  /** Hide entirely when org disables employee offline time unless user/manager may still add (canAddOfflineTime). */
+  const showOfflineTimeFooterLink = useMemo(() => {
+    if (!user) return false
+    if (canAddOfflineTime) return true
+    if (!allowEmployeeOfflineTime) return false
+    return Boolean(sessionUserId && sessionUserId === userId)
+  }, [user, canAddOfflineTime, allowEmployeeOfflineTime, sessionUserId, userId])
+
+  const offlineSubmitBlocked =
+    !canAddOfflineTime && Boolean(sessionUserId && sessionUserId === userId)
+
+  /** Manager adding for someone else uses direct-add; self uses /request (pending unless admin/owner or manager with own-add allowed). */
+  const viewingOtherUserForOffline = Boolean(sessionUserId && userId && sessionUserId !== userId)
+  const offlineSelfImmediateApproval =
+    !viewingOtherUserForOffline &&
+    (sessionRole === 'admin' ||
+      sessionRole === 'super_admin' ||
+      (sessionRole === 'manager' && employeeStyleMayAddOwnOffline))
+  const offlineModalUsesRequestFlow = !viewingOtherUserForOffline && !offlineSelfImmediateApproval
+
+  const offlineModalTitle = viewingOtherUserForOffline
+    ? 'Add offline time'
+    : offlineSelfImmediateApproval
+      ? 'Add offline time'
+      : 'Request offline time'
+
+  const offlineModalExplainer = viewingOtherUserForOffline
+    ? `Adds approved manual time for ${user?.name ?? 'this person'} on the selected day.`
+    : offlineSelfImmediateApproval
+      ? 'This entry is saved to your timesheet immediately.'
+      : 'This is sent for approval before it appears on your timesheet.'
+
   const canDeleteOfflineEntry = useCallback(
     (_entry: OfflineTimeRow) => {
       if (isMgmtRole(sessionRole) && user) return true
@@ -909,33 +981,50 @@ export default function UserHomePage() {
   )
 
   const taskRollup = useMemo(() => {
+    const nowMs = Date.now()
     const map = new Map<string, { name: string; seconds: number }>()
     for (const s of sessionsChrono) {
-      const dur =
-        s.ended_at != null
-          ? Math.max(0, Number(s.duration_sec) || 0)
-          : Math.max(0, (Date.now() - new Date(s.started_at).getTime()) / 1000)
+      const clip = sessionClippedRangeOnDay(s, selectedDay, nowMs)
+      if (!clip) continue
+      const dur = (clip.clipEnd - clip.clipStart) / 1000
+      if (dur <= 0) continue
       const key = sessionRollupKey(s)
       const name = sessionWorkLabel(s)
       const row = map.get(key) ?? { name, seconds: 0 }
       row.seconds += dur
       map.set(key, row)
     }
+    for (const o of offlineTimes) {
+      if (!offlineCountsTowardWorkedTime(o)) continue
+      const clip = offlineClippedRangeOnDay(o, selectedDay)
+      if (!clip) continue
+      const dur = (clip.clipEnd - clip.clipStart) / 1000
+      if (dur <= 0) continue
+      const key = `offline:${o.id}`
+      const name = o.description?.trim() || 'Offline / manual time'
+      const row = map.get(key) ?? { name, seconds: 0 }
+      row.seconds += dur
+      map.set(key, row)
+    }
     return [...map.entries()].sort((a, b) => b[1].seconds - a[1].seconds)
-  }, [sessionsChrono])
+  }, [sessionsChrono, offlineTimes, selectedDay])
 
   const appRollup = useMemo(() => {
+    const dayStart = startOfLocalDay(selectedDay).getTime()
+    const dayEnd = endOfLocalDay(selectedDay).getTime()
     const map = new Map<string, number>()
     for (const log of activityLogs) {
+      const ws = new Date(log.window_start).getTime()
+      const we = new Date(log.window_end).getTime()
+      const a = Math.max(dayStart, ws)
+      const b = Math.min(dayEnd, we)
+      if (b <= a) continue
+      const sec = (b - a) / 1000
       const label = activityLabelFromLog(log)
-      const sec = Math.max(
-        0,
-        (new Date(log.window_end).getTime() - new Date(log.window_start).getTime()) / 1000
-      )
       map.set(label, (map.get(label) ?? 0) + sec)
     }
     return [...map.entries()].sort((a, b) => b[1] - a[1])
-  }, [activityLogs])
+  }, [activityLogs, selectedDay])
 
   const dayActivityScorePct = useMemo(() => {
     const ds = startOfLocalDay(selectedDay).getTime()
@@ -943,16 +1032,6 @@ export default function UserHomePage() {
     const raw = weightedActivityScoreForRange(activityLogs, ds, de)
     return raw != null ? Math.round(raw) : null
   }, [activityLogs, selectedDay])
-
-  const presenceDot = useMemo(() => {
-    if (!user) return 'idle' as const
-    if (user.is_tracking) return 'green' as const
-    if (user.last_active) {
-      const ms = Date.now() - new Date(user.last_active).getTime()
-      if (ms >= 0 && ms <= RECENT_STOP_MS) return 'yellow' as const
-    }
-    return 'idle' as const
-  }, [user])
 
   /** Server enforces scope (e.g. managers: direct reports only). Hide controls until profile loads. */
   const canManageScreenshots = isMgmtRole(sessionRole) && Boolean(user)
@@ -967,11 +1046,8 @@ export default function UserHomePage() {
     setScreenshots((prev) => prev.filter((s) => s.id !== id))
   }, [])
 
-  const handleDeleteOffline = useCallback(
+  const executeDeleteOffline = useCallback(
     async (id: string) => {
-      if (typeof window !== 'undefined' && !window.confirm('Remove this offline time entry?')) {
-        return
-      }
       try {
         await api.delete(`/v1/app/offline-time/${id}`)
         setOfflineTimes((prev) => prev.filter((x) => x.id !== id))
@@ -1051,40 +1127,6 @@ export default function UserHomePage() {
     loadMonthMarkers,
   ])
 
-  useEffect(() => {
-    if (!userId || !user) return
-    setWeeklyChartLoading(true)
-    const end = new Date()
-    const start = new Date()
-    start.setDate(start.getDate() - 6)
-    const DAY_ABBR = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-    api
-      .get<{ days: { date: string; total_seconds: number }[] }>('/v1/reports/time', {
-        params: {
-          user_id: userId,
-          start: start.toISOString().slice(0, 10),
-          end: end.toISOString().slice(0, 10),
-          granularity: 'day',
-        },
-      })
-      .then(({ data }) => {
-        setWeeklyChartData(
-          (data.days ?? []).map((d) => {
-            const dow = new Date(d.date + 'T00:00:00').getDay()
-            return {
-              day: DAY_ABBR[dow === 0 ? 6 : dow - 1] ?? d.date.slice(5),
-              hours: Math.round((d.total_seconds / 3600) * 10) / 10,
-              seconds: d.total_seconds,
-            }
-          })
-        )
-      })
-      .catch(() => setWeeklyChartData([]))
-      .finally(() => setWeeklyChartLoading(false))
-  }, [userId, user])
-
-  const tzLabel = formatUtcOffsetLabel()
-
   const visibleTasks = rollupExpandedTasks ? taskRollup : taskRollup.slice(0, ROLLUP_PREVIEW_LIMIT)
   const visibleApps = rollupExpandedApps ? appRollup : appRollup.slice(0, ROLLUP_PREVIEW_LIMIT)
   const tasksRollupHasMore = taskRollup.length > ROLLUP_PREVIEW_LIMIT
@@ -1133,255 +1175,31 @@ export default function UserHomePage() {
     )
   }
 
-  const presenceStatusText =
-    presenceDot === 'green' ? 'Online' : presenceDot === 'yellow' ? 'Idle' : 'Offline'
-  const presenceStatusCls =
-    presenceDot === 'green'
-      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400'
-      : presenceDot === 'yellow'
-        ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
-        : 'bg-muted text-muted-foreground'
-
-  const tabItems: { key: UserDetailTab; label: string; icon: typeof Home }[] = [
-    { key: 'overview', label: 'Overview', icon: Home },
-    { key: 'time', label: 'Time', icon: Calendar },
-    { key: 'screenshots', label: 'Screenshots', icon: Camera },
-    { key: 'activity', label: 'Activity', icon: BarChart3 },
-  ]
-
-  const PIE_COLORS = [
-    '#2563eb',
-    '#7c3aed',
-    '#059669',
-    '#f59e0b',
-    '#ef4444',
-    '#8b5cf6',
-    '#06b6d4',
-    '#ec4899',
-  ]
-
   return (
-    <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="mb-6">
-        <Link
-          href="/myhome"
-          className="mb-3 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden />
-          Back
-        </Link>
-        <div className="flex flex-wrap items-start gap-4">
-          <div
-            className={cn(
-              'rounded-full ring-2 ring-offset-2 ring-offset-background',
-              presenceDot === 'green'
-                ? 'ring-emerald-500'
-                : presenceDot === 'yellow'
-                  ? 'ring-amber-400'
-                  : 'ring-gray-400'
-            )}
+    <main className="relative isolate min-h-[calc(100vh-8rem)] w-full overflow-x-hidden">
+      <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden>
+        <div className="absolute inset-0 bg-gradient-to-b from-primary/[0.07] via-background to-muted/35" />
+        <div className="absolute -top-40 left-1/2 h-[22rem] w-[min(100%,48rem)] -translate-x-1/2 rounded-full bg-[radial-gradient(ellipse_at_center,hsl(var(--primary)/0.18),transparent_70%)] blur-2xl" />
+        <div className="absolute top-1/3 -right-24 h-80 w-80 rounded-full bg-primary/10 blur-3xl" />
+        <div className="absolute bottom-24 -left-16 h-64 w-64 rounded-full bg-violet-500/10 blur-3xl dark:bg-violet-500/[0.12]" />
+      </div>
+
+      <div className="relative mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <div className="mb-5">
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="gap-1.5 rounded-full border-border/80 bg-card/70 px-3.5 shadow-sm backdrop-blur-sm transition-colors hover:bg-card"
           >
-            <InitialsAvatar name={user?.name ?? '?'} size="lg" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">
-                {user?.name ?? '…'}
-              </h1>
-              <span
-                className={cn('rounded-full px-2 py-0.5 text-xs font-medium', presenceStatusCls)}
-              >
-                {presenceStatusText}
-              </span>
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium capitalize text-muted-foreground">
-                {user?.role ?? ''}
-              </span>
-            </div>
-            <p className="mt-0.5 text-sm text-muted-foreground">{user?.email ?? ''}</p>
-            <p className="mt-0.5 text-xs text-muted-foreground">{tzLabel}</p>
-          </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
-            {canAddOfflineTime && (
-              <button
-                type="button"
-                onClick={() => {
-                  setOfflineSubmitErr(null)
-                  setOfflineModalOpen(true)
-                  setActiveTab('time')
-                }}
-                className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted/60"
-              >
-                <Clock className="mr-1.5 inline h-3.5 w-3.5" />
-                Add Offline Time
-              </button>
-            )}
-          </div>
+            <Link href="/myhome">
+              <ArrowLeft className="h-4 w-4 shrink-0" aria-hidden />
+              {isMgmtRole(sessionRole) ? 'Back to team' : 'Back to home'}
+            </Link>
+          </Button>
         </div>
-      </div>
 
-      {/* ── Tab bar ────────────────────────────────────────────────────────── */}
-      <div className="mb-6 flex border-b border-border">
-        {tabItems.map((t) => {
-          const active = activeTab === t.key
-          const Icon = t.icon
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setActiveTab(t.key)}
-              className={cn(
-                '-mb-px flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors',
-                active
-                  ? 'border-primary text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <Icon className="h-4 w-4" />
-              {t.label}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* ── Overview Tab ───────────────────────────────────────────────────── */}
-      {activeTab === 'overview' && (
-        <div className="space-y-6">
-          {/* 2x2 stat grid */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-xl border border-border/60 border-l-2 border-l-blue-500 bg-card p-4 shadow-sm">
-              <p className="text-sm text-muted-foreground">Today</p>
-              <p className="mt-1 text-2xl font-bold tabular-nums">
-                {formatDurationSeconds(clippedSessionDaySeconds + offlineDaySeconds)}
-              </p>
-            </div>
-            <div className="rounded-xl border border-border/60 border-l-2 border-l-blue-500 bg-card p-4 shadow-sm">
-              <p className="text-sm text-muted-foreground">This week</p>
-              <p className="mt-1 text-2xl font-bold tabular-nums">
-                {formatDurationSeconds(
-                  Object.values(calendarDayLoggedSeconds).reduce((a, b) => a + b, 0)
-                )}
-              </p>
-            </div>
-            <div className="rounded-xl border border-border/60 border-l-2 border-l-violet-500 bg-card p-4 shadow-sm">
-              <p className="text-sm text-muted-foreground">This month</p>
-              <p className="mt-1 text-2xl font-bold tabular-nums">
-                {formatDurationSeconds(
-                  Object.values(calendarDayLoggedSeconds).reduce((a, b) => a + b, 0)
-                )}
-              </p>
-            </div>
-            <div className="rounded-xl border border-border/60 border-l-2 border-l-emerald-500 bg-card p-4 shadow-sm">
-              <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                <Flame className="h-4 w-4 text-orange-500" />
-                Streak
-              </p>
-              <p className="mt-1 text-2xl font-bold tabular-nums">{userStreak} days</p>
-            </div>
-          </div>
-
-          {/* Weekly chart */}
-          <div className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              This week
-            </p>
-            {weeklyChartLoading ? (
-              <Skeleton className="h-44 w-full rounded-lg" />
-            ) : (
-              <div className="h-48">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart
-                    data={weeklyChartData}
-                    margin={{ top: 4, right: 4, bottom: 0, left: -20 }}
-                  >
-                    <defs>
-                      <linearGradient id="userAreaGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="hsl(var(--brand-primary))" stopOpacity={0.4} />
-                        <stop offset="100%" stopColor="hsl(var(--brand-primary))" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis
-                      dataKey="day"
-                      tick={{ fontSize: 11 }}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 11 }}
-                      tickLine={false}
-                      axisLine={false}
-                      allowDecimals={false}
-                    />
-                    <RechartsTooltip
-                      content={(props: Record<string, unknown>) => {
-                        const { active, payload } = props as {
-                          active?: boolean
-                          payload?: Array<{ payload: { day: string; seconds: number } }>
-                        }
-                        if (!active || !payload?.[0]) return null
-                        const d = payload[0].payload
-                        return (
-                          <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm shadow-md">
-                            <p className="font-medium text-foreground">{d.day}</p>
-                            <p className="text-muted-foreground">
-                              {formatDurationSeconds(d.seconds)}
-                            </p>
-                          </div>
-                        )
-                      }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="hours"
-                      stroke="hsl(var(--brand-primary))"
-                      strokeWidth={2}
-                      fill="url(#userAreaGrad)"
-                      animationDuration={800}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
-
-          {/* Last 3 offline time entries */}
-          {offlineTimes.length > 0 && (
-            <div className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Recent offline time
-              </p>
-              <div className="space-y-2">
-                {offlineTimes.slice(0, 3).map((o) => (
-                  <div
-                    key={o.id}
-                    className="flex items-center justify-between gap-3 rounded-lg border border-border/40 bg-background/40 px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {o.description}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {new Date(o.start_time).toLocaleDateString()} · {o.status}
-                      </p>
-                    </div>
-                    <span className="shrink-0 font-mono text-sm tabular-nums text-foreground">
-                      {formatDurationSeconds(
-                        Math.round(
-                          (new Date(o.end_time).getTime() - new Date(o.start_time).getTime()) / 1000
-                        )
-                      )}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Time Tab (existing content) ────────────────────────────────────── */}
-      {activeTab === 'time' && (
-        <div className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
+        <div className="overflow-hidden rounded-xl border border-border/80 bg-card text-card-foreground shadow-lg shadow-primary/[0.04] ring-1 ring-border/40">
           <div className="border-b border-border px-3 py-3 sm:px-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
@@ -1561,7 +1379,11 @@ export default function UserHomePage() {
                         </div>
                       ))
                     ) : (
-                      <p className="text-muted-foreground">No tasks for this day.</p>
+                      <p className="text-muted-foreground">
+                        {pendingOfflineDaySeconds > 0
+                          ? 'No approved tracked or offline time for this day — pending request is below.'
+                          : 'No tasks for this day.'}
+                      </p>
                     )}
                   </div>
                   {tasksRollupHasMore ? (
@@ -1680,6 +1502,14 @@ export default function UserHomePage() {
                         title="Offline / manual time"
                       />
                     ))}
+                    {pendingOfflineBarBlocks.map((b) => (
+                      <div
+                        key={`off-pend-${b.key}`}
+                        className="absolute bottom-0 top-0 z-[3] border border-dashed border-amber-700/55 bg-amber-400/40 dark:border-amber-400/50 dark:bg-amber-500/30"
+                        style={{ left: `${b.left}%`, width: `${Math.max(b.width, 0.25)}%` }}
+                        title="Offline time pending approval (not in total)"
+                      />
+                    ))}
                   </div>
                 </div>
               </div>
@@ -1707,6 +1537,11 @@ export default function UserHomePage() {
                           <div className="min-w-0">
                             <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
                               Offline / manual time
+                              {entry.status === 'PENDING' ? (
+                                <span className="ml-2 font-normal normal-case text-muted-foreground">
+                                  · Pending approval
+                                </span>
+                              ) : null}
                             </p>
                             <h3 className="mt-0.5 text-sm font-semibold text-foreground">
                               {entry.description}
@@ -1717,7 +1552,7 @@ export default function UserHomePage() {
                               <button
                                 type="button"
                                 className="text-xs text-destructive hover:underline"
-                                onClick={() => void handleDeleteOffline(entry.id)}
+                                onClick={() => setOfflineDeleteId(entry.id)}
                               >
                                 Delete
                               </button>
@@ -1781,8 +1616,15 @@ export default function UserHomePage() {
               <p className="text-muted-foreground">No tracked or offline time for this day.</p>
             ) : null}
 
-            <div className="mt-8 flex flex-wrap gap-6 border-t border-border pt-6 text-sm">
-              {canAddOfflineTime ? (
+            <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-border pt-6 text-sm">
+              <button
+                type="button"
+                onClick={() => setHistoryInfoOpen(true)}
+                className="border-b border-dotted border-muted-foreground/50 text-muted-foreground hover:text-foreground"
+              >
+                History of changes
+              </button>
+              {showOfflineTimeFooterLink ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -1791,247 +1633,13 @@ export default function UserHomePage() {
                   }}
                   className="border-b border-dotted border-muted-foreground/50 text-muted-foreground hover:text-foreground"
                 >
-                  + Add offline time
+                  Offline time
                 </button>
               ) : null}
-              <button
-                type="button"
-                onClick={() => setHistoryInfoOpen(true)}
-                className="border-b border-dotted border-muted-foreground/50 text-muted-foreground hover:text-foreground"
-              >
-                History of changes
-              </button>
             </div>
           </div>
         </div>
-      )}
-
-      {/* ── Screenshots Tab ────────────────────────────────────────────────── */}
-      {activeTab === 'screenshots' && (
-        <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <p className="text-sm font-semibold text-foreground">
-              {selectedDay.toLocaleDateString('en', {
-                weekday: 'long',
-                month: 'long',
-                day: 'numeric',
-              })}
-            </p>
-            <input
-              type="date"
-              className="rounded-md border border-border bg-background px-2 py-1 text-sm"
-              value={`${selectedDay.getFullYear()}-${String(selectedDay.getMonth() + 1).padStart(2, '0')}-${String(selectedDay.getDate()).padStart(2, '0')}`}
-              onChange={(e) => {
-                const d = new Date(e.target.value + 'T00:00:00')
-                if (!isNaN(d.getTime())) setSelectedDay(startOfLocalDay(d))
-              }}
-            />
-          </div>
-          {loading ? (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {[1, 2, 3, 4, 5, 6].map((i) => (
-                <Skeleton key={i} className="aspect-video rounded-lg" />
-              ))}
-            </div>
-          ) : (
-            <div
-              style={{ columnCount: 3, columnGap: '0.75rem' }}
-              className="[column-count:1] sm:[column-count:2] lg:[column-count:3]"
-            >
-              {screenshots.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  No screenshots for this day.
-                </p>
-              ) : (
-                <ScreenshotGallery
-                  screenshots={screenshots}
-                  cacheScope={screenshotCacheScope || undefined}
-                  showBlur
-                  canManage={canManageScreenshots}
-                  onBlur={canManageScreenshots ? handleScreenshotBlur : undefined}
-                  onDelete={canManageScreenshots ? handleScreenshotDelete : undefined}
-                />
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Activity Tab ───────────────────────────────────────────────────── */}
-      {activeTab === 'activity' && (
-        <div className="space-y-6">
-          {/* Date picker */}
-          <div className="flex items-center gap-3">
-            <p className="text-sm font-semibold text-foreground">
-              {selectedDay.toLocaleDateString('en', {
-                weekday: 'long',
-                month: 'long',
-                day: 'numeric',
-              })}
-            </p>
-            <input
-              type="date"
-              className="rounded-md border border-border bg-background px-2 py-1 text-sm"
-              value={`${selectedDay.getFullYear()}-${String(selectedDay.getMonth() + 1).padStart(2, '0')}-${String(selectedDay.getDate()).padStart(2, '0')}`}
-              onChange={(e) => {
-                const d = new Date(e.target.value + 'T00:00:00')
-                if (!isNaN(d.getTime())) setSelectedDay(startOfLocalDay(d))
-              }}
-            />
-          </div>
-
-          {/* Hourly bar chart */}
-          <div className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Hourly activity
-            </p>
-            {loading ? (
-              <Skeleton className="h-48 w-full rounded-lg" />
-            ) : (
-              <div className="h-48">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={HOURS_24.map((h) => {
-                      const hStart = startOfLocalDay(selectedDay).getTime() + h * 3600_000
-                      const hEnd = hStart + 3600_000
-                      let sec = 0
-                      for (const log of activityLogs) {
-                        const ws = new Date(log.window_start).getTime()
-                        const we = new Date(log.window_end).getTime()
-                        const a = Math.max(hStart, ws)
-                        const b = Math.min(hEnd, we)
-                        if (b > a) sec += (b - a) / 1000
-                      }
-                      return { hour: `${h}`, minutes: Math.round(sec / 60) }
-                    })}
-                    margin={{ top: 4, right: 4, bottom: 0, left: -20 }}
-                  >
-                    <XAxis
-                      dataKey="hour"
-                      tick={{ fontSize: 10 }}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 10 }}
-                      tickLine={false}
-                      axisLine={false}
-                      allowDecimals={false}
-                    />
-                    <RechartsTooltip
-                      content={(props: Record<string, unknown>) => {
-                        const { active, payload } = props as {
-                          active?: boolean
-                          payload?: Array<{ payload: { hour: string; minutes: number } }>
-                        }
-                        if (!active || !payload?.[0]) return null
-                        const d = payload[0].payload
-                        return (
-                          <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm shadow-md">
-                            <p className="font-medium text-foreground">{d.hour}:00</p>
-                            <p className="text-muted-foreground">{d.minutes} min active</p>
-                          </div>
-                        )
-                      }}
-                    />
-                    <Bar dataKey="minutes" fill="hsl(var(--brand-primary))" radius={[3, 3, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
-
-          {/* App usage pie chart + ranked list */}
-          <div className="grid gap-6 lg:grid-cols-2">
-            <div className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                App usage
-              </p>
-              {appRollup.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  No app activity for this day.
-                </p>
-              ) : (
-                <div className="h-52">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={(() => {
-                          const top8 = appRollup.slice(0, 8)
-                          const rest = appRollup.slice(8).reduce((s, [, v]) => s + v, 0)
-                          const items = top8.map(([name, sec]) => ({
-                            name,
-                            value: Math.round(sec / 60),
-                          }))
-                          if (rest > 0) items.push({ name: 'Other', value: Math.round(rest / 60) })
-                          return items
-                        })()}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={40}
-                        outerRadius={80}
-                        dataKey="value"
-                        paddingAngle={2}
-                      >
-                        {appRollup.slice(0, 9).map((_, i) => (
-                          <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <RechartsTooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
-            <div className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Ranked apps
-              </p>
-              <div className="max-h-64 space-y-2 overflow-y-auto">
-                {appRollup.length === 0 ? (
-                  <p className="py-4 text-sm text-muted-foreground">No data</p>
-                ) : (
-                  appRollup.map(([label, sec], i) => {
-                    const totalSec = appRollup.reduce((s, [, v]) => s + v, 0)
-                    const pct = totalSec > 0 ? Math.round((sec / totalSec) * 100) : 0
-                    return (
-                      <div key={label} className="flex items-center gap-2">
-                        <div
-                          className="h-2 w-2 shrink-0 rounded-full"
-                          style={{ background: PIE_COLORS[i % PIE_COLORS.length] }}
-                        />
-                        <span
-                          className="min-w-0 flex-1 truncate text-sm text-foreground"
-                          title={label}
-                        >
-                          {label}
-                        </span>
-                        <div className="flex shrink-0 items-center gap-2">
-                          <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
-                            <div
-                              className="h-full rounded-full"
-                              style={{
-                                width: `${pct}%`,
-                                background: PIE_COLORS[i % PIE_COLORS.length],
-                              }}
-                            />
-                          </div>
-                          <span className="w-8 text-right font-mono text-xs tabular-nums text-muted-foreground">
-                            {pct}%
-                          </span>
-                          <span className="w-14 text-right font-mono text-xs tabular-nums text-foreground">
-                            {formatDurationSeconds(Math.round(sec))}
-                          </span>
-                        </div>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      </div>
 
       {portalReady && offlineModalOpen
         ? createPortal(
@@ -2048,9 +1656,10 @@ export default function UserHomePage() {
                 onClick={(e) => e.stopPropagation()}
               >
                 <h2 id="offline-modal-title" className="text-lg font-semibold text-foreground">
-                  Add offline time
+                  {offlineModalTitle}
                 </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
+                <p className="mt-1 text-sm text-muted-foreground">{offlineModalExplainer}</p>
+                <p className="mt-2 text-xs text-muted-foreground/90">
                   {user?.name ?? 'User'} ·{' '}
                   {selectedDay.toLocaleDateString(undefined, {
                     weekday: 'short',
@@ -2059,14 +1668,21 @@ export default function UserHomePage() {
                     year: 'numeric',
                   })}
                 </p>
+                {offlineSubmitBlocked ? (
+                  <p className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">
+                    Offline time isn&apos;t enabled for your account or organization. Ask an admin
+                    to allow offline time, or to record this time for you.
+                  </p>
+                ) : null}
                 <div className="mt-4 grid gap-3">
                   <label className="grid gap-1 text-sm">
                     <span className="text-muted-foreground">Start (local)</span>
                     <input
                       type="time"
                       value={offlineFormStart}
+                      disabled={offlineSubmitBlocked}
                       onChange={(e) => setOfflineFormStart(e.target.value)}
-                      className="rounded-md border border-border bg-background px-3 py-2 text-foreground"
+                      className="rounded-md border border-border bg-background px-3 py-2 text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </label>
                   <label className="grid gap-1 text-sm">
@@ -2074,17 +1690,19 @@ export default function UserHomePage() {
                     <input
                       type="time"
                       value={offlineFormEnd}
+                      disabled={offlineSubmitBlocked}
                       onChange={(e) => setOfflineFormEnd(e.target.value)}
-                      className="rounded-md border border-border bg-background px-3 py-2 text-foreground"
+                      className="rounded-md border border-border bg-background px-3 py-2 text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </label>
                   <label className="grid gap-1 text-sm">
                     <span className="text-muted-foreground">Description</span>
                     <textarea
                       value={offlineFormDescription}
+                      disabled={offlineSubmitBlocked}
                       onChange={(e) => setOfflineFormDescription(e.target.value)}
                       rows={3}
-                      className="rounded-md border border-border bg-background px-3 py-2 text-foreground"
+                      className="rounded-md border border-border bg-background px-3 py-2 text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                       placeholder="e.g. Client meeting (no laptop)"
                     />
                   </label>
@@ -2102,11 +1720,17 @@ export default function UserHomePage() {
                   </button>
                   <button
                     type="button"
-                    disabled={offlineSubmitting}
+                    disabled={offlineSubmitting || offlineSubmitBlocked}
                     className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                     onClick={() => void submitOfflineTime()}
                   >
-                    {offlineSubmitting ? 'Saving…' : 'Save'}
+                    {offlineSubmitting
+                      ? offlineModalUsesRequestFlow
+                        ? 'Submitting…'
+                        : 'Saving…'
+                      : offlineModalUsesRequestFlow
+                        ? 'Submit request'
+                        : 'Save'}
                   </button>
                 </div>
               </div>
@@ -2149,6 +1773,20 @@ export default function UserHomePage() {
             document.body
           )
         : null}
+
+      <ConfirmDialog
+        open={offlineDeleteId != null}
+        onOpenChange={(open) => {
+          if (!open) setOfflineDeleteId(null)
+        }}
+        title="Remove offline time?"
+        description="Remove this offline time entry? This cannot be undone."
+        variant="danger"
+        confirmLabel="Remove"
+        onConfirm={async () => {
+          if (offlineDeleteId) await executeDeleteOffline(offlineDeleteId)
+        }}
+      />
     </main>
   )
 }

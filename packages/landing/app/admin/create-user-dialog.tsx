@@ -3,6 +3,7 @@
 import type { FormEvent } from 'react'
 import { useState } from 'react'
 import { api } from '@/lib/api'
+import { adminToast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -34,7 +35,6 @@ export function CreateUserDialog({
   onCreated,
 }: CreateUserDialogProps) {
   const [submitting, setSubmitting] = useState(false)
-  const [formMessage, setFormMessage] = useState<string | null>(null)
 
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
@@ -48,7 +48,6 @@ export function CreateUserDialog({
     setNewEmail('')
     setNewPassword('')
     setNewRole('employee')
-    setFormMessage(null)
   }
 
   function handleOpenChange(next: boolean) {
@@ -61,7 +60,6 @@ export function CreateUserDialog({
   async function onCreate(e: FormEvent) {
     e.preventDefault()
     if (!orgId) return
-    setFormMessage(null)
     setSubmitting(true)
     try {
       await api.post(`/v1/platform/orgs/${encodeURIComponent(orgId)}/users`, {
@@ -70,12 +68,13 @@ export function CreateUserDialog({
         password: newPassword,
         role: newRole,
       })
+      adminToast.success('User created')
       await onCreated?.()
       handleOpenChange(false)
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { message?: string } } }
       const msg = ax.response?.data?.message ?? 'Could not create user.'
-      setFormMessage(msg)
+      adminToast.error(msg)
     } finally {
       setSubmitting(false)
     }
@@ -163,7 +162,6 @@ export function CreateUserDialog({
             </select>
           </div>
         </form>
-        {formMessage ? <p className="text-sm text-destructive">{formMessage}</p> : null}
         <DialogFooter className="gap-2 sm:gap-0">
           <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
             Cancel

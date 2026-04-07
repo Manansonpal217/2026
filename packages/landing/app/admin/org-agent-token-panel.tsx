@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Check, Copy, KeyRound } from 'lucide-react'
 import { api } from '@/lib/api'
+import { adminToast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -33,25 +34,21 @@ export function OrgAgentTokenPanel({
 }: OrgAgentTokenPanelProps) {
   const [token, setToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (!active) {
       setToken(null)
-      setError(null)
       setCopied(false)
     }
   }, [active])
 
   useEffect(() => {
     setToken(null)
-    setError(null)
     setCopied(false)
   }, [orgId])
 
   async function generate() {
-    setError(null)
     setCopied(false)
     setLoading(true)
     try {
@@ -60,9 +57,10 @@ export function OrgAgentTokenPanel({
         {}
       )
       setToken(data.token)
+      adminToast.success('Agent token generated')
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { message?: string } } }
-      setError(ax.response?.data?.message ?? 'Could not create token.')
+      adminToast.error(ax.response?.data?.message ?? 'Could not create token.')
     } finally {
       setLoading(false)
     }
@@ -73,9 +71,10 @@ export function OrgAgentTokenPanel({
     try {
       await navigator.clipboard.writeText(token)
       setCopied(true)
+      adminToast.success('Token copied to clipboard')
       window.setTimeout(() => setCopied(false), 2000)
     } catch {
-      setError('Could not copy to clipboard.')
+      adminToast.error('Could not copy to clipboard.')
     }
   }
 
@@ -88,7 +87,6 @@ export function OrgAgentTokenPanel({
         <code className="rounded bg-muted px-1 py-0.5 text-xs">tracksync.token</code> in the agent
         config. The raw token is shown only once.
       </p>
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {!token ? (
         <Button type="button" className="gap-2" loading={loading} onClick={() => void generate()}>
           <KeyRound className="h-4 w-4" aria-hidden />

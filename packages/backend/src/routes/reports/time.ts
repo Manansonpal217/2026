@@ -107,7 +107,7 @@ export async function timeReportRoutes(fastify: FastifyInstance, opts: { config:
           : {}),
       }
 
-      const [sessions, aggregate] = await Promise.all([
+      const [sessions, aggregate, allForBreakdown] = await Promise.all([
         db.timeSession.findMany({
           where,
           orderBy: { started_at: 'desc' },
@@ -120,6 +120,17 @@ export async function timeReportRoutes(fastify: FastifyInstance, opts: { config:
           },
         }),
         db.timeSession.aggregate({ where, _sum: { duration_sec: true } }),
+        db.timeSession.findMany({
+          where,
+          select: {
+            started_at: true,
+            duration_sec: true,
+            user_id: true,
+            project_id: true,
+            project: { select: { name: true } },
+            user: { select: { id: true, name: true, email: true } },
+          },
+        }),
       ])
 
       const total_seconds = aggregate._sum.duration_sec ?? 0
@@ -129,7 +140,7 @@ export async function timeReportRoutes(fastify: FastifyInstance, opts: { config:
 
       if (query.group_by === 'day') {
         const dayMap = new Map<string, { seconds: number; sessions: number }>()
-        for (const s of sessions) {
+        for (const s of allForBreakdown) {
           const day = s.started_at.toISOString().split('T')[0]
           const existing = dayMap.get(day) ?? { seconds: 0, sessions: 0 }
           existing.seconds += s.duration_sec
@@ -141,7 +152,7 @@ export async function timeReportRoutes(fastify: FastifyInstance, opts: { config:
           .map(([label, v]) => ({ label, ...v }))
       } else if (query.group_by === 'project') {
         const projMap = new Map<string, { name: string; seconds: number; sessions: number }>()
-        for (const s of sessions) {
+        for (const s of allForBreakdown) {
           const key = s.project_id ?? 'no-project'
           const name = s.project?.name ?? 'No project'
           const existing = projMap.get(key) ?? { name, seconds: 0, sessions: 0 }
@@ -154,7 +165,7 @@ export async function timeReportRoutes(fastify: FastifyInstance, opts: { config:
           .map(({ name, seconds, sessions: sc }) => ({ label: name, seconds, sessions: sc }))
       } else if (query.group_by === 'user') {
         const userMap = new Map<string, { name: string; seconds: number; sessions: number }>()
-        for (const s of sessions) {
+        for (const s of allForBreakdown) {
           const key = s.user_id
           const name = s.user?.name ?? 'Unknown'
           const existing = userMap.get(key) ?? { name, seconds: 0, sessions: 0 }
@@ -167,7 +178,7 @@ export async function timeReportRoutes(fastify: FastifyInstance, opts: { config:
           .map(({ name, seconds, sessions: sc }) => ({ label: name, seconds, sessions: sc }))
       } else if (query.group_by === 'week') {
         const weekMap = new Map<string, { seconds: number; sessions: number }>()
-        for (const s of sessions) {
+        for (const s of allForBreakdown) {
           const y = getISOWeekYear(s.started_at)
           const w = getISOWeek(s.started_at)
           const label = `${y}-W${String(w).padStart(2, '0')}`

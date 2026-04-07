@@ -79,6 +79,7 @@ const MANAGER_PERMISSIONS: readonly Permission[] = [
   Permission.MANAGERS_ACCESS,
   Permission.OFFLINE_TIME_MANAGE_USER,
   Permission.REPORTS_VIEW,
+  Permission.REPORTS_EXPORT,
 ]
 
 const VIEWER_PERMISSIONS: readonly Permission[] = [

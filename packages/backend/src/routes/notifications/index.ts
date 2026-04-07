@@ -4,6 +4,7 @@ import { prisma } from '../../db/prisma.js'
 import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
+import { registerSSE } from '../../lib/sse.js'
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -21,7 +22,7 @@ export async function notificationRoutes(fastify: FastifyInstance, opts: { confi
     preHandler: [authenticate],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
-      void req.user
+      const userId = req.user!.id
 
       reply.hijack()
       reply.raw.writeHead(200, SSE_HEADERS as unknown as Record<string, string | number | string[]>)
@@ -32,9 +33,11 @@ export async function notificationRoutes(fastify: FastifyInstance, opts: { confi
         try {
           res.write(': ping\n\n')
         } catch {
-          if (heartbeat !== undefined) clearInterval(heartbeat)
+          clearInterval(heartbeat)
         }
       }, HEARTBEAT_MS)
+
+      registerSSE(userId, res, () => clearInterval(heartbeat))
     },
   })
 

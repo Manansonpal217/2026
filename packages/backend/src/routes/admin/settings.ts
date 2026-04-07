@@ -10,6 +10,7 @@ import { SETTINGS_PATCH_KEY_PERMISSION, Permission, hasPermission } from '../../
 import {
   orgSettingsScalarPatchSchema as patchSettingsSchema,
   assertActivityWeightsSum,
+  GLOBAL_SCREENSHOT_RETENTION_DAYS,
 } from '../../lib/org-settings-fields.js'
 import { isOverridableKey, type OverridableKey } from '../../lib/settings.js'
 import { registerOrgReportJobs } from '../../lib/report-jobs.js'
@@ -37,7 +38,11 @@ export async function adminSettingsRoutes(fastify: FastifyInstance, opts: { conf
       const settings = await prisma.orgSettings.findFirst({
         where: { org_id: req.user!.org_id },
       })
-      return { settings }
+      return {
+        settings: settings
+          ? { ...settings, screenshot_retention_days: GLOBAL_SCREENSHOT_RETENTION_DAYS }
+          : settings,
+      }
     },
   })
 
@@ -57,9 +62,15 @@ export async function adminSettingsRoutes(fastify: FastifyInstance, opts: { conf
       }
 
       const { timezone, ...settingsData } = body.data
+      const settingsDataWithRetention = {
+        ...settingsData,
+        screenshot_retention_days: GLOBAL_SCREENSHOT_RETENTION_DAYS,
+      }
 
-      for (const key of Object.keys(settingsData) as (keyof typeof settingsData)[]) {
-        if (settingsData[key] === undefined) continue
+      for (const key of Object.keys(
+        settingsDataWithRetention
+      ) as (keyof typeof settingsDataWithRetention)[]) {
+        if (settingsDataWithRetention[key] === undefined) continue
         const perm =
           SETTINGS_PATCH_KEY_PERMISSION[key as string] ?? Permission.SETTINGS_MANAGE_ADVANCED
         if (!hasPermission(user, perm)) {
@@ -72,7 +83,7 @@ export async function adminSettingsRoutes(fastify: FastifyInstance, opts: { conf
 
       const existing = await prisma.orgSettings.findFirst({ where: { org_id: user.org_id } })
       try {
-        assertActivityWeightsSum(settingsData, existing)
+        assertActivityWeightsSum(settingsDataWithRetention, existing)
       } catch (e) {
         const err = e as { code?: string; message?: string }
         if (err.code === 'INVALID_WEIGHTS') {
@@ -89,8 +100,8 @@ export async function adminSettingsRoutes(fastify: FastifyInstance, opts: { conf
       // Update OrgSettings
       const updated = await prisma.orgSettings.upsert({
         where: { org_id: user.org_id },
-        create: { org_id: user.org_id, ...settingsData },
-        update: settingsData,
+        create: { org_id: user.org_id, ...settingsDataWithRetention },
+        update: settingsDataWithRetention,
       })
 
       // Update Organization.timezone if provided
@@ -115,11 +126,14 @@ export async function adminSettingsRoutes(fastify: FastifyInstance, opts: { conf
         targetType: 'org_settings',
         targetId: user.org_id,
         oldValue,
-        newValue: { ...settingsData, ...(timezone ? { timezone } : {}) },
+        newValue: { ...settingsDataWithRetention, ...(timezone ? { timezone } : {}) },
         ip: request.ip,
       })
 
-      return { settings: updated, ...(newTimezone ? { timezone: newTimezone } : {}) }
+      return {
+        settings: { ...updated, screenshot_retention_days: GLOBAL_SCREENSHOT_RETENTION_DAYS },
+        ...(newTimezone ? { timezone: newTimezone } : {}),
+      }
     },
   })
 

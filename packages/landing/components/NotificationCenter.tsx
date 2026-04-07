@@ -6,7 +6,7 @@ import { useSession } from 'next-auth/react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertTriangle, Check, CheckCircle2, Clock, CreditCard, Info, Timer, X } from 'lucide-react'
 import { api } from '@/lib/api'
-import { isManagerOrAbove } from '@/lib/roles'
+import { isManagerOrAbove, normalizeOrgRole } from '@/lib/roles'
 import { useNotificationStore } from '@/stores/notificationStore'
 import type { AppNotification } from '@/stores/notificationStore'
 import { cn } from '@/lib/utils'
@@ -23,9 +23,33 @@ type NotifPayload = {
   resolver_name?: string
 }
 
+/** Prisma / RFC4122 UUIDs */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function isUuidString(s: string | undefined): boolean {
+  return typeof s === 'string' && s.length > 0 && UUID_RE.test(s.trim())
+}
+
 function parsePayload(n: AppNotification): NotifPayload {
-  if (!n.payload || typeof n.payload !== 'object') return {}
-  return n.payload as NotifPayload
+  let raw: unknown = n.payload
+  if (typeof raw === 'string') {
+    try {
+      raw = JSON.parse(raw) as Record<string, unknown>
+    } catch {
+      return {}
+    }
+  }
+  if (!raw || typeof raw !== 'object') return {}
+  const p = raw as Record<string, unknown>
+  const fromOfflineKey =
+    (typeof p.offline_time_id === 'string' ? p.offline_time_id.trim() : undefined) ??
+    (typeof p.offlineTimeId === 'string' ? p.offlineTimeId.trim() : undefined)
+  const fromGenericId = typeof p.id === 'string' && isUuidString(p.id) ? p.id.trim() : undefined
+  const offline_time_id = fromOfflineKey ?? fromGenericId
+  return {
+    ...(p as NotifPayload),
+    offline_time_id,
+  }
 }
 
 function iconForType(type: string) {
@@ -115,51 +139,77 @@ function NotificationCard({
   >('idle')
   const [rejectNote, setRejectNote] = useState('')
   const [conflictName, setConflictName] = useState('')
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const offlineId = p.offline_time_id
+  const offlineIdValid = isUuidString(offlineId)
 
   const showInlineActions =
     n.type === 'OFFLINE_TIME_SUBMITTED' &&
     isManager &&
-    p.offline_time_id &&
+    offlineIdValid &&
     actionState !== 'resolved' &&
     actionState !== 'conflict'
 
   async function handleApprove() {
-    if (!p.offline_time_id) return
+    if (!offlineId || !offlineIdValid) return
+    setActionError(null)
     setActionState('approving')
     try {
-      await api.patch(`/v1/app/offline-time/${p.offline_time_id}/approve`)
+      await api.patch(`/v1/app/offline-time/${encodeURIComponent(offlineId)}/approve`, {})
       markRead(n.id)
       setActionState('resolved')
       setTimeout(() => onDismiss(n.id), 1500)
     } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status
+      const ax = err as {
+        response?: {
+          status?: number
+          data?: { message?: string; resolver_name?: string; resolver?: string }
+        }
+      }
+      const status = ax.response?.status
+      const data = ax.response?.data
       if (status === 409) {
-        const data = (err as { response?: { data?: { resolver_name?: string } } })?.response?.data
-        setConflictName(data?.resolver_name ?? 'someone')
+        setConflictName(data?.resolver_name ?? data?.resolver ?? 'someone')
         setActionState('conflict')
+      } else if (status === 403) {
+        setActionError(data?.message ?? 'You cannot act on this request')
+        setActionState('idle')
       } else {
+        setActionError(data?.message ?? (err instanceof Error ? err.message : 'Could not approve'))
         setActionState('idle')
       }
     }
   }
 
   async function handleReject() {
-    if (!p.offline_time_id || !rejectNote.trim()) return
+    if (!offlineId || !offlineIdValid || !rejectNote.trim()) return
+    setActionError(null)
     setActionState('rejecting')
     try {
-      await api.patch(`/v1/app/offline-time/${p.offline_time_id}/reject`, {
+      await api.patch(`/v1/app/offline-time/${encodeURIComponent(offlineId)}/reject`, {
         approver_note: rejectNote.trim(),
       })
       markRead(n.id)
       setActionState('resolved')
       setTimeout(() => onDismiss(n.id), 1500)
     } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status
+      const ax = err as {
+        response?: {
+          status?: number
+          data?: { message?: string; resolver_name?: string; resolver?: string }
+        }
+      }
+      const status = ax.response?.status
+      const data = ax.response?.data
       if (status === 409) {
-        const data = (err as { response?: { data?: { resolver_name?: string } } })?.response?.data
-        setConflictName(data?.resolver_name ?? 'someone')
+        setConflictName(data?.resolver_name ?? data?.resolver ?? 'someone')
         setActionState('conflict')
+      } else if (status === 403) {
+        setActionError(data?.message ?? 'You cannot act on this request')
+        setActionState('reject-form')
       } else {
+        setActionError(data?.message ?? (err instanceof Error ? err.message : 'Could not reject'))
         setActionState('reject-form')
       }
     }
@@ -195,6 +245,18 @@ function NotificationCard({
             <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
               Resolved by {conflictName}
             </p>
+          )}
+
+          {n.type === 'OFFLINE_TIME_SUBMITTED' && isManager && !offlineIdValid && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              This alert is missing a valid request id. Open{' '}
+              <span className="font-medium text-foreground">Offline time</span> to approve pending
+              entries.
+            </p>
+          )}
+
+          {actionError && (actionState === 'idle' || actionState === 'reject-form') && (
+            <p className="mt-2 text-xs text-destructive">{actionError}</p>
           )}
 
           {showInlineActions && actionState === 'idle' && (
@@ -262,8 +324,8 @@ function NotificationCard({
 
 export function NotificationCenter({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { data: session } = useSession()
-  const role = session?.user?.role as string | undefined
-  const isManager = isManagerOrAbove(role)
+  const sessionRole = normalizeOrgRole(session?.user?.role as string | undefined)
+  const isManager = isManagerOrAbove(sessionRole)
   const { notifications, markAllRead } = useNotificationStore()
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set())
   const panelRef = useRef<HTMLDivElement>(null)
@@ -282,6 +344,7 @@ export function NotificationCenter({ open, onClose }: { open: boolean; onClose: 
   }, [open, onClose])
 
   const visibleNotifs = notifications.filter((n) => !dismissedIds.has(n.id))
+  const hasUnread = visibleNotifs.some((n) => !n.read_at)
   const grouped = groupByDate(visibleNotifs)
 
   if (typeof window === 'undefined') return null
@@ -312,13 +375,15 @@ export function NotificationCenter({ open, onClose }: { open: boolean; onClose: 
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
               <h2 className="text-lg font-semibold text-foreground">Notifications</h2>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => markAllRead()}
-                  className="text-xs font-medium text-primary hover:underline"
-                >
-                  Mark all read
-                </button>
+                {hasUnread ? (
+                  <button
+                    type="button"
+                    onClick={() => markAllRead()}
+                    className="text-xs font-medium text-primary hover:underline"
+                  >
+                    Mark all read
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={onClose}

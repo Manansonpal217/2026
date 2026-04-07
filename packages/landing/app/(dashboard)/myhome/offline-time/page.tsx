@@ -1,15 +1,17 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSession } from 'next-auth/react'
+import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
-import { format, differenceInMinutes, subDays, isAfter, isBefore } from 'date-fns'
-import { Clock, ChevronDown, ChevronUp, Check, X } from 'lucide-react'
+import { format, differenceInMinutes } from 'date-fns'
+import { isAxiosError } from 'axios'
+import { Clock, ExternalLink } from 'lucide-react'
+import { useSession } from 'next-auth/react'
 import { api } from '@/lib/api'
-import { isManagerOrAbove, normalizeOrgRole } from '@/lib/roles'
-import { InitialsAvatar } from '@/components/ui/initials-avatar'
+import { normalizeOrgRole, isManagerOrAbove } from '@/lib/roles'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 // ── Types ───────────────────────────────────────────────────────────────────────
 
@@ -68,7 +70,7 @@ function formatRange(start: string, end: string): string {
   return `${format(s, 'MMM d HH:mm')} – ${format(e, 'MMM d HH:mm, yyyy')}`
 }
 
-// ── Timeline Component ──────────────────────────────────────────────────────────
+// ── Timeline (my entries) ───────────────────────────────────────────────────────
 
 function TimelineSkeleton() {
   return (
@@ -182,362 +184,236 @@ function OfflineTimeTimeline({
   )
 }
 
-// ── Submit Form Component ───────────────────────────────────────────────────────
+// ── Pending approvals (managers) ────────────────────────────────────────────────
 
-function SubmitRequestForm({
-  approvedEntries,
-  onSubmitted,
-}: {
-  approvedEntries: OfflineTimeEntry[]
-  onSubmitted: () => void
-}) {
-  const today = format(new Date(), 'yyyy-MM-dd')
-  const min30 = format(subDays(new Date(), 30), 'yyyy-MM-dd')
-
-  const [selectedDate, setSelectedDate] = useState(today)
-  const [startHour, setStartHour] = useState(9)
-  const [startMin, setStartMin] = useState(0)
-  const [endHour, setEndHour] = useState(10)
-  const [endMin, setEndMin] = useState(0)
-  const [description, setDescription] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const handleSubmit = useCallback(
-    async (ev: React.FormEvent) => {
-      ev.preventDefault()
-      setError(null)
-
-      const start = new Date(
-        `${selectedDate}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00`
-      )
-      const end = new Date(
-        `${selectedDate}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`
-      )
-
-      if (end <= start) {
-        setError('End time must be after start time')
-        return
-      }
-      if (isAfter(end, new Date())) {
-        setError('End time cannot be in the future')
-        return
-      }
-      if (isBefore(start, subDays(new Date(), 30))) {
-        setError('Start time cannot be more than 30 days ago')
-        return
-      }
-
-      const hasOverlap = approvedEntries.some((e) => {
-        const eStart = new Date(e.start_time)
-        const eEnd = new Date(e.end_time)
-        return end > eStart && start < eEnd
-      })
-      if (hasOverlap) {
-        setError('This time range overlaps with an existing approved entry')
-        return
-      }
-
-      setSubmitting(true)
-      try {
-        await api.post('/v1/app/offline-time/request', {
-          start_time: start.toISOString(),
-          end_time: end.toISOString(),
-          description,
-        })
-        setDescription('')
-        onSubmitted()
-      } catch (err: unknown) {
-        const axErr = err as { response?: { data?: { code?: string; message?: string } } }
-        setError(axErr.response?.data?.message ?? 'Failed to submit request')
-      } finally {
-        setSubmitting(false)
-      }
-    },
-    [selectedDate, startHour, startMin, endHour, endMin, description, approvedEntries, onSubmitted]
-  )
-
+function PendingSkeleton() {
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="rounded-xl border border-border/60 bg-card p-4 shadow-sm"
-    >
-      <h3 className="mb-3 font-semibold text-sm">Submit Offline Time Request</h3>
-
-      <label className="mb-1 block text-xs text-muted-foreground">Date</label>
-      <input
-        type="date"
-        value={selectedDate}
-        min={min30}
-        max={today}
-        onChange={(e) => setSelectedDate(e.target.value)}
-        className="mb-3 block w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-      />
-
-      <div className="mb-3 grid grid-cols-2 gap-3">
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">Start</label>
-          <div className="flex gap-1">
-            <input
-              type="number"
-              min={0}
-              max={23}
-              value={startHour}
-              onChange={(e) => setStartHour(Number(e.target.value))}
-              className="w-14 rounded-md border border-border bg-background px-2 py-1.5 text-center text-sm font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-            />
-            <span className="self-center text-muted-foreground">:</span>
-            <input
-              type="number"
-              min={0}
-              max={59}
-              step={5}
-              value={startMin}
-              onChange={(e) => setStartMin(Number(e.target.value))}
-              className="w-14 rounded-md border border-border bg-background px-2 py-1.5 text-center text-sm font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-            />
-          </div>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">End</label>
-          <div className="flex gap-1">
-            <input
-              type="number"
-              min={0}
-              max={23}
-              value={endHour}
-              onChange={(e) => setEndHour(Number(e.target.value))}
-              className="w-14 rounded-md border border-border bg-background px-2 py-1.5 text-center text-sm font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-            />
-            <span className="self-center text-muted-foreground">:</span>
-            <input
-              type="number"
-              min={0}
-              max={59}
-              step={5}
-              value={endMin}
-              onChange={(e) => setEndMin(Number(e.target.value))}
-              className="w-14 rounded-md border border-border bg-background px-2 py-1.5 text-center text-sm font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-            />
-          </div>
-        </div>
-      </div>
-
-      <label className="mb-1 block text-xs text-muted-foreground">Reason</label>
-      <textarea
-        value={description}
-        onChange={(e) => setDescription(e.target.value.slice(0, 200))}
-        maxLength={200}
-        rows={2}
-        className="mb-1 block w-full resize-none rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/40"
-        placeholder="What were you working on?"
-      />
-      <p className="mb-3 text-right text-[10px] text-muted-foreground">{description.length}/200</p>
-
-      {error && <p className="mb-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
-
-      <Button type="submit" className="w-full" disabled={submitting || description.length === 0}>
-        {submitting ? (
-          <span className="flex items-center gap-2">
-            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            Submitting...
-          </span>
-        ) : (
-          'Submit Request'
-        )}
-      </Button>
-    </form>
-  )
-}
-
-// ── Manager Pending Panel ───────────────────────────────────────────────────────
-
-function PendingCard({ entry, onResolved }: { entry: OfflineTimeEntry; onResolved: () => void }) {
-  const [expanded, setExpanded] = useState(false)
-  const [rejectMode, setRejectMode] = useState(false)
-  const [note, setNote] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [resolvedBy, setResolvedBy] = useState<string | null>(null)
-
-  const handleApprove = useCallback(async () => {
-    setLoading(true)
-    try {
-      await api.patch(`/v1/app/offline-time/${entry.id}/approve`, {})
-      onResolved()
-    } catch (err: unknown) {
-      const axErr = err as { response?: { status?: number; data?: { resolver?: string } } }
-      if (axErr.response?.status === 409) {
-        setResolvedBy(axErr.response.data?.resolver ?? 'someone')
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [entry.id, onResolved])
-
-  const handleReject = useCallback(async () => {
-    if (!note.trim()) return
-    setLoading(true)
-    try {
-      await api.patch(`/v1/app/offline-time/${entry.id}/reject`, { approver_note: note })
-      onResolved()
-    } catch (err: unknown) {
-      const axErr = err as { response?: { status?: number; data?: { resolver?: string } } }
-      if (axErr.response?.status === 409) {
-        setResolvedBy(axErr.response.data?.resolver ?? 'someone')
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [entry.id, note, onResolved])
-
-  if (resolvedBy) {
-    return (
-      <div className="rounded-xl border border-border/40 bg-muted/30 p-4 opacity-60">
-        <p className="text-xs text-muted-foreground">Resolved by {resolvedBy}</p>
-      </div>
-    )
-  }
-
-  const userName = entry.user?.name ?? 'Unknown'
-  const descTruncated = entry.description.length > 80
-
-  return (
-    <div className="rounded-xl border border-border/60 bg-card p-4 shadow-sm">
-      <div className="flex items-start gap-3">
-        <InitialsAvatar name={userName} size="sm" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">{userName}</p>
-          <p className="font-mono text-xs tabular-nums text-muted-foreground">
-            {formatRange(entry.start_time, entry.end_time)} (
-            {formatDuration(entry.start_time, entry.end_time)})
-          </p>
-          <p
-            className={`mt-1 text-xs text-foreground/80 ${!expanded && descTruncated ? 'line-clamp-2' : ''}`}
-          >
-            {entry.description}
-          </p>
-          {descTruncated && (
-            <button
-              type="button"
-              onClick={() => setExpanded(!expanded)}
-              className="mt-0.5 flex items-center gap-0.5 text-[10px] text-brand-primary hover:underline"
-            >
-              {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-              {expanded ? 'Less' : 'More'}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {!rejectMode ? (
-        <div className="mt-3 flex gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleApprove}
-            disabled={loading}
-            className="flex-1 text-emerald-600 border-emerald-300 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-950"
-          >
-            <Check className="mr-1.5 h-3.5 w-3.5" />
-            Approve
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setRejectMode(true)}
-            disabled={loading}
-            className="flex-1 text-red-600 border-red-300 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950"
-          >
-            <X className="mr-1.5 h-3.5 w-3.5" />
-            Reject
-          </Button>
-        </div>
-      ) : (
-        <div className="mt-3">
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            rows={2}
-            className="mb-2 block w-full resize-none rounded-md border border-border bg-background px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-red-300"
-            placeholder="Reason for rejection (required)"
-          />
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setRejectMode(false)}
-              disabled={loading}
-              className="flex-1"
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              variant="default"
-              onClick={handleReject}
-              disabled={loading || note.trim().length === 0}
-              className="flex-1 bg-red-600 text-white hover:bg-red-700"
-            >
-              Confirm Reject
-            </Button>
-          </div>
-        </div>
-      )}
+    <div className="space-y-3">
+      {[1, 2, 3].map((i) => (
+        <Skeleton key={i} className="h-36 w-full rounded-xl" />
+      ))}
     </div>
   )
 }
 
-function ManagerPendingPanel({
+function PendingApprovalsQueue({
   entries,
   loading,
-  onResolved,
+  onChanged,
 }: {
   entries: OfflineTimeEntry[]
   loading: boolean
-  onResolved: () => void
+  onChanged: () => void
 }) {
-  if (loading) {
+  const [actingId, setActingId] = useState<string | null>(null)
+  const [rejectingId, setRejectingId] = useState<string | null>(null)
+  const [rejectNote, setRejectNote] = useState('')
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const approve = async (id: string) => {
+    setActionError(null)
+    setActingId(id)
+    try {
+      await api.patch(`/v1/app/offline-time/${id}/approve`, {})
+      onChanged()
+    } catch (err: unknown) {
+      if (isAxiosError(err)) {
+        const data = err.response?.data as { message?: string; resolver_name?: string } | undefined
+        setActionError(
+          data?.message ??
+            (err.response?.status === 409
+              ? `Already resolved${data?.resolver_name ? ` by ${data.resolver_name}` : ''}`
+              : 'Could not approve')
+        )
+      } else {
+        setActionError(err instanceof Error ? err.message : 'Could not approve')
+      }
+    } finally {
+      setActingId(null)
+    }
+  }
+
+  const reject = async (id: string) => {
+    const note = rejectNote.trim()
+    if (!note) {
+      setActionError('A short reason is required when rejecting.')
+      return
+    }
+    setActionError(null)
+    setActingId(id)
+    try {
+      await api.patch(`/v1/app/offline-time/${id}/reject`, { approver_note: note })
+      setRejectingId(null)
+      setRejectNote('')
+      onChanged()
+    } catch (err: unknown) {
+      if (isAxiosError(err)) {
+        const data = err.response?.data as { message?: string; resolver_name?: string } | undefined
+        setActionError(
+          data?.message ??
+            (err.response?.status === 409
+              ? `Already resolved${data?.resolver_name ? ` by ${data.resolver_name}` : ''}`
+              : 'Could not reject')
+        )
+      } else {
+        setActionError(err instanceof Error ? err.message : 'Could not reject')
+      }
+    } finally {
+      setActingId(null)
+    }
+  }
+
+  if (loading) return <PendingSkeleton />
+
+  if (entries.length === 0) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-6 w-40" />
-        {[1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-32 w-full rounded-xl" />
-        ))}
+      <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-muted/20 py-14 text-center">
+        <p className="text-sm font-medium text-foreground">No pending requests</p>
+        <p className="mt-2 max-w-md text-sm text-muted-foreground">
+          When someone on your team submits offline or manual time, it will appear here for you to
+          approve or reject. You&apos;ll also get a notification.
+        </p>
       </div>
     )
   }
 
   return (
-    <div>
-      <div className="mb-3 flex items-center gap-2">
-        <h3 className="font-semibold text-sm">Pending Approvals</h3>
-        {entries.length > 0 && (
-          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
-            {entries.length}
-          </span>
-        )}
-      </div>
-      {entries.length === 0 ? (
-        <div className="rounded-xl border border-border/60 bg-card p-8 text-center">
-          <p className="text-xs text-muted-foreground">No pending approvals</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {entries.map((e) => (
-            <PendingCard key={e.id} entry={e} onResolved={onResolved} />
-          ))}
-        </div>
-      )}
+    <div className="space-y-4">
+      {actionError ? (
+        <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          {actionError}
+        </p>
+      ) : null}
+      <AnimatePresence initial={false}>
+        {entries.map((e) => {
+          const u = e.user
+          const busy = actingId === e.id
+          return (
+            <motion.div
+              key={e.id}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, height: 0 }}
+              className="rounded-xl border border-border/60 bg-card shadow-sm border-l-4 border-l-amber-500 p-4"
+            >
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <span className="font-semibold text-foreground">
+                      {u?.name ?? 'Team member'}
+                    </span>
+                    {u?.email ? (
+                      <span className="text-xs text-muted-foreground">{u.email}</span>
+                    ) : null}
+                  </div>
+                  {u?.id ? (
+                    <Link
+                      href={`/myhome/${u.id}`}
+                      className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                    >
+                      Open day activity
+                      <ExternalLink className="h-3 w-3" aria-hidden />
+                    </Link>
+                  ) : null}
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-sm tabular-nums text-foreground/90">
+                      {formatRange(e.start_time, e.end_time)}
+                    </span>
+                    <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                      ({formatDuration(e.start_time, e.end_time)})
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-foreground/90">{e.description}</p>
+                  {e.requested_by && e.requested_by.id !== e.user_id ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Requested by {e.requested_by.name}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+                  {rejectingId === e.id ? (
+                    <div className="w-full min-w-[min(100%,280px)] space-y-2">
+                      <label className="grid gap-1 text-left text-xs text-muted-foreground">
+                        Reason for rejection (shown to the employee)
+                        <textarea
+                          value={rejectNote}
+                          onChange={(ev) => setRejectNote(ev.target.value)}
+                          rows={3}
+                          className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+                          disabled={busy}
+                        />
+                      </label>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="border-destructive/50 text-destructive hover:bg-destructive/10"
+                          disabled={busy || !rejectNote.trim()}
+                          onClick={() => void reject(e.id)}
+                        >
+                          {busy ? 'Submitting…' : 'Confirm reject'}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() => {
+                            setRejectingId(null)
+                            setRejectNote('')
+                            setActionError(null)
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={busy || rejectingId !== null}
+                        onClick={() => void approve(e.id)}
+                      >
+                        {busy ? 'Working…' : 'Approve'}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={busy || (rejectingId !== null && rejectingId !== e.id)}
+                        onClick={() => {
+                          setRejectingId(e.id)
+                          setRejectNote('')
+                          setActionError(null)
+                        }}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )
+        })}
+      </AnimatePresence>
     </div>
   )
 }
 
 // ── Page ────────────────────────────────────────────────────────────────────────
 
+type ManagerTab = 'approvals' | 'mine'
+
 export default function OfflineTimePage() {
-  const { data: session } = useSession()
-  const role = normalizeOrgRole((session?.user as { role?: string } | undefined)?.role)
-  const showManagerPanel = isManagerOrAbove(role)
+  const { data: session, status: sessionStatus } = useSession()
+  const sessionRole = normalizeOrgRole(session?.user?.role as string | undefined)
+  const showApproverUi = isManagerOrAbove(sessionRole)
+
+  const [managerTab, setManagerTab] = useState<ManagerTab>('approvals')
 
   const [entries, setEntries] = useState<OfflineTimeEntry[]>([])
   const [total, setTotal] = useState(0)
@@ -545,9 +421,7 @@ export default function OfflineTimePage() {
   const [loadingEntries, setLoadingEntries] = useState(true)
 
   const [pending, setPending] = useState<OfflineTimeEntry[]>([])
-  const [loadingPending, setLoadingPending] = useState(true)
-
-  const approvedEntries = useMemo(() => entries.filter((e) => e.status === 'APPROVED'), [entries])
+  const [loadingPending, setLoadingPending] = useState(false)
 
   const fetchEntries = useCallback(async (p: number) => {
     setLoadingEntries(true)
@@ -564,66 +438,120 @@ export default function OfflineTimePage() {
   }, [])
 
   const fetchPending = useCallback(async () => {
-    if (!showManagerPanel) return
+    if (!showApproverUi) return
     setLoadingPending(true)
     try {
-      const res = await api.get('/v1/app/offline-time/pending')
-      setPending(res.data.pending)
+      const res = await api.get<{ pending: OfflineTimeEntry[]; count: number }>(
+        '/v1/app/offline-time/pending'
+      )
+      setPending(res.data.pending ?? [])
     } catch {
-      /* noop */
+      setPending([])
     } finally {
       setLoadingPending(false)
     }
-  }, [showManagerPanel])
+  }, [showApproverUi])
 
   useEffect(() => {
-    fetchEntries(1)
-  }, [fetchEntries])
+    if (sessionStatus !== 'authenticated') return
+    void fetchEntries(1)
+  }, [fetchEntries, sessionStatus])
 
   useEffect(() => {
-    fetchPending()
-  }, [fetchPending])
+    if (sessionStatus !== 'authenticated' || !showApproverUi) return
+    void fetchPending()
+  }, [fetchPending, sessionStatus, showApproverUi])
 
-  const handleSubmitted = useCallback(() => {
-    fetchEntries(1)
-    fetchPending()
-  }, [fetchEntries, fetchPending])
+  const onPendingChanged = useCallback(() => {
+    void fetchPending()
+    void fetchEntries(page)
+  }, [fetchPending, fetchEntries, page])
+
+  const pendingCount = pending.length
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+    <div
+      className={cn(
+        'relative isolate mx-auto w-full px-4 py-8 sm:px-6 lg:px-8',
+        showApproverUi ? 'max-w-4xl' : 'max-w-3xl'
+      )}
+    >
+      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden>
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_90%_60%_at_50%_-15%,hsl(var(--primary)/0.14),transparent_55%)]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-primary/[0.04] via-background to-muted/45" />
+        <div className="absolute -right-24 top-10 h-[28rem] w-[28rem] rounded-full bg-amber-500/[0.09] blur-3xl dark:bg-amber-500/[0.12]" />
+        <div className="absolute -left-16 bottom-0 h-80 w-80 rounded-full bg-sky-500/10 blur-3xl dark:bg-sky-500/[0.12]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,hsl(var(--border)/0.35)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border)/0.35)_1px,transparent_1px)] bg-[length:56px_56px] opacity-[0.35] [mask-image:radial-gradient(ellipse_75%_60%_at_50%_0%,#000_25%,transparent_100%)] dark:opacity-[0.2]" />
+      </div>
       <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Offline Time</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Offline time</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Track and manage your offline work hours
+          {showApproverUi ? (
+            <>
+              Review pending team requests, or switch to{' '}
+              <span className="font-medium text-foreground">My offline time</span> for your own
+              entries. To add time for yourself or your team, use a person&apos;s day on{' '}
+              <span className="font-medium text-foreground">Home</span>.
+            </>
+          ) : (
+            <>
+              Your offline and manual time (all statuses). Add entries from a day on your{' '}
+              <span className="font-medium text-foreground">Home</span> profile.
+            </>
+          )}
         </p>
       </div>
 
-      <div className="flex flex-col gap-6 lg:flex-row">
-        {/* Left panel — Timeline (60%) */}
-        <div className="min-w-0 flex-[3]">
-          <OfflineTimeTimeline
-            entries={entries}
-            loading={loadingEntries}
-            page={page}
-            total={total}
-            pageSize={20}
-            onPageChange={(p) => fetchEntries(p)}
-          />
+      {showApproverUi ? (
+        <div className="mb-6 flex gap-1 rounded-lg border border-border/80 bg-muted/30 p-1">
+          <button
+            type="button"
+            onClick={() => setManagerTab('approvals')}
+            className={cn(
+              'flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+              managerTab === 'approvals'
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            Approvals
+            {pendingCount > 0 ? (
+              <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
+                ({pendingCount})
+              </span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            onClick={() => setManagerTab('mine')}
+            className={cn(
+              'flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+              managerTab === 'mine'
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            My offline time
+          </button>
         </div>
+      ) : null}
 
-        {/* Right panel — Actions (40%) */}
-        <div className="flex flex-col gap-6 lg:w-[40%] lg:max-w-md">
-          <SubmitRequestForm approvedEntries={approvedEntries} onSubmitted={handleSubmitted} />
-
-          {showManagerPanel && (
-            <ManagerPendingPanel
-              entries={pending}
-              loading={loadingPending}
-              onResolved={handleSubmitted}
-            />
-          )}
-        </div>
-      </div>
+      {showApproverUi && managerTab === 'approvals' ? (
+        <PendingApprovalsQueue
+          entries={pending}
+          loading={loadingPending}
+          onChanged={onPendingChanged}
+        />
+      ) : (
+        <OfflineTimeTimeline
+          entries={entries}
+          loading={loadingEntries}
+          page={page}
+          total={total}
+          pageSize={20}
+          onPageChange={(p) => void fetchEntries(p)}
+        />
+      )}
     </div>
   )
 }

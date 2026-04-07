@@ -78,6 +78,10 @@ export function hasVisibleConfigurationSidebarLinks(
   role: string | undefined,
   isPlatformAdmin: boolean | undefined
 ): boolean {
+  /** Org managers use the main app nav only; team/org users/settings links are not offered. */
+  if (role === 'manager') {
+    return hasPlatformConfigurationLinks(role, isPlatformAdmin)
+  }
   return (
     hasWorkspaceConfigurationLinks(role) ||
     hasTeamConfigurationLink(role) ||
@@ -102,7 +106,7 @@ export function getConfigurationEntryHref(
   isPlatformAdmin: boolean | undefined
 ): string {
   if (isOrgAdminRole(role)) return '/myhome/organization/settings'
-  if (role === 'manager') return '/myhome/organization/users'
+  if (role === 'manager') return '/myhome'
   if (isOrgSuperAdmin(role)) return '/admin/orgs'
   if (isPlatformAdmin && isOrgAdminOnly(role)) return '/admin/users'
   return '/myhome'
@@ -112,7 +116,7 @@ export type DashboardSettingsShortcut =
   | { kind: 'workspace'; href: string; label: string }
   | { kind: 'users'; href: string; label: string }
 
-/** Dashboard header: org admins → workspace; managers → users. Hidden for employees. */
+/** Dashboard header: org admins → workspace. Hidden for employees and org managers. */
 export function getDashboardSettingsShortcut(
   role: string | undefined
 ): DashboardSettingsShortcut | null {
@@ -122,9 +126,6 @@ export function getDashboardSettingsShortcut(
       href: '/myhome/organization/settings',
       label: 'Organization',
     }
-  }
-  if (role === 'manager') {
-    return { kind: 'users', href: '/myhome/organization/users', label: 'Users' }
   }
   return null
 }

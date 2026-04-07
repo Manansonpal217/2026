@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import {
   AreaChart,
@@ -10,14 +10,12 @@ import {
   Tooltip as RechartsTooltip,
   ResponsiveContainer,
   Brush,
-  BarChart,
-  Bar,
   PieChart,
   Pie,
   Cell,
-  Legend,
 } from 'recharts'
-import { ArrowDown, ArrowUp, ChevronDown, Download, FileText, Loader2 } from 'lucide-react'
+import { Download, FileText, Loader2 } from 'lucide-react'
+import { AxiosError } from 'axios'
 import { api } from '@/lib/api'
 import { formatDurationSeconds } from '@/lib/format'
 import { isManagerOrAbove, isOrgAdminRole } from '@/lib/roles'
@@ -30,19 +28,6 @@ type Granularity = 'daily' | 'weekly' | 'monthly'
 type DatePreset = 'today' | 'this_week' | 'this_month' | 'last_month' | 'custom'
 
 type BreakdownItem = { label: string; seconds: number; sessions: number }
-
-type SessionRow = {
-  id: string
-  started_at: string
-  ended_at: string | null
-  duration_sec: number
-  notes: string | null
-  approval_status?: string | null
-  is_manual?: boolean
-  user?: { id: string; name: string; email: string } | null
-  project?: { id: string; name: string; color?: string | null } | null
-  task?: { id: string; name: string } | null
-}
 
 type TeamUser = { id: string; name: string; email: string; role: string }
 
@@ -123,9 +108,6 @@ function formatXLabel(label: string, granularity: Granularity): string {
   return d.toLocaleDateString('en', { weekday: 'short', day: 'numeric' })
 }
 
-type SortKey = 'started_at' | 'duration_sec' | 'project'
-type SortDir = 'asc' | 'desc'
-
 /* ───────────────── Page ───────────────── */
 
 export default function ReportsPage() {
@@ -145,16 +127,10 @@ export default function ReportsPage() {
   const [totalSeconds, setTotalSeconds] = useState(0)
   const [breakdown, setBreakdown] = useState<BreakdownItem[]>([])
   const [projectBreakdown, setProjectBreakdown] = useState<BreakdownItem[]>([])
-  const [sessions, setSessions] = useState<SessionRow[]>([])
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [pdfExporting, setPdfExporting] = useState(false)
-
-  const [tablePage, setTablePage] = useState(1)
-  const [sortKey, setSortKey] = useState<SortKey>('started_at')
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
-
-  const PAGE_SIZE = 25
+  const [exportError, setExportError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isManager && !isAdmin) return
@@ -182,23 +158,19 @@ export default function ReportsPage() {
       if (userId) params.user_id = userId
 
       const [timeRes, projRes] = await Promise.all([
-        api.get<{ total_seconds: number; breakdown: BreakdownItem[]; sessions: SessionRow[] }>(
-          '/v1/reports/time',
-          { params }
-        ),
+        api.get<{ total_seconds: number; breakdown: BreakdownItem[] }>('/v1/reports/time', {
+          params,
+        }),
         api.get<{ total_seconds: number; breakdown: BreakdownItem[] }>('/v1/reports/time', {
           params: { ...params, group_by: 'project' },
         }),
       ])
       setTotalSeconds(timeRes.data.total_seconds ?? 0)
       setBreakdown(timeRes.data.breakdown ?? [])
-      setSessions(timeRes.data.sessions ?? [])
       setProjectBreakdown(projRes.data.breakdown ?? [])
-      setTablePage(1)
     } catch {
       setTotalSeconds(0)
       setBreakdown([])
-      setSessions([])
       setProjectBreakdown([])
     } finally {
       setLoading(false)
@@ -246,83 +218,11 @@ export default function ReportsPage() {
     return items
   }, [projectBreakdown])
 
-  /* App usage (from activity logs) */
-  const [appUsage, setAppUsage] = useState<{ name: string; seconds: number }[]>([])
-  useEffect(() => {
-    const userId = selectedUserId || selfId
-    if (!userId) return
-    api
-      .get<{
-        activity_logs: { active_app: string | null; window_start: string; window_end: string }[]
-      }>('/v1/reports/activity', {
-        params: { user_id: userId, from: dateRange.from, to: dateRange.to, limit: '500' },
-      })
-      .then(({ data }) => {
-        const map = new Map<string, number>()
-        for (const log of data.activity_logs ?? []) {
-          const app = log.active_app || 'Unknown'
-          const sec = Math.max(
-            0,
-            (new Date(log.window_end).getTime() - new Date(log.window_start).getTime()) / 1000
-          )
-          map.set(app, (map.get(app) ?? 0) + sec)
-        }
-        setAppUsage(
-          [...map.entries()]
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 10)
-            .map(([name, seconds]) => ({ name, seconds }))
-        )
-      })
-      .catch(() => setAppUsage([]))
-  }, [dateRange, selectedUserId, selfId])
-
-  /* Sessions table: sort + paginate */
-  const sortedSessions = useMemo(() => {
-    const copy = [...sessions]
-    copy.sort((a, b) => {
-      let cmp = 0
-      if (sortKey === 'started_at') {
-        cmp = new Date(a.started_at).getTime() - new Date(b.started_at).getTime()
-      } else if (sortKey === 'duration_sec') {
-        cmp = a.duration_sec - b.duration_sec
-      } else if (sortKey === 'project') {
-        cmp = (a.project?.name ?? '').localeCompare(b.project?.name ?? '')
-      }
-      return sortDir === 'asc' ? cmp : -cmp
-    })
-    return copy
-  }, [sessions, sortKey, sortDir])
-
-  const pagedSessions = useMemo(
-    () => sortedSessions.slice((tablePage - 1) * PAGE_SIZE, tablePage * PAGE_SIZE),
-    [sortedSessions, tablePage]
-  )
-
-  const totalPages = Math.max(1, Math.ceil(sortedSessions.length / PAGE_SIZE))
-
-  function toggleSort(key: SortKey) {
-    if (sortKey === key) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-    } else {
-      setSortKey(key)
-      setSortDir('desc')
-    }
-  }
-
-  function SortIcon({ col }: { col: SortKey }) {
-    if (sortKey !== col) return <ChevronDown className="ml-0.5 inline h-3 w-3 opacity-30" />
-    return sortDir === 'asc' ? (
-      <ArrowUp className="ml-0.5 inline h-3 w-3" />
-    ) : (
-      <ArrowDown className="ml-0.5 inline h-3 w-3" />
-    )
-  }
-
   /* ── Exports ─── */
 
   async function handleCsvExport() {
     setExporting(true)
+    setExportError(null)
     try {
       const userId = selectedUserId || selfId
       const params = new URLSearchParams({
@@ -340,10 +240,16 @@ export default function ReportsPage() {
       const a = document.createElement('a')
       a.href = url
       a.download = `report-${new Date().toISOString().slice(0, 10)}.csv`
+      a.rel = 'noopener'
       a.click()
       URL.revokeObjectURL(url)
-    } catch {
-      /* noop */
+    } catch (e: unknown) {
+      const message =
+        e instanceof AxiosError
+          ? ((e.response?.data as { message?: string } | undefined)?.message ??
+            'CSV export failed. Please try again.')
+          : 'CSV export failed. Please try again.'
+      setExportError(message)
     } finally {
       setExporting(false)
     }
@@ -351,38 +257,59 @@ export default function ReportsPage() {
 
   async function handlePdfExport() {
     setPdfExporting(true)
+    setExportError(null)
     try {
       const userId = selectedUserId || selfId
-      const { data } = await api.post<{ jobId: string }>('/v1/reports/export/pdf', {
+      const body: Record<string, string> = {
         from: dateRange.from,
         to: dateRange.to,
-        user_id: userId,
-      })
+      }
+      if (userId) body.user_id = userId
+
+      const { data } = await api.post<{ jobId: string }>('/v1/reports/export/pdf', body)
       const jobId = data.jobId
-      let attempts = 0
-      const poll = async () => {
-        attempts++
-        if (attempts > 30) {
-          setPdfExporting(false)
-          return
-        }
-        const { data: status } = await api.get<{ status: string; url?: string }>(
-          `/v1/reports/export/pdf/${jobId}`
-        )
-        if (status.status === 'completed' && status.url) {
-          window.open(status.url, '_blank')
-          setPdfExporting(false)
-        } else if (status.status === 'failed') {
-          setPdfExporting(false)
-        } else {
-          setTimeout(poll, 2000)
+      const maxAttempts = 30
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+        try {
+          const { data: status } = await api.get<{
+            status: string
+            url?: string | null
+            error?: string
+          }>(`/v1/reports/export/pdf/${jobId}`)
+          if (status.status === 'completed' && status.url) {
+            const a = document.createElement('a')
+            a.href = status.url
+            a.download = `report-${new Date().toISOString().slice(0, 10)}.pdf`
+            a.rel = 'noopener noreferrer'
+            a.target = '_blank'
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            return
+          }
+          if (status.status === 'failed') {
+            setExportError(status.error ?? 'PDF export failed. Please try again.')
+            return
+          }
+        } catch {
+          // Keep polling on transient errors; surface only if we fully time out.
         }
       }
-      setTimeout(poll, 2000)
-    } catch {
+      setExportError('PDF export is taking longer than expected. Please try again.')
+    } catch (e: unknown) {
+      const message =
+        e instanceof AxiosError
+          ? ((e.response?.data as { message?: string } | undefined)?.message ??
+            'PDF export failed. Please try again.')
+          : 'PDF export failed. Please try again.'
+      setExportError(message)
+    } finally {
       setPdfExporting(false)
     }
   }
+
+  const canExport = isManager || isAdmin
 
   /* ── Presets ─── */
   const presets: { key: DatePreset; label: string }[] = [
@@ -402,7 +329,14 @@ export default function ReportsPage() {
   /* ── Render ─── */
 
   return (
-    <main className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
+    <main className="relative isolate mx-auto w-full max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
+      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden>
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_90%_60%_at_50%_-15%,hsl(var(--primary)/0.14),transparent_55%)]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-primary/[0.04] via-background to-muted/45" />
+        <div className="absolute -right-24 top-10 h-[28rem] w-[28rem] rounded-full bg-blue-500/[0.09] blur-3xl dark:bg-blue-500/[0.12]" />
+        <div className="absolute -left-16 bottom-0 h-80 w-80 rounded-full bg-violet-500/10 blur-3xl dark:bg-violet-500/[0.12]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,hsl(var(--border)/0.35)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border)/0.35)_1px,transparent_1px)] bg-[length:56px_56px] opacity-[0.35] [mask-image:radial-gradient(ellipse_75%_60%_at_50%_0%,#000_25%,transparent_100%)] dark:opacity-[0.2]" />
+      </div>
       <h1 className="mb-1 text-2xl font-bold tracking-tight text-foreground">Reports</h1>
       <p className="mb-6 text-sm text-muted-foreground">
         Detailed time tracking reports with export options.
@@ -498,35 +432,42 @@ export default function ReportsPage() {
         </label>
 
         {/* Export buttons */}
-        <div className="ml-auto flex gap-2">
-          <button
-            type="button"
-            onClick={() => void handleCsvExport()}
-            disabled={exporting}
-            className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted disabled:opacity-50"
-          >
-            {exporting ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Download className="h-3.5 w-3.5" />
-            )}
-            CSV
-          </button>
-          <button
-            type="button"
-            onClick={() => void handlePdfExport()}
-            disabled={pdfExporting}
-            className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted disabled:opacity-50"
-          >
-            {pdfExporting ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <FileText className="h-3.5 w-3.5" />
-            )}
-            PDF
-          </button>
-        </div>
+        {canExport && (
+          <div className="ml-auto flex gap-2">
+            <button
+              type="button"
+              onClick={() => void handleCsvExport()}
+              disabled={exporting}
+              className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted disabled:opacity-50"
+            >
+              {exporting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => void handlePdfExport()}
+              disabled={pdfExporting}
+              className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-muted disabled:opacity-50"
+            >
+              {pdfExporting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <FileText className="h-3.5 w-3.5" />
+              )}
+              PDF
+            </button>
+          </div>
+        )}
       </div>
+      {exportError ? (
+        <p className="mb-4 text-sm text-destructive" role="alert">
+          {exportError}
+        </p>
+      ) : null}
 
       {/* ── Summary row ──────────────────────────────────────────── */}
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
@@ -723,204 +664,6 @@ export default function ReportsPage() {
             </div>
           )}
         </div>
-      </div>
-
-      {/* ── AppUsageChart (horizontal bars) ──────────────────────── */}
-      <div className="mb-6 rounded-xl border border-border/60 bg-card p-4 shadow-sm">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          App usage
-        </p>
-        {loading ? (
-          <Skeleton className="h-64 w-full rounded-lg" />
-        ) : appUsage.length === 0 ? (
-          <div className="flex h-48 items-center justify-center text-sm text-muted-foreground">
-            No app activity data for this range
-          </div>
-        ) : (
-          <div style={{ height: Math.max(200, appUsage.length * 36) }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={appUsage.map((a) => ({
-                  name: a.name.length > 20 ? a.name.slice(0, 20) + '…' : a.name,
-                  fullName: a.name,
-                  hours: Math.round((a.seconds / 3600) * 10) / 10,
-                  seconds: a.seconds,
-                }))}
-                layout="vertical"
-                margin={{ top: 4, right: 40, bottom: 4, left: 10 }}
-              >
-                <XAxis
-                  type="number"
-                  tick={{ fontSize: 10 }}
-                  tickLine={false}
-                  axisLine={false}
-                  allowDecimals={false}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  tick={{ fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={140}
-                />
-                <RechartsTooltip
-                  content={(props: Record<string, unknown>) => {
-                    const { active, payload } = props as {
-                      active?: boolean
-                      payload?: Array<{ payload: { fullName: string; seconds: number } }>
-                    }
-                    if (!active || !payload?.[0]) return null
-                    const d = payload[0].payload
-                    const totalApp = appUsage.reduce((s, a) => s + a.seconds, 0)
-                    const pct = totalApp > 0 ? Math.round((d.seconds / totalApp) * 100) : 0
-                    return (
-                      <div className="rounded-lg border border-border bg-card px-3 py-2 text-sm shadow-md">
-                        <p className="font-medium text-foreground">{d.fullName}</p>
-                        <p className="text-muted-foreground">
-                          {formatDurationSeconds(d.seconds)} ({pct}%)
-                        </p>
-                      </div>
-                    )
-                  }}
-                />
-                <Bar dataKey="hours" fill={BRAND_PALETTE[0]} radius={[0, 4, 4, 0]} barSize={20} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </div>
-
-      {/* ── Time Sessions Table ──────────────────────────────────── */}
-      <div className="rounded-xl border border-border/60 bg-card shadow-sm">
-        <div className="border-b border-border px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Sessions ({sortedSessions.length})
-          </p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
-                <th className="px-4 py-2.5 text-left font-medium">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort('started_at')}
-                    className="flex items-center hover:text-foreground"
-                  >
-                    Date <SortIcon col="started_at" />
-                  </button>
-                </th>
-                <th className="px-4 py-2.5 text-left font-medium">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort('duration_sec')}
-                    className="flex items-center hover:text-foreground"
-                  >
-                    Duration <SortIcon col="duration_sec" />
-                  </button>
-                </th>
-                <th className="px-4 py-2.5 text-left font-medium">
-                  <button
-                    type="button"
-                    onClick={() => toggleSort('project')}
-                    className="flex items-center hover:text-foreground"
-                  >
-                    Project <SortIcon col="project" />
-                  </button>
-                </th>
-                <th className="px-4 py-2.5 text-left font-medium">Start / End</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/40">
-              {loading ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <tr key={i}>
-                    <td className="px-4 py-3">
-                      <Skeleton className="h-4 w-24" />
-                    </td>
-                    <td className="px-4 py-3">
-                      <Skeleton className="h-4 w-16" />
-                    </td>
-                    <td className="px-4 py-3">
-                      <Skeleton className="h-4 w-20" />
-                    </td>
-                    <td className="px-4 py-3">
-                      <Skeleton className="h-4 w-32" />
-                    </td>
-                  </tr>
-                ))
-              ) : pagedSessions.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
-                    No sessions in this range.
-                  </td>
-                </tr>
-              ) : (
-                pagedSessions.map((s) => {
-                  const d = new Date(s.started_at)
-                  const dateStr = d.toLocaleDateString('en', {
-                    weekday: 'short',
-                    month: 'short',
-                    day: 'numeric',
-                  })
-                  const startTime = d.toLocaleTimeString('en', {
-                    hour: 'numeric',
-                    minute: '2-digit',
-                    hour12: true,
-                  })
-                  const endTime = s.ended_at
-                    ? new Date(s.ended_at).toLocaleTimeString('en', {
-                        hour: 'numeric',
-                        minute: '2-digit',
-                        hour12: true,
-                      })
-                    : 'Running'
-                  return (
-                    <tr key={s.id} className="transition-colors hover:bg-muted/30">
-                      <td className="px-4 py-2.5 text-foreground">{dateStr}</td>
-                      <td className="px-4 py-2.5 font-mono tabular-nums text-foreground">
-                        {formatDurationSeconds(s.duration_sec)}
-                      </td>
-                      <td className="px-4 py-2.5 text-foreground">
-                        {s.project?.name ?? 'No project'}
-                      </td>
-                      <td className="px-4 py-2.5 font-mono tabular-nums text-muted-foreground">
-                        {startTime} – {endTime}
-                      </td>
-                    </tr>
-                  )
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-border px-4 py-2.5">
-            <p className="text-xs text-muted-foreground">
-              Page {tablePage} of {totalPages}
-            </p>
-            <div className="flex gap-1">
-              <button
-                type="button"
-                disabled={tablePage <= 1}
-                onClick={() => setTablePage((p) => Math.max(1, p - 1))}
-                className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-muted disabled:opacity-40"
-              >
-                Prev
-              </button>
-              <button
-                type="button"
-                disabled={tablePage >= totalPages}
-                onClick={() => setTablePage((p) => Math.min(totalPages, p + 1))}
-                className="rounded-md border border-border px-2.5 py-1 text-xs font-medium hover:bg-muted disabled:opacity-40"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </main>
   )

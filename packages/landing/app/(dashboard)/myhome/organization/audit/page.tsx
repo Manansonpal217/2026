@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { useRouter } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 import {
   ChevronDown,
   ChevronUp,
@@ -14,9 +16,11 @@ import {
   UserCog,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { adminToast } from '@/lib/toast'
 import { InitialsAvatar } from '@/components/ui/initials-avatar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { isOrgAdminRole, normalizeOrgRole } from '@/lib/roles'
 
 /* ─── Types ──────────────────────────────────────────────────────────────────── */
 
@@ -259,6 +263,11 @@ const ACTION_CATEGORIES: { key: string; label: string }[] = [
 ]
 
 export default function AuditLogPage() {
+  const { data: session, status: sessionStatus } = useSession()
+  const router = useRouter()
+  const role = normalizeOrgRole(session?.user?.role as string | undefined)
+  const auditModuleDisabled = role === 'manager' || isOrgAdminRole(role)
+
   const [logs, setLogs] = useState<AuditLog[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -271,6 +280,12 @@ export default function AuditLogPage() {
   const [dateTo, setDateTo] = useState('')
 
   const [users, setUsers] = useState<TeamUser[]>([])
+
+  useEffect(() => {
+    if (sessionStatus === 'authenticated' && auditModuleDisabled) {
+      router.replace('/myhome/organization/settings')
+    }
+  }, [sessionStatus, auditModuleDisabled, router])
 
   useEffect(() => {
     api
@@ -294,7 +309,9 @@ export default function AuditLogPage() {
       setLogs(data.logs ?? [])
       setTotal(data.total ?? 0)
     } catch {
+      adminToast.error('Failed to load audit log.')
       setLogs([])
+      setTotal(0)
     } finally {
       setLoading(false)
     }
@@ -311,6 +328,10 @@ export default function AuditLogPage() {
 
   const grouped = groupByDay(filteredLogs)
   const totalPages = Math.max(1, Math.ceil(total / 50))
+
+  if (sessionStatus === 'authenticated' && auditModuleDisabled) {
+    return null
+  }
 
   return (
     <main className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6">

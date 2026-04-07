@@ -27,13 +27,19 @@ function initialsFromName(name: string): string {
 
 export interface InitialsAvatarProps extends React.HTMLAttributes<HTMLDivElement> {
   name: string
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'md' | 'lg' | 'xl'
 }
 
 function InitialsAvatar({ name, size = 'md', className, ...props }: InitialsAvatarProps) {
   const palette = PALETTES[hashString(name) % PALETTES.length]
   const sz =
-    size === 'sm' ? 'h-8 w-8 text-[10px]' : size === 'lg' ? 'h-12 w-12 text-sm' : 'h-9 w-9 text-xs'
+    size === 'sm'
+      ? 'h-8 w-8 text-[10px]'
+      : size === 'lg'
+        ? 'h-12 w-12 text-sm'
+        : size === 'xl'
+          ? 'h-14 w-14 text-base'
+          : 'h-9 w-9 text-xs'
 
   return (
     <div

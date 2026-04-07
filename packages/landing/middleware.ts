@@ -4,6 +4,10 @@ import { getNextAuthSecret } from './lib/next-auth-secret'
 
 export default withAuth(
   function middleware(req) {
+    if (req.nextUrl.pathname === '/' && req.nextauth.token) {
+      return NextResponse.redirect(new URL('/myhome', req.url))
+    }
+
     if (
       req.nextUrl.pathname.startsWith('/admin') &&
       req.nextauth.token?.is_platform_admin !== true
@@ -16,11 +20,14 @@ export default withAuth(
     secret: getNextAuthSecret(),
     pages: { signIn: '/login' },
     callbacks: {
-      authorized: ({ token }) => !!token,
+      authorized: ({ req, token }) => {
+        if (req.nextUrl.pathname === '/') return true
+        return !!token
+      },
     },
   }
 )
 
 export const config = {
-  matcher: ['/myhome/:path*', '/admin/:path*'],
+  matcher: ['/', '/myhome/:path*', '/admin/:path*'],
 }

@@ -143,21 +143,20 @@ export function pdfExportWorker(cfg: Config): Worker {
               args: ['--no-sandbox', '--disable-setuid-sandbox'],
             })
           } else {
-            try {
-              const chromium = await import('@sparticuz/chromium')
-              const puppeteer = await import('puppeteer-core')
-              browser = await puppeteer.default.launch({
-                executablePath: await chromium.default.executablePath(),
-                headless: true,
-                args: chromium.default.args,
-              })
-            } catch {
-              const puppeteer = await import('puppeteer-core')
-              browser = await puppeteer.default.launch({
-                headless: true,
-                args: ['--no-sandbox', '--disable-setuid-sandbox'],
-              })
+            // Try @sparticuz/chromium (Lambda/serverless environments)
+            const chromium = await import('@sparticuz/chromium')
+            const executablePath = await chromium.default.executablePath()
+            if (!executablePath) {
+              throw new Error(
+                'No Chromium executable found. Set CHROMIUM_PATH env var to your Chrome/Chromium binary.'
+              )
             }
+            const puppeteer = await import('puppeteer-core')
+            browser = await puppeteer.default.launch({
+              executablePath,
+              headless: true,
+              args: chromium.default.args,
+            })
           }
 
           const page = await browser.newPage()

@@ -77,7 +77,7 @@ export function DirectReportsMultiSelect({
         </PopoverTrigger>
         <PopoverContent className="w-[min(100vw-2rem,380px)] p-0" align="start">
           <Command>
-            <CommandInput placeholder="Search name or email…" />
+            <CommandInput placeholder="Search by email or name…" />
             <CommandList>
               <CommandEmpty>No people match.</CommandEmpty>
               <CommandGroup heading="Organization members">
@@ -86,7 +86,7 @@ export function DirectReportsMultiSelect({
                   return (
                     <CommandItem
                       key={o.id}
-                      value={`${o.name} ${o.email} ${roleLabel(o.role)}`}
+                      value={`${o.email} ${o.name} ${roleLabel(o.role)}`}
                       onSelect={() => {
                         toggle(o.id)
                       }}
@@ -101,9 +101,9 @@ export function DirectReportsMultiSelect({
                         {isOn ? <Check className="h-3 w-3" strokeWidth={3} /> : null}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">{o.name}</span>
+                        <span className="block truncate font-medium">{o.email}</span>
                         <span className="block truncate text-xs text-muted-foreground">
-                          {o.email} · {roleLabel(o.role)}
+                          {o.name} · {roleLabel(o.role)}
                         </span>
                       </span>
                     </CommandItem>
@@ -122,12 +122,12 @@ export function DirectReportsMultiSelect({
               variant="secondary"
               className="max-w-full gap-1 py-1 pl-2.5 pr-1 font-normal"
             >
-              <span className="truncate">{o.name}</span>
+              <span className="truncate">{o.email}</span>
               <button
                 type="button"
                 disabled={disabled}
                 className="rounded p-0.5 text-muted-foreground hover:bg-background/80 hover:text-foreground disabled:pointer-events-none"
-                aria-label={`Remove ${o.name}`}
+                aria-label={`Remove ${o.email}`}
                 onClick={() => remove(o.id)}
               >
                 <X className="h-3.5 w-3.5" />

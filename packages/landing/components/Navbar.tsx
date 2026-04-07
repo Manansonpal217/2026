@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { canShowConfigurationSidebar, getConfigurationEntryHref } from '@/lib/roles'
+import { NotificationBell } from '@/components/NotificationBell'
 
 const centerLinks = [
   { href: '/pricing', label: 'Pricing' },
@@ -136,63 +137,66 @@ export function Navbar() {
           )}
 
           {authed && (
-            <div className="hidden items-center gap-2 sm:flex">
-              <ThemeToggle />
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex items-center gap-2.5 rounded-xl py-1.5 pl-3 pr-1.5 text-foreground outline-none transition-colors hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                    aria-label={`Account menu for ${name}`}
-                  >
-                    <span className="text-sm font-medium">Hello, {firstName}</span>
-                    <span className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-border bg-muted/30 text-xs font-semibold text-foreground">
-                      {initials}
-                    </span>
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="min-w-[12rem] p-0">
-                  <div className="border-b border-border px-3 py-3">
-                    <p className="text-sm font-semibold text-card-foreground">{name}</p>
-                    {session?.user?.email ? (
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                        {session.user.email}
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="p-1">
-                    <DropdownMenuItem asChild>
-                      <Link href="/myhome" className="flex cursor-pointer items-center gap-2.5">
-                        <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
-                        Home
-                      </Link>
-                    </DropdownMenuItem>
-                    {showConfigurationHub ? (
+            <div className="flex items-center gap-2 sm:gap-3">
+              <NotificationBell />
+              <div className="hidden items-center gap-2 sm:flex">
+                <ThemeToggle />
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex items-center gap-2.5 rounded-xl py-1.5 pl-3 pr-1.5 text-foreground outline-none transition-colors hover:bg-muted/70 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      aria-label={`Account menu for ${name}`}
+                    >
+                      <span className="text-sm font-medium">Hello, {firstName}</span>
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-border bg-muted/30 text-xs font-semibold text-foreground">
+                        {initials}
+                      </span>
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-[12rem] p-0">
+                    <div className="border-b border-border px-3 py-3">
+                      <p className="text-sm font-semibold text-card-foreground">{name}</p>
+                      {session?.user?.email ? (
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {session.user.email}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="p-1">
                       <DropdownMenuItem asChild>
-                        <Link
-                          href={configurationHref}
-                          className="flex cursor-pointer items-center gap-2.5"
-                        >
-                          <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
-                          Configuration
+                        <Link href="/myhome" className="flex cursor-pointer items-center gap-2.5">
+                          <LayoutDashboard className="h-4 w-4 text-muted-foreground" />
+                          Home
                         </Link>
                       </DropdownMenuItem>
-                    ) : null}
-                  </div>
-                  <DropdownMenuSeparator className="my-0" />
-                  <div className="p-1">
-                    <DropdownMenuItem
-                      className="cursor-pointer text-destructive focus:bg-destructive/10 focus:text-destructive"
-                      onSelect={() => {
-                        void handleSignOut()
-                      }}
-                    >
-                      <LogOut className="h-4 w-4" />
-                      Sign out
-                    </DropdownMenuItem>
-                  </div>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                      {showConfigurationHub ? (
+                        <DropdownMenuItem asChild>
+                          <Link
+                            href={configurationHref}
+                            className="flex cursor-pointer items-center gap-2.5"
+                          >
+                            <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+                            Configuration
+                          </Link>
+                        </DropdownMenuItem>
+                      ) : null}
+                    </div>
+                    <DropdownMenuSeparator className="my-0" />
+                    <div className="p-1">
+                      <DropdownMenuItem
+                        className="cursor-pointer text-destructive focus:bg-destructive/10 focus:text-destructive"
+                        onSelect={() => {
+                          void handleSignOut()
+                        }}
+                      >
+                        <LogOut className="h-4 w-4" />
+                        Sign out
+                      </DropdownMenuItem>
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
           )}
 

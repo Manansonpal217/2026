@@ -66,6 +66,7 @@ export async function meRoutes(fastify: FastifyInstance, opts: { config: Config 
         org: {
           id: fullUser.organization.id,
           name: fullUser.organization.name,
+          timezone: fullUser.organization.timezone,
           status: fullUser.organization.status,
           plan: fullUser.organization.plan,
         },

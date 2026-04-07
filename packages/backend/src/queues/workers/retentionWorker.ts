@@ -2,22 +2,22 @@ import { Worker } from 'bullmq'
 import type { Config } from '../../config.js'
 import { prisma } from '../../db/prisma.js'
 import { deleteFromS3 } from '../../lib/s3.js'
+import { GLOBAL_SCREENSHOT_RETENTION_DAYS } from '../../lib/org-settings-fields.js'
 
 export function retentionWorker(config: Config): Worker {
   return new Worker(
     'retention',
     async () => {
-      // Load all active orgs with their retention settings
+      // Load all active orgs with a global retention policy
       const orgs = await prisma.organization.findMany({
         where: { status: 'ACTIVE' },
-        include: { org_settings: true },
       })
 
       let deleted = 0
       const errors: string[] = []
+      const retentionDays = GLOBAL_SCREENSHOT_RETENTION_DAYS
 
       for (const org of orgs) {
-        const retentionDays = org.org_settings?.screenshot_retention_days ?? 30
         const cutoff = new Date()
         cutoff.setDate(cutoff.getDate() - retentionDays)
 

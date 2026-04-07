@@ -86,6 +86,8 @@ const config: Config = {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
         'skeleton-pulse': 'skeleton-pulse 1.5s ease-in-out infinite',
+        'dialog-overlay-in': 'dialog-overlay-in 0.22s ease-out forwards',
+        'dialog-content-in': 'dialog-content-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards',
       },
       keyframes: {
         'accordion-down': {
@@ -131,6 +133,14 @@ const config: Config = {
         'skeleton-pulse': {
           '0%, 100%': { opacity: '1' },
           '50%': { opacity: '0.45' },
+        },
+        'dialog-overlay-in': {
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
+        'dialog-content-in': {
+          from: { opacity: '0', transform: 'translate(-50%, -46%) scale(0.97)' },
+          to: { opacity: '1', transform: 'translate(-50%, -50%) scale(1)' },
         },
       },
     },

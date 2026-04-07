@@ -1,11 +1,16 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { z } from 'zod'
 import { prisma } from '../../db/prisma.js'
 import { getDbRead } from '../../lib/db-read.js'
-import { createAuthenticateMiddleware, requirePermission } from '../../middleware/authenticate.js'
+import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
-import { canAccessOrgUser, mayActAsPeopleManager, Permission } from '../../lib/permissions.js'
+import {
+  canAccessOrgUser,
+  hasPermission,
+  mayActAsPeopleManager,
+  Permission,
+} from '../../lib/permissions.js'
 
 const querySchema = z.object({
   user_id: z.string().uuid().optional(),
@@ -15,11 +20,28 @@ const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(100),
 })
 
+/** Own activity is readable by any org member; other users still require reports.view. */
+function requireActivityReportOrSelfView() {
+  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const req = request as AuthenticatedRequest
+    const user = req.user!
+    const parsed = querySchema.safeParse(request.query)
+    const qUserId = parsed.success ? parsed.data.user_id : undefined
+    const viewingOther = qUserId != null && qUserId !== user.id
+    if (viewingOther && !hasPermission(user, Permission.REPORTS_VIEW)) {
+      return reply.status(403).send({
+        code: 'FORBIDDEN',
+        message: 'Insufficient permissions to view activity for other users',
+      })
+    }
+  }
+}
+
 export async function activityReportRoutes(fastify: FastifyInstance, opts: { config: Config }) {
   const authenticate = createAuthenticateMiddleware(opts.config)
 
   fastify.get('/activity', {
-    preHandler: [authenticate, requirePermission(Permission.REPORTS_VIEW)],
+    preHandler: [authenticate, requireActivityReportOrSelfView()],
     handler: async (request, reply) => {
       const req = request as AuthenticatedRequest
       const user = req.user!
@@ -82,6 +104,7 @@ export async function activityReportRoutes(fastify: FastifyInstance, opts: { con
             mouse_clicks: true,
             mouse_distance_px: true,
             active_app: true,
+            active_url: true,
             activity_score: true,
           },
         }),

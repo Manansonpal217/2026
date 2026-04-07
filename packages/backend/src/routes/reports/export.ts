@@ -242,7 +242,8 @@ export async function exportReportRoutes(fastify: FastifyInstance, opts: { confi
       }
       if (state === 'failed') {
         const result = job.returnvalue as PdfExportJobResult | undefined
-        return { status: 'failed', error: result?.error ?? 'Export failed' }
+        const error = result?.error ?? job.failedReason ?? 'Export failed'
+        return { status: 'failed', error }
       }
       return { status: 'processing' }
     },

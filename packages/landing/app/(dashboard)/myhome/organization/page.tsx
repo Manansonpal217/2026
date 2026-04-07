@@ -12,5 +12,5 @@ export default async function OrganizationIndexPage() {
   if (isOrgAdminRole(role)) {
     redirect('/myhome/organization/settings')
   }
-  redirect('/myhome/organization/users')
+  redirect('/myhome/organization/people')
 }

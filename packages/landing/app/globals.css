@@ -226,3 +226,14 @@
     animation: none;
   }
 }
+
+/* Sonner: above dialogs; comfortable width, centered stack */
+[data-sonner-toaster] {
+  z-index: 200;
+  --width: min(26rem, calc(100vw - 2rem));
+}
+
+[data-sonner-toast] {
+  width: 100% !important;
+  margin-inline: auto;
+}

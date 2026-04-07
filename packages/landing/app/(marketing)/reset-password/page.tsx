@@ -167,15 +167,15 @@ function ResetPasswordForm() {
 }
 
 function ResetFallback() {
-  return <div className="h-48 w-full animate-pulse rounded-xl bg-muted/50" />
+  return <div className="h-48 w-full animate-pulse rounded-2xl bg-muted/50" />
 }
 
 export default function ResetPasswordPage() {
   return (
     <main className="relative flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-16 sm:py-24">
       <div className="relative w-full max-w-[440px]">
-        <Card className="border-border/80 shadow-auth-card dark:shadow-auth-card-dark">
-          <CardContent className="bg-gradient-to-br from-card via-card to-primary/[0.04] p-8 sm:p-10 dark:from-card dark:via-card dark:to-card">
+        <Card className="overflow-hidden rounded-2xl border-border/80 shadow-auth-card dark:shadow-auth-card-dark">
+          <CardContent className="rounded-2xl bg-gradient-to-br from-card via-card to-primary/[0.04] p-8 sm:p-10 dark:from-card dark:via-card dark:to-card">
             <Link
               href="/login"
               className="mb-6 inline-flex text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"

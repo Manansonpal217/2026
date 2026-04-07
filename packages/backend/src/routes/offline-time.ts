@@ -172,8 +172,11 @@ export async function offlineTimeRoutes(fastify: FastifyInstance, opts: { config
       }
 
       const isAdminOrOwner = caller.role === 'ADMIN' || caller.role === 'OWNER'
+      /** Managers use the same per-user / org rules as employees for self-service; then no approval queue. */
+      const managerMaySelfApproveOffline =
+        caller.role === 'MANAGER' && (await employeeMayAddOwnOffline(caller.org_id, caller.id))
 
-      if (isAdminOrOwner) {
+      if (isAdminOrOwner || managerMaySelfApproveOffline) {
         const row = await prisma.offlineTime.create({
           data: {
             org_id: caller.org_id,
@@ -185,7 +188,9 @@ export async function offlineTimeRoutes(fastify: FastifyInstance, opts: { config
             start_time: start,
             end_time: end,
             description: body.data.description,
-            approver_note: 'Self-approved by Admin',
+            approver_note: isAdminOrOwner
+              ? 'Self-approved by Admin'
+              : 'Self-approved (manager, allowed offline time)',
             expires_at: null,
           },
           select: offlineTimeSelect,
@@ -457,44 +462,60 @@ export async function offlineTimeRoutes(fastify: FastifyInstance, opts: { config
       const body = approveBodySchema.safeParse(request.body ?? {})
       const note = body.success ? (body.data.note ?? null) : null
 
+      const rowById = await prisma.offlineTime.findFirst({
+        where: { id },
+        select: {
+          id: true,
+          org_id: true,
+          status: true,
+          approver: { select: { name: true } },
+        },
+      })
+      if (!rowById) {
+        return reply
+          .status(404)
+          .send({ code: 'NOT_FOUND', message: 'Offline time entry not found' })
+      }
+      if (rowById.org_id !== caller.org_id) {
+        return reply.status(403).send({
+          code: 'FORBIDDEN',
+          message: 'This offline time entry belongs to another organization',
+        })
+      }
+      if (rowById.status !== 'PENDING') {
+        const resolverName = rowById.approver?.name ?? 'Unknown'
+        await prisma.notification.create({
+          data: {
+            org_id: caller.org_id,
+            user_id: caller.id,
+            type: 'OFFLINE_TIME_ALREADY_RESOLVED',
+            payload: { offline_time_id: id, status: rowById.status, resolver: resolverName },
+          },
+        })
+        sendSSE(caller.id, 'notification', {
+          type: 'OFFLINE_TIME_ALREADY_RESOLVED',
+          offline_time_id: id,
+          status: rowById.status,
+          resolver: resolverName,
+        })
+        return reply.status(409).send({
+          code: 'ALREADY_RESOLVED',
+          message: `Already ${rowById.status.toLowerCase()} by ${resolverName}`,
+          resolver: resolverName,
+          resolver_name: resolverName,
+          current_status: rowById.status,
+        })
+      }
+
       const result = await prisma.offlineTime.updateMany({
         where: { id, org_id: caller.org_id, status: 'PENDING' },
         data: { status: 'APPROVED', approver_id: caller.id, approver_note: note },
       })
 
       if (result.count === 0) {
-        const existing = await prisma.offlineTime.findFirst({
-          where: { id, org_id: caller.org_id },
-          select: { status: true, approver: { select: { name: true } } },
-        })
-        if (!existing) {
-          return reply
-            .status(404)
-            .send({ code: 'NOT_FOUND', message: 'Offline time entry not found' })
-        }
-        const resolverName = existing.approver?.name ?? 'Unknown'
-
-        await prisma.notification.create({
-          data: {
-            org_id: caller.org_id,
-            user_id: caller.id,
-            type: 'OFFLINE_TIME_ALREADY_RESOLVED',
-            payload: { offline_time_id: id, status: existing.status, resolver: resolverName },
-          },
-        })
-        sendSSE(caller.id, 'notification', {
-          type: 'OFFLINE_TIME_ALREADY_RESOLVED',
-          offline_time_id: id,
-          status: existing.status,
-          resolver: resolverName,
-        })
-
-        return reply.status(409).send({
-          code: 'ALREADY_RESOLVED',
-          message: `Already ${existing.status.toLowerCase()} by ${resolverName}`,
-          resolver: resolverName,
-          current_status: existing.status,
-        })
+        return reply
+          .status(409)
+          .send({ code: 'CONFLICT', message: 'Could not update offline time (race). Try again.' })
       }
 
       const row = await prisma.offlineTime.findUniqueOrThrow({
@@ -536,6 +557,37 @@ export async function offlineTimeRoutes(fastify: FastifyInstance, opts: { config
           .send({ code: 'NOTE_REQUIRED', message: 'approver_note is required when rejecting' })
       }
 
+      const rowById = await prisma.offlineTime.findFirst({
+        where: { id },
+        select: {
+          id: true,
+          org_id: true,
+          status: true,
+          approver: { select: { name: true } },
+        },
+      })
+      if (!rowById) {
+        return reply
+          .status(404)
+          .send({ code: 'NOT_FOUND', message: 'Offline time entry not found' })
+      }
+      if (rowById.org_id !== caller.org_id) {
+        return reply.status(403).send({
+          code: 'FORBIDDEN',
+          message: 'This offline time entry belongs to another organization',
+        })
+      }
+      if (rowById.status !== 'PENDING') {
+        const resolverName = rowById.approver?.name ?? 'Unknown'
+        return reply.status(409).send({
+          code: 'ALREADY_RESOLVED',
+          message: `Already ${rowById.status.toLowerCase()} by ${resolverName}`,
+          resolver: resolverName,
+          resolver_name: resolverName,
+          current_status: rowById.status,
+        })
+      }
+
       const result = await prisma.offlineTime.updateMany({
         where: { id, org_id: caller.org_id, status: 'PENDING' },
         data: {
@@ -546,22 +598,9 @@ export async function offlineTimeRoutes(fastify: FastifyInstance, opts: { config
       })
 
       if (result.count === 0) {
-        const existing = await prisma.offlineTime.findFirst({
-          where: { id, org_id: caller.org_id },
-          select: { status: true, approver: { select: { name: true } } },
-        })
-        if (!existing) {
-          return reply
-            .status(404)
-            .send({ code: 'NOT_FOUND', message: 'Offline time entry not found' })
-        }
-        const resolverName = existing.approver?.name ?? 'Unknown'
-        return reply.status(409).send({
-          code: 'ALREADY_RESOLVED',
-          message: `Already ${existing.status.toLowerCase()} by ${resolverName}`,
-          resolver: resolverName,
-          current_status: existing.status,
-        })
+        return reply
+          .status(409)
+          .send({ code: 'CONFLICT', message: 'Could not update offline time (race). Try again.' })
       }
 
       const row = await prisma.offlineTime.findUniqueOrThrow({

@@ -9,9 +9,10 @@ import { AlertTriangle, Clock, Flame, MoreHorizontal, Settings, Users } from 'lu
 import * as Progress from '@radix-ui/react-progress'
 import { api } from '@/lib/api'
 import { formatDurationSeconds } from '@/lib/format'
-import { isManagerOrAbove, isOrgAdminRole } from '@/lib/roles'
+import { isOrgAdminRole, normalizeOrgRole } from '@/lib/roles'
 import { InitialsAvatar } from '@/components/ui/initials-avatar'
 import { Skeleton } from '@/components/ui/skeleton'
+import { orderTeamUsersWithSelfFirst } from '@/lib/teamUserOrder'
 import { cn } from '@/lib/utils'
 
 type TeamUserRow = {
@@ -133,7 +134,9 @@ function TeamPageSkeleton() {
 export default function TeamPage() {
   const { data: session, status: sessionStatus } = useSession()
   const router = useRouter()
-  const sessionRole = session?.user?.role as string | undefined
+  const rawRole = session?.user?.role as string | undefined
+  const sessionRole = normalizeOrgRole(rawRole)
+  const selfId = (session?.user as { id?: string } | undefined)?.id
   const isAdmin = isOrgAdminRole(sessionRole)
 
   const [rows, setRows] = useState<TeamUserRow[]>([])
@@ -142,7 +145,7 @@ export default function TeamPage() {
   const [pendingOffline, setPendingOffline] = useState(0)
 
   useEffect(() => {
-    if (sessionStatus === 'authenticated' && !isManagerOrAbove(sessionRole)) {
+    if (sessionStatus === 'authenticated' && sessionRole !== 'manager') {
       router.replace('/myhome/dashboard')
     }
   }, [sessionStatus, sessionRole, router])
@@ -172,18 +175,20 @@ export default function TeamPage() {
     return () => clearInterval(id)
   }, [fetchTeam])
 
+  const orderedRows = useMemo(() => orderTeamUsersWithSelfFirst(rows, selfId), [rows, selfId])
+
   const filtered = useMemo(() => {
     switch (filter) {
       case 'online':
-        return rows.filter((r) => r.is_online)
+        return orderedRows.filter((r) => r.is_online)
       case 'offline':
-        return rows.filter((r) => !r.is_online)
+        return orderedRows.filter((r) => !r.is_online)
       case 'at-risk':
-        return rows.filter((r) => r.at_risk === true)
+        return orderedRows.filter((r) => r.at_risk === true)
       default:
-        return rows
+        return orderedRows
     }
-  }, [rows, filter])
+  }, [orderedRows, filter])
 
   const totalToday = useMemo(() => rows.reduce((s, r) => s + (r.today_seconds ?? 0), 0), [rows])
   const avgWeek = useMemo(() => {
@@ -193,7 +198,11 @@ export default function TeamPage() {
 
   if (sessionStatus === 'loading' || loading) {
     return (
-      <main className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
+      <main className="relative isolate mx-auto w-full max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
+        <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden>
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_90%_60%_at_50%_-15%,hsl(var(--primary)/0.14),transparent_55%)]" />
+          <div className="absolute inset-0 bg-gradient-to-b from-primary/[0.04] via-background to-muted/45" />
+        </div>
         <TeamPageSkeleton />
       </main>
     )
@@ -207,7 +216,14 @@ export default function TeamPage() {
   ]
 
   return (
-    <main className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">
+    <main className="relative isolate mx-auto w-full max-w-[1400px] px-4 py-8 sm:px-6 lg:px-8">
+      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden>
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_90%_60%_at_50%_-15%,hsl(var(--primary)/0.14),transparent_55%)]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-primary/[0.04] via-background to-muted/45" />
+        <div className="absolute -right-24 top-10 h-[28rem] w-[28rem] rounded-full bg-emerald-500/[0.09] blur-3xl dark:bg-emerald-500/[0.12]" />
+        <div className="absolute -left-16 bottom-0 h-80 w-80 rounded-full bg-sky-500/10 blur-3xl dark:bg-sky-500/[0.12]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,hsl(var(--border)/0.35)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border)/0.35)_1px,transparent_1px)] bg-[length:56px_56px] opacity-[0.35] [mask-image:radial-gradient(ellipse_75%_60%_at_50%_0%,#000_25%,transparent_100%)] dark:opacity-[0.2]" />
+      </div>
       {/* Header */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>

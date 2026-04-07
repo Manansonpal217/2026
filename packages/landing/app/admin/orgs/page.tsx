@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import {
   Building2,
+  Calendar,
   KeyRound,
   MoreHorizontal,
   Pencil,
@@ -17,9 +18,9 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { adminToast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
@@ -45,17 +46,9 @@ type OrgRow = {
   slug: string
   status: string
   plan: string
+  user_count?: number
   created_at: string
-}
-
-type CreateOrgForm = {
-  org_name: string
-  slug: string
-  plan: string
-  admin_email: string
-  admin_name: string
-  timezone: string
-  password: string
+  last_active?: string
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -70,23 +63,30 @@ const PLAN_STYLES: Record<string, string> = {
   PROFESSIONAL: 'bg-violet-500/15 text-violet-700 dark:text-violet-400',
 }
 
-function toSlug(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 40)
+const PLAN_ACCENT: Record<string, string> = {
+  TRIAL: 'border-l-amber-500',
+  FREE: 'border-l-gray-400',
+  STANDARD: 'border-l-blue-500',
+  PROFESSIONAL: 'border-l-violet-500',
+}
+
+function relativeTime(iso: string | undefined): string {
+  if (!iso) return 'Never'
+  const ms = Date.now() - new Date(iso).getTime()
+  if (ms < 60_000) return 'just now'
+  if (ms < 3600_000) return `${Math.floor(ms / 60_000)}m ago`
+  if (ms < 86_400_000) return `${Math.floor(ms / 3600_000)}h ago`
+  return `${Math.floor(ms / 86_400_000)}d ago`
 }
 
 export default function AdminOrgsPage() {
   const { data: session } = useSession()
   const router = useRouter()
-  const canMutatePlatformOrgs = session?.user?.is_platform_admin === true
+  const canMutate = session?.user?.is_platform_admin === true
 
   const [orgs, setOrgs] = useState<OrgRow[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [tokenOrg, setTokenOrg] = useState<{ id: string; name: string } | null>(null)
 
   const [search, setSearch] = useState('')
@@ -98,23 +98,8 @@ export default function AdminOrgsPage() {
     nextStatus: 'ACTIVE' | 'SUSPENDED'
   } | null>(null)
   const [statusSaving, setStatusSaving] = useState(false)
-  const [statusError, setStatusError] = useState<string | null>(null)
-
-  const [createOpen, setCreateOpen] = useState(false)
-  const [createForm, setCreateForm] = useState<CreateOrgForm>({
-    org_name: '',
-    slug: '',
-    plan: 'TRIAL',
-    admin_email: '',
-    admin_name: '',
-    timezone: 'UTC',
-    password: '',
-  })
-  const [creating, setCreating] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
-    setError(null)
     setLoading(true)
     try {
       const { data } = await api.get<{ organizations: OrgRow[]; total: number }>(
@@ -124,7 +109,7 @@ export default function AdminOrgsPage() {
       setOrgs(data.organizations ?? [])
       setTotal(data.total ?? 0)
     } catch {
-      setError('Failed to load organizations.')
+      adminToast.error('Failed to load organizations.')
     } finally {
       setLoading(false)
     }
@@ -147,52 +132,33 @@ export default function AdminOrgsPage() {
     return result
   }, [orgs, search, planFilter, statusFilter])
 
+  const stats = useMemo(() => {
+    const active = orgs.filter((o) => o.status === 'ACTIVE').length
+    const suspended = orgs.filter((o) => o.status === 'SUSPENDED').length
+    const trial = orgs.filter((o) => o.plan === 'TRIAL').length
+    const paid = orgs.filter((o) => o.plan === 'STANDARD' || o.plan === 'PROFESSIONAL').length
+    return { active, suspended, trial, paid }
+  }, [orgs])
+
   async function applyStatusChange() {
     if (!statusTarget) return
-    setStatusError(null)
     setStatusSaving(true)
     try {
       await api.patch(`/v1/platform/orgs/${statusTarget.org.id}`, {
         status: statusTarget.nextStatus,
       })
+      adminToast.success(
+        statusTarget.nextStatus === 'SUSPENDED'
+          ? 'Organization suspended'
+          : 'Organization activated'
+      )
       setStatusTarget(null)
       await load()
     } catch (err: unknown) {
       const ax = err as { response?: { data?: { message?: string } } }
-      setStatusError(ax.response?.data?.message ?? 'Could not update status.')
+      adminToast.error(ax.response?.data?.message ?? 'Could not update status.')
     } finally {
       setStatusSaving(false)
-    }
-  }
-
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault()
-    setCreateError(null)
-    setCreating(true)
-    try {
-      await api.post('/v1/platform/orgs', {
-        org_name: createForm.org_name,
-        slug: createForm.slug,
-        full_name: createForm.admin_name,
-        email: createForm.admin_email,
-        password: createForm.password || 'TempPass123!',
-      })
-      setCreateOpen(false)
-      setCreateForm({
-        org_name: '',
-        slug: '',
-        plan: 'TRIAL',
-        admin_email: '',
-        admin_name: '',
-        timezone: 'UTC',
-        password: '',
-      })
-      await load()
-    } catch (err: unknown) {
-      const ax = err as { response?: { data?: { message?: string } } }
-      setCreateError(ax.response?.data?.message ?? 'Could not create organization.')
-    } finally {
-      setCreating(false)
     }
   }
 
@@ -231,12 +197,16 @@ export default function AdminOrgsPage() {
             </DialogDescription>
           </DialogHeader>
           {statusTarget && (
-            <p className="text-sm">
-              <span className="font-medium text-foreground">{statusTarget.org.name}</span> ·{' '}
-              {statusTarget.org.slug}
-            </p>
+            <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 p-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                <Building2 className="h-4 w-4 text-primary" />
+              </div>
+              <div>
+                <p className="font-medium text-foreground">{statusTarget.org.name}</p>
+                <p className="text-xs text-muted-foreground">{statusTarget.org.slug}</p>
+              </div>
+            </div>
           )}
-          {statusError && <p className="text-sm text-destructive">{statusError}</p>}
           <DialogFooter className="gap-2 sm:gap-0">
             <Button variant="outline" onClick={() => setStatusTarget(null)}>
               Cancel
@@ -252,7 +222,7 @@ export default function AdminOrgsPage() {
               disabled={statusSaving}
             >
               {statusSaving
-                ? 'Updating…'
+                ? 'Updating...'
                 : statusTarget?.nextStatus === 'SUSPENDED'
                   ? 'Suspend'
                   : 'Unsuspend'}
@@ -261,174 +231,86 @@ export default function AdminOrgsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Create Org Slide-over */}
-      <AnimatePresence>
-        {createOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[190] bg-black/40"
-              onClick={() => setCreateOpen(false)}
-            />
-            <motion.div
-              initial={{ x: 400, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: 400, opacity: 0 }}
-              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className="fixed right-0 top-0 z-[200] flex h-full w-full max-w-md flex-col border-l border-border bg-card shadow-2xl"
-            >
-              <div className="flex items-center justify-between border-b border-border px-4 py-3">
-                <h2 className="text-lg font-semibold">Create Organization</h2>
-                <button
-                  type="button"
-                  onClick={() => setCreateOpen(false)}
-                  className="rounded-md p-1 text-muted-foreground hover:bg-muted"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <form
-                onSubmit={(e) => void handleCreate(e)}
-                className="flex-1 overflow-y-auto p-4 space-y-4"
-              >
-                <div>
-                  <Label>Org name *</Label>
-                  <Input
-                    className="mt-1"
-                    value={createForm.org_name}
-                    onChange={(e) =>
-                      setCreateForm((f) => ({
-                        ...f,
-                        org_name: e.target.value,
-                        slug: toSlug(e.target.value),
-                      }))
-                    }
-                    required
-                    minLength={2}
-                  />
-                </div>
-                <div>
-                  <Label>Slug</Label>
-                  <Input
-                    className="mt-1"
-                    value={createForm.slug}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, slug: e.target.value }))}
-                    pattern="^[a-z0-9-]+$"
-                    minLength={2}
-                    maxLength={40}
-                  />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Lowercase letters, numbers, hyphens only.
-                  </p>
-                </div>
-                <div>
-                  <Label>Plan</Label>
-                  <div className="mt-1 flex gap-2">
-                    {['TRIAL', 'STANDARD', 'PROFESSIONAL'].map((p) => (
-                      <label
-                        key={p}
-                        className={cn(
-                          'flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium',
-                          createForm.plan === p
-                            ? 'border-primary bg-primary/10 text-primary'
-                            : 'border-border text-muted-foreground hover:bg-muted'
-                        )}
-                      >
-                        <input
-                          type="radio"
-                          name="plan"
-                          value={p}
-                          checked={createForm.plan === p}
-                          onChange={() => setCreateForm((f) => ({ ...f, plan: p }))}
-                          className="sr-only"
-                        />
-                        {p}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <Label>Admin email *</Label>
-                  <Input
-                    className="mt-1"
-                    type="email"
-                    value={createForm.admin_email}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, admin_email: e.target.value }))}
-                    required
-                  />
-                </div>
-                <div>
-                  <Label>Admin name *</Label>
-                  <Input
-                    className="mt-1"
-                    value={createForm.admin_name}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, admin_name: e.target.value }))}
-                    required
-                  />
-                </div>
-                <div>
-                  <Label>Timezone</Label>
-                  <Input
-                    className="mt-1"
-                    value={createForm.timezone}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, timezone: e.target.value }))}
-                    placeholder="e.g. America/New_York"
-                  />
-                </div>
-                <div>
-                  <Label>Temporary password</Label>
-                  <Input
-                    className="mt-1"
-                    type="password"
-                    value={createForm.password}
-                    onChange={(e) => setCreateForm((f) => ({ ...f, password: e.target.value }))}
-                    minLength={8}
-                    placeholder="Min 8 chars (auto-generated if empty)"
-                  />
-                </div>
-                {createError && <p className="text-sm text-destructive">{createError}</p>}
-                <Button type="submit" className="w-full" disabled={creating}>
-                  {creating ? 'Creating…' : 'Create Organization'}
-                </Button>
-              </form>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-
       {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-baseline sm:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">Organizations</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">{total} total</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-primary/5 shadow-inner ring-1 ring-primary/20">
+            <Building2 className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold tracking-tight text-foreground">Organizations</h2>
+            <p className="text-sm text-muted-foreground">{total} organizations on the platform</p>
+          </div>
         </div>
-        {canMutatePlatformOrgs && (
-          <Button
-            className="shrink-0 gap-2 self-start sm:self-auto"
-            onClick={() => setCreateOpen(true)}
-          >
-            <Plus className="h-4 w-4" /> New organization
+        {canMutate && (
+          <Button className="shrink-0 gap-2 self-start sm:self-auto" asChild>
+            <Link href="/admin/orgs/new">
+              <Plus className="h-4 w-4" /> New organization
+            </Link>
           </Button>
         )}
       </div>
 
+      {/* Stats row */}
+      {!loading && (
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+          {[
+            {
+              label: 'Active',
+              value: stats.active,
+              accent: 'border-l-emerald-500',
+              color: 'text-emerald-600',
+            },
+            {
+              label: 'Trial',
+              value: stats.trial,
+              accent: 'border-l-amber-500',
+              color: 'text-amber-600',
+            },
+            {
+              label: 'Paid',
+              value: stats.paid,
+              accent: 'border-l-blue-500',
+              color: 'text-blue-600',
+            },
+            {
+              label: 'Suspended',
+              value: stats.suspended,
+              accent: 'border-l-red-500',
+              color: 'text-red-600',
+            },
+          ].map((s) => (
+            <div
+              key={s.label}
+              className={cn(
+                'rounded-xl border border-border/60 bg-gradient-to-br from-card to-muted/20 p-3 shadow-sm border-l-2',
+                s.accent
+              )}
+            >
+              <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                {s.label}
+              </p>
+              <p className={cn('mt-0.5 text-xl font-bold tabular-nums', s.color)}>{s.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Filter bar */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative">
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/60 bg-card/80 p-3 shadow-sm">
+        <div className="relative flex-1 min-w-[180px] max-w-xs">
           <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search..."
+            placeholder="Search orgs..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-48 pl-8 text-sm"
+            className="pl-8 text-sm"
           />
         </div>
         <select
           value={planFilter}
           onChange={(e) => setPlanFilter(e.target.value)}
-          className="rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+          className="rounded-md border border-border bg-background px-3 py-2 text-sm"
         >
           <option value="">All plans</option>
           <option value="TRIAL">Trial</option>
@@ -438,51 +320,100 @@ export default function AdminOrgsPage() {
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+          className="rounded-md border border-border bg-background px-3 py-2 text-sm"
         >
           <option value="">All statuses</option>
           <option value="ACTIVE">Active</option>
           <option value="SUSPENDED">Suspended</option>
         </select>
+        {(search || planFilter || statusFilter) && (
+          <button
+            type="button"
+            onClick={() => {
+              setSearch('')
+              setPlanFilter('')
+              setStatusFilter('')
+            }}
+            className="flex items-center gap-1 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-3 w-3" /> Clear
+          </button>
+        )}
+        <span className="ml-auto text-xs text-muted-foreground">
+          {filtered.length} result{filtered.length !== 1 ? 's' : ''}
+        </span>
       </div>
-
-      {error && <p className="text-sm text-destructive">{error}</p>}
 
       {/* Card grid */}
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3, 4, 5, 6].map((i) => (
-            <Skeleton key={i} className="h-36 rounded-xl" />
+            <Skeleton key={i} className="h-40 rounded-xl" />
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border py-16 text-center text-sm text-muted-foreground">
-          No organizations match your filters.
+        <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16 text-center">
+          <Building2 className="mb-3 h-10 w-10 text-muted-foreground/40" />
+          <p className="text-sm font-medium text-foreground">No organizations found</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {search || planFilter || statusFilter
+              ? 'Try adjusting your filters'
+              : 'Create your first organization to get started'}
+          </p>
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((o) => (
-            <div
+          {filtered.map((o, i) => (
+            <motion.div
               key={o.id}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25, delay: i * 0.03 }}
               className={cn(
-                'rounded-xl border border-border/60 bg-card p-4 shadow-sm transition-shadow hover:shadow-md',
-                o.status === 'SUSPENDED' && 'opacity-70'
+                'group relative overflow-hidden rounded-xl border border-border/60 bg-gradient-to-br from-card via-card to-muted/20 p-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md border-l-3',
+                PLAN_ACCENT[o.plan] ?? 'border-l-gray-400',
+                o.status === 'SUSPENDED' && 'opacity-60'
               )}
             >
+              {/* Decorative glow */}
+              <div
+                className="pointer-events-none absolute -right-6 -top-6 h-16 w-16 rounded-full opacity-20 blur-2xl transition-opacity group-hover:opacity-40"
+                style={{
+                  background:
+                    o.plan === 'PROFESSIONAL'
+                      ? 'rgb(139 92 246)'
+                      : o.plan === 'STANDARD'
+                        ? 'rgb(59 130 246)'
+                        : o.plan === 'TRIAL'
+                          ? 'rgb(245 158 11)'
+                          : 'rgb(107 114 128)',
+                }}
+              />
+
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-2.5">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/10">
                     <Building2 className="h-4 w-4 text-primary" />
                   </div>
-                  <div>
-                    <p className="font-medium text-foreground">{o.name}</p>
+                  <div className="min-w-0">
+                    <Link
+                      href={`/admin/orgs/${o.id}/edit?name=${encodeURIComponent(o.name)}&slug=${o.slug}&plan=${o.plan}&status=${o.status}`}
+                      className="font-semibold text-foreground hover:text-primary transition-colors"
+                    >
+                      {o.name}
+                    </Link>
                     <p className="text-xs text-muted-foreground">{o.slug}</p>
                   </div>
                 </div>
-                {canMutatePlatformOrgs && (
+                {canMutate && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button type="button" variant="outline" size="icon" className="h-7 w-7">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 opacity-0 transition-opacity group-hover:opacity-100"
+                      >
                         <MoreHorizontal className="h-3.5 w-3.5" />
                       </Button>
                     </DropdownMenuTrigger>
@@ -500,20 +431,14 @@ export default function AdminOrgsPage() {
                       {o.status === 'ACTIVE' ? (
                         <DropdownMenuItem
                           className="gap-2 text-destructive focus:text-destructive"
-                          onClick={() => {
-                            setStatusError(null)
-                            setStatusTarget({ org: o, nextStatus: 'SUSPENDED' })
-                          }}
+                          onClick={() => setStatusTarget({ org: o, nextStatus: 'SUSPENDED' })}
                         >
                           <Power className="h-3.5 w-3.5" /> Suspend
                         </DropdownMenuItem>
                       ) : (
                         <DropdownMenuItem
                           className="gap-2"
-                          onClick={() => {
-                            setStatusError(null)
-                            setStatusTarget({ org: o, nextStatus: 'ACTIVE' })
-                          }}
+                          onClick={() => setStatusTarget({ org: o, nextStatus: 'ACTIVE' })}
                         >
                           <Power className="h-3.5 w-3.5" /> Unsuspend
                         </DropdownMenuItem>
@@ -534,10 +459,12 @@ export default function AdminOrgsPage() {
                   </DropdownMenu>
                 )}
               </div>
-              <div className="mt-3 flex items-center gap-2">
+
+              {/* Badges + meta */}
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 <span
                   className={cn(
-                    'rounded-full px-2 py-0.5 text-[10px] font-medium',
+                    'rounded-full px-2 py-0.5 text-[10px] font-semibold',
                     PLAN_STYLES[o.plan] ?? 'bg-muted text-muted-foreground'
                   )}
                 >
@@ -545,22 +472,37 @@ export default function AdminOrgsPage() {
                 </span>
                 <span
                   className={cn(
-                    'rounded-full px-2 py-0.5 text-[10px] font-medium',
+                    'rounded-full px-2 py-0.5 text-[10px] font-semibold',
                     STATUS_STYLES[o.status] ?? 'bg-muted text-muted-foreground'
                   )}
                 >
                   {o.status}
                 </span>
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                Created{' '}
-                {new Date(o.created_at).toLocaleDateString('en', {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric',
-                })}
-              </p>
-            </div>
+
+              <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
+                {o.user_count !== undefined && (
+                  <span className="flex items-center gap-1">
+                    <Users className="h-3 w-3" />
+                    {o.user_count} users
+                  </span>
+                )}
+                <span className="flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  {new Date(o.created_at).toLocaleDateString('en', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
+                </span>
+              </div>
+
+              {o.last_active && (
+                <p className="mt-1.5 text-[10px] text-muted-foreground/70">
+                  Last active {relativeTime(o.last_active)}
+                </p>
+              )}
+            </motion.div>
           ))}
         </div>
       )}
