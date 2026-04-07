@@ -14,7 +14,21 @@ import {
   Pie,
   Cell,
 } from 'recharts'
-import { Download, FileText, Loader2 } from 'lucide-react'
+import Link from 'next/link'
+import {
+  Activity,
+  BarChart3,
+  Calendar,
+  ChevronRight,
+  Clock,
+  CreditCard,
+  Download,
+  FileText,
+  FolderOpen,
+  Loader2,
+  Shield,
+  Zap,
+} from 'lucide-react'
 import { AxiosError } from 'axios'
 import { api } from '@/lib/api'
 import { formatDurationSeconds } from '@/lib/format'
