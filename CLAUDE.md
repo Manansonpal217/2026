@@ -106,7 +106,7 @@ docker compose down
 
 **Queues:** BullMQ with Redis (`src/queues/`). Workers include `pdfExportWorker`, `reportEmailWorker`, `agentMaintenanceWorker`.
 
-**Env vars:** See `packages/backend/.env.example`. JWT keys generated via `pnpm --filter backend run generate-keys`. Production requires persistent RS256 key pair.
+**Env vars:** See `packages/backend/.env.example`. **Staging and production** setup (isolated infra, CI image tags, migrations): [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). JWT keys generated via `pnpm --filter backend run generate-keys`. Production requires persistent RS256 key pair.
 
 ### Landing (Next.js)
 

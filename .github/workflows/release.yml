@@ -4,9 +4,21 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'GitHub Environment for baked API/landing URLs and update feed'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
 
 jobs:
   release:
+    # Tag releases use production; manual dispatch selects staging or production.
+    environment: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.channel || 'production' }}
     strategy:
       matrix:
         include:
@@ -38,7 +50,8 @@ jobs:
       - name: Build desktop
         run: pnpm --filter desktop build
         env:
-          # Optional: set in repo Actions vars to bake generic update feed URL into the app
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          VITE_LANDING_URL: ${{ vars.VITE_LANDING_URL }}
           AUTO_UPDATE_BASE_URL: ${{ vars.AUTO_UPDATE_BASE_URL }}
           SENTRY_DSN: ${{ vars.SENTRY_DSN }}
 

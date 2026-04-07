@@ -24,8 +24,11 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/backend/node_modules ./packages/backend/node_modules
 COPY --from=builder /app/packages/backend/dist ./packages/backend/dist
 COPY --from=builder /app/packages/backend/prisma ./packages/backend/prisma
+COPY packages/backend/docker-entrypoint.sh ./packages/backend/docker-entrypoint.sh
+RUN chmod +x /app/packages/backend/docker-entrypoint.sh
 
 WORKDIR /app/packages/backend
 EXPOSE 3001
-# Run DB migrations in CI/CD before starting, or use a migration init container.
+# Migrations run on each start unless SKIP_PRISMA_MIGRATE=1 (e.g. external init container).
+ENTRYPOINT ["/app/packages/backend/docker-entrypoint.sh"]
 CMD ["node", "dist/main.js"]

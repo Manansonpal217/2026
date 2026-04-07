@@ -32,6 +32,15 @@ export async function meRoutes(fastify: FastifyInstance, opts: { config: Config 
         return reply.status(404).send({ code: 'USER_NOT_FOUND', message: 'User no longer exists' })
       }
 
+      if (!fullUser.org_id || !fullUser.organization) {
+        return reply.status(403).send({
+          code: 'NO_ORGANIZATION',
+          message: 'Account is not assigned to an organization',
+        })
+      }
+
+      const org = fullUser.organization
+
       const [orgSettings, streak] = await Promise.all([
         prisma.orgSettings.findUnique({ where: { org_id: fullUser.org_id } }),
         computeUserStreak(fullUser.id, fullUser.timezone),
@@ -58,17 +67,17 @@ export async function meRoutes(fastify: FastifyInstance, opts: { config: Config 
           name: fullUser.name,
           email: fullUser.email,
           role: fullUser.role,
-          org_id: fullUser.organization.id,
-          org_name: fullUser.organization.name,
+          org_id: org.id,
+          org_name: org.name,
           is_platform_admin: fullUser.is_platform_admin,
           streak,
         },
         org: {
-          id: fullUser.organization.id,
-          name: fullUser.organization.name,
-          timezone: fullUser.organization.timezone,
-          status: fullUser.organization.status,
-          plan: fullUser.organization.plan,
+          id: org.id,
+          name: org.name,
+          timezone: org.timezone,
+          status: org.status,
+          plan: org.plan,
         },
         org_settings: toPublicOrgSettings(orgSettings),
         authz: {

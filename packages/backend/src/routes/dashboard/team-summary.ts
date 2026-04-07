@@ -102,7 +102,9 @@ export async function dashboardTeamSummaryRoutes(
         },
       })
 
-      const userIds = users.map((u) => u.id)
+      const usersInOrg = users.filter((u): u is typeof u & { org_id: string } => u.org_id != null)
+
+      const userIds = usersInOrg.map((u) => u.id)
       const now = new Date()
 
       if (userIds.length === 0) {
@@ -113,7 +115,7 @@ export async function dashboardTeamSummaryRoutes(
       }
 
       let minRangeStart = now.getTime()
-      for (const u of users) {
+      for (const u of usersInOrg) {
         const b = getZonedBucketBounds(now, u.timezone)
         minRangeStart = Math.min(
           minRangeStart,
@@ -127,8 +129,8 @@ export async function dashboardTeamSummaryRoutes(
       const queryFrom = subDays(new Date(minRangeStart), 1)
       const openSessionCutoff = subDays(queryFrom, 45)
 
-      const usersByOrg = new Map<string, typeof users>()
-      for (const u of users) {
+      const usersByOrg = new Map<string, typeof usersInOrg>()
+      for (const u of usersInOrg) {
         const list = usersByOrg.get(u.org_id) ?? []
         list.push(u)
         usersByOrg.set(u.org_id, list)
@@ -188,7 +190,7 @@ export async function dashboardTeamSummaryRoutes(
       const offlineRows = offlineChunks.flat()
 
       const latestShotsRaw = await Promise.all(
-        users.map((u) =>
+        usersInOrg.map((u) =>
           prisma.screenshot.findFirst({
             where: { org_id: u.org_id, user_id: u.id, deleted_at: null },
             orderBy: { taken_at: 'desc' },
@@ -240,7 +242,7 @@ export async function dashboardTeamSummaryRoutes(
       }
 
       const results = await Promise.all(
-        users.map(async (u) => {
+        usersInOrg.map(async (u) => {
           const bounds = getZonedBucketBounds(now, u.timezone)
           const agg = aggregateSessionsForUser({
             sessions: sessionRows,

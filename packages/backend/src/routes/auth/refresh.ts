@@ -40,6 +40,14 @@ export async function refreshRoutes(fastify: FastifyInstance, _opts: { config: C
 
       const { user } = matchedToken
 
+      if (!user.organization) {
+        await prisma.refreshToken.deleteMany({ where: { id: matchedToken.id } })
+        return reply.status(403).send({
+          code: 'NO_ORGANIZATION',
+          message: 'Account is not assigned to an organization',
+        })
+      }
+
       if (
         (user.status as string) !== 'ACTIVE' ||
         (user.organization.status as string) === 'SUSPENDED'

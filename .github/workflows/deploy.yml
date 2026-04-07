@@ -1,19 +1,35 @@
-# Build Docker images. Enable push by configuring registry auth (e.g. GHCR) in your repo.
+# Build and push Docker images to GHCR with staging / production tags.
+# Configure GitHub Environments "staging" and "production" for protection rules on production deploys.
 name: Deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment (image tag prefix)'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+  push:
+    branches:
+      - main
 
 concurrency:
-  group: deploy-docker
+  group: deploy-docker-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'staging' }}
   cancel-in-progress: true
 
 jobs:
   docker:
     runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'staging' }}
     permissions:
       contents: read
       packages: write
+    env:
+      TARGET_ENV: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'staging' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -31,7 +47,9 @@ jobs:
           context: .
           file: packages/backend/Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/tracksync-backend:latest
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/tracksync-backend:${{ env.TARGET_ENV }}
+            ghcr.io/${{ github.repository_owner }}/tracksync-backend:${{ env.TARGET_ENV }}-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -41,6 +59,8 @@ jobs:
           context: .
           file: packages/landing/Dockerfile
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/tracksync-landing:latest
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/tracksync-landing:${{ env.TARGET_ENV }}
+            ghcr.io/${{ github.repository_owner }}/tracksync-landing:${{ env.TARGET_ENV }}-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

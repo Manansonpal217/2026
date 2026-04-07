@@ -91,6 +91,7 @@ export function agentMaintenanceWorker(config: Config): Worker {
         let reset = 0
 
         for (const user of users) {
+          if (!user.organization) continue
           const tz = user.organization.timezone || 'UTC'
           const now = new Date()
 
