@@ -77,7 +77,7 @@ async function main() {
           'http://localhost:5173',
           'http://localhost:5174',
         ]
-      : [config.APP_URL],
+      : config.APP_URL.split(',').map((u) => u.trim()),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],

@@ -11,7 +11,7 @@ Complete these for **staging** and again for **production** on your host or clou
 | **PostgreSQL**     | Dedicated database; set `DATABASE_URL` with TLS in production (`?sslmode=require` or provider equivalent).     |
 | **Redis**          | Dedicated instance; set `REDIS_URL`.                                                                           |
 | **Object storage** | Separate S3 or R2 bucket (or isolated prefix with strict IAM).                                                 |
-| **DNS + TLS**      | API and landing hostnames with valid certificates (e.g. `api-staging.example.com`, `app-staging.example.com`). |
+| **DNS + TLS**      | API and landing hostnames with valid certificates (e.g. `api-staging.tracksync.dev`, `staging.tracksync.dev`). |
 | **Secrets**        | Generate environment-specific JWT keys and `NEXTAUTH_SECRET` (see below).                                      |
 
 ### Generate backend JWT keys

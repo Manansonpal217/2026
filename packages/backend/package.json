@@ -14,7 +14,8 @@
     "generate-keys": "tsx scripts/generate-keys.ts",
     "test:s3": "tsx scripts/test-s3-upload.ts",
     "wipe:all": "tsx scripts/wipe-all-data.ts",
-    "email:test-all": "tsx scripts/send-test-emails.ts"
+    "email:test-all": "tsx scripts/send-test-emails.ts",
+    "create-admin": "tsx prisma/create-admin.ts"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.1004.0",
