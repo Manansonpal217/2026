@@ -1,0 +1,78 @@
+# Builds and publishes the Electron desktop app to GitHub Releases.
+#
+# Trigger: push a tag matching desktop-v<semver>  (e.g. desktop-v1.2.3)
+# The tag MUST match the version in packages/desktop/package.json.
+#
+# Steps to release a new version:
+#   1. Bump "version" in packages/desktop/package.json
+#   2. Commit and push to main
+#   3. git tag desktop-v<new-version> && git push origin desktop-v<new-version>
+#
+# The workflow builds on each target OS (native modules require the real platform),
+# then electron-builder publishes all artifacts to the same GitHub Release.
+# Users running an older build will be notified and can restart to apply the update.
+
+name: Release Desktop
+
+on:
+  push:
+    tags:
+      - 'desktop-v*'
+
+concurrency:
+  group: release-desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest   # Apple Silicon (arm64)
+            arch: arm64
+          - os: macos-13       # Intel (x64)
+            arch: x64
+          - os: windows-latest
+            arch: x64
+          - os: ubuntu-latest
+            arch: x64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      # uiohook-napi needs X11 / input headers on Linux
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y \
+            libx11-dev libxtst-dev libpng-dev \
+            libxkbcommon-dev libudev-dev
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Rebuild native modules (better-sqlite3, uiohook-napi, keytar) for Electron
+      - name: Rebuild native modules
+        run: pnpm --filter desktop exec electron-rebuild -f -w better-sqlite3-multiple-ciphers,uiohook-napi,keytar
+        shell: bash
+
+      # electron-vite build → electron-builder package & publish to GitHub Releases
+      - name: Build & publish
+        run: pnpm --filter desktop run release -- --arch ${{ matrix.arch }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # AUTO_UPDATE_BASE_URL is no longer required; GitHub provider config is
+          # baked into app-update.yml by electron-builder via electron-builder.yml.

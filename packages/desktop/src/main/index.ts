@@ -1,5 +1,4 @@
 import 'dotenv/config'
-import * as Sentry from '@sentry/electron/main'
 import {
   app,
   BrowserWindow,
@@ -9,7 +8,7 @@ import {
   shell,
   systemPreferences,
 } from 'electron'
-import { autoUpdater } from 'electron-updater'
+import type { AppUpdater } from 'electron-updater'
 import electronLog from 'electron-log'
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
@@ -58,18 +57,38 @@ import { readUserPrefs, writeUserPrefs } from './userPrefs.js'
 declare const __TRACKSYNC_UPDATE_BASE_URL__: string
 declare const __SENTRY_DSN__: string
 
-function initSentry(): void {
+async function initSentry(): Promise<void> {
   const dsn = typeof __SENTRY_DSN__ !== 'undefined' ? String(__SENTRY_DSN__).trim() : ''
   if (!dsn) return
-  Sentry.init({
-    dsn,
-    environment: app.isPackaged ? 'production' : 'development',
-  })
+  try {
+    const Sentry = await import('@sentry/electron/main')
+    Sentry.init({
+      dsn,
+      environment: app.isPackaged ? 'production' : 'development',
+    })
+  } catch (error) {
+    electronLog.error('Sentry initialization failed; continuing without Sentry', error)
+  }
 }
 
 const API_URL = process.env.VITE_API_URL || 'http://localhost:3001'
-/** Next.js landing (my home dashboard). Override in production, e.g. https://tracksync.dev */
-const LANDING_URL = (process.env.VITE_LANDING_URL || 'http://localhost:3002').replace(/\/$/, '')
+
+/** Base origin for the Next.js landing app. Accepts missing scheme or a trailing /myhome path. */
+function getLandingBase(): string {
+  const raw = (process.env.VITE_LANDING_URL || 'http://localhost:3002').trim()
+  let base = raw
+  if (!/^https?:\/\//i.test(base)) {
+    base =
+      /^localhost\b|^127\./i.test(base) || base.startsWith('localhost:') || base.startsWith('127.')
+        ? `http://${base}`
+        : `https://${base}`
+  }
+  base = base.replace(/\/+$/, '')
+  base = base.replace(/\/myhome$/i, '')
+  return base.replace(/\/+$/, '')
+}
+
+const LANDING_URL = getLandingBase()
 
 // In-memory project cache: { orgId -> { projects, fetchedAt } }
 const projectCache = new Map<string, { projects: unknown[]; fetchedAt: number }>()
@@ -411,44 +430,37 @@ function handleProtocolUrl(url: string): void {
 }
 
 let autoUpdaterEnabled = false
+let _autoUpdater: AppUpdater | null = null
 
-function initAutoUpdater(): void {
+async function initAutoUpdater(): Promise<void> {
+  // Only run in packaged builds; electron-builder bakes publish config (GitHub provider)
+  // into app-update.yml inside the asar — no URL env var needed at runtime.
   if (!app.isPackaged) return
-  const raw =
-    typeof __TRACKSYNC_UPDATE_BASE_URL__ !== 'undefined' ? __TRACKSYNC_UPDATE_BASE_URL__ : ''
-  const base = raw?.trim()
-  if (!base) {
-    console.log(
-      '[updater] Set AUTO_UPDATE_BASE_URL when building to enable auto-updates (generic feed).'
-    )
-    return
-  }
-  autoUpdaterEnabled = true
-  autoUpdater.logger = electronLog
-  autoUpdater.autoDownload = true
   try {
-    autoUpdater.setFeedURL({ provider: 'generic', url: base.replace(/\/$/, '') })
-  } catch (e) {
-    console.warn('[updater] setFeedURL failed', e)
-    autoUpdaterEnabled = false
-    return
+    const { autoUpdater } = await import('electron-updater')
+    _autoUpdater = autoUpdater
+    autoUpdaterEnabled = true
+    autoUpdater.logger = electronLog
+    autoUpdater.autoDownload = true
+    autoUpdater.on('update-available', (info) => {
+      electronLog.info('[updater] update available', info.version)
+      mainWindow?.webContents.send('updater:available', { version: info.version })
+    })
+    autoUpdater.on('update-downloaded', (info) => {
+      electronLog.info('[updater] update downloaded', info.version)
+      mainWindow?.webContents.send('updater:downloaded', { version: info.version })
+    })
+    autoUpdater.on('error', (err) => electronLog.warn('[updater]', err))
+    setTimeout(() => {
+      void autoUpdater.checkForUpdates().catch((e) => electronLog.warn('[updater] check failed', e))
+    }, 10_000)
+  } catch (error) {
+    electronLog.error('[updater] electron-updater failed to load; auto-updates disabled', error)
   }
-  autoUpdater.on('update-available', (info) => {
-    electronLog.info('[updater] update available', info.version)
-    mainWindow?.webContents.send('updater:available', { version: info.version })
-  })
-  autoUpdater.on('update-downloaded', (info) => {
-    electronLog.info('[updater] update downloaded', info.version)
-    mainWindow?.webContents.send('updater:downloaded', { version: info.version })
-  })
-  autoUpdater.on('error', (err) => electronLog.warn('[updater]', err))
-  setTimeout(() => {
-    void autoUpdater.checkForUpdates().catch((e) => electronLog.warn('[updater] check failed', e))
-  }, 10_000)
 }
 
 app.whenReady().then(async () => {
-  initSentry()
+  void initSentry()
 
   app.setAsDefaultProtocolClient('tracksync')
 
@@ -498,16 +510,8 @@ app.whenReady().then(async () => {
     mainWindow?.setBackgroundColor(color)
   })
 
-  ipcMain.handle('landing:open-myhome', async (_e, userId: unknown) => {
-    if (
-      typeof userId !== 'string' ||
-      userId.length === 0 ||
-      userId.length > 200 ||
-      /[/\\?#]/.test(userId)
-    ) {
-      return { ok: false as const, error: 'invalid user id' }
-    }
-    const url = `${LANDING_URL}/myhome/${encodeURIComponent(userId)}`
+  ipcMain.handle('landing:open-myhome', async () => {
+    const url = `${LANDING_URL}/myhome`
     await shell.openExternal(url)
     return { ok: true as const }
   })
@@ -519,12 +523,13 @@ app.whenReady().then(async () => {
 
   createWindow()
 
-  initAutoUpdater()
+  void initAutoUpdater()
 
   ipcMain.handle('updater:quit-and-install', () => {
-    if (!autoUpdaterEnabled) return { ok: false as const, error: 'updater_disabled' }
+    if (!autoUpdaterEnabled || !_autoUpdater)
+      return { ok: false as const, error: 'updater_disabled' }
     try {
-      setImmediate(() => autoUpdater.quitAndInstall(false, true))
+      setImmediate(() => _autoUpdater!.quitAndInstall(false, true))
       return { ok: true as const }
     } catch (e) {
       return { ok: false as const, error: String(e) }

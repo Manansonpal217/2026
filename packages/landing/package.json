@@ -2,6 +2,10 @@
   "name": "landing",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "next dev -p 3002",
     "dev:clean": "rm -rf .next node_modules/.cache && next dev -p 3002",

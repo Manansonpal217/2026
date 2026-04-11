@@ -11,6 +11,7 @@ import type { Project } from '../components/ProjectPicker'
 import type { LocalSessionRow } from '../stores/timerStore'
 import { PageLoader, InlineLoader } from '../components/Loader'
 import { formatNotesForDisplay, isJiraTask } from '../lib/format'
+import { LogWorkCard, type StoppedSessionMeta } from '../components/LogWorkCard'
 
 interface TimerProps {
   jiraConnected?: boolean
@@ -47,6 +48,8 @@ export function Timer({ jiraConnected = false, jiraIssues = [] }: TimerProps = {
   const [projects, setProjects] = useState<Project[]>([])
   const [recentSessions, setRecentSessions] = useState<LocalSessionRow[]>([])
   const [selectedJiraIssue, setSelectedJiraIssue] = useState<JiraIssue | null>(null)
+  const [showLogWorkCard, setShowLogWorkCard] = useState(false)
+  const [stoppedSessionMeta, setStoppedSessionMeta] = useState<StoppedSessionMeta | null>(null)
 
   const fetchRecentSessions = useCallback(async () => {
     const sessions = (await window.electron?.ipcRenderer.invoke(
@@ -95,6 +98,11 @@ export function Timer({ jiraConnected = false, jiraIssues = [] }: TimerProps = {
   useEffect(() => {
     const handleTick = (...args: unknown[]) => setElapsed(args[0] as number)
     const handleStopped = async () => {
+      // Capture before initialize() clears the store
+      const storeSnapshot = useTimerStore.getState()
+      const sessionAtStop = storeSnapshot.currentSession
+      const elapsedAtStop = storeSnapshot.elapsedSeconds
+
       // Sync state only — do NOT call stop() or we'd invoke timer:stop and kill auto-restart poll
       initialize().catch(() => {})
       refreshTodaySessions().catch(() => {})
@@ -103,6 +111,35 @@ export function Timer({ jiraConnected = false, jiraIssues = [] }: TimerProps = {
         | { score?: number | null }
         | undefined
       if (res && 'score' in res) setActivityScore(res.score ?? null)
+
+      // Show log work card
+      if (sessionAtStop) {
+        const notes = sessionAtStop.notes
+        let platform: 'jira' | 'asana' | null = null
+        let issueKey: string | null = null
+        let taskName = 'Session'
+        if (notes?.startsWith('jira:')) {
+          platform = 'jira'
+          issueKey = notes.slice(5).trim()
+          taskName = issueKey
+        } else if (notes?.startsWith('asana:')) {
+          platform = 'asana'
+          issueKey = notes.slice(6).trim()
+          taskName = issueKey
+        }
+        const h = Math.floor(elapsedAtStop / 3600)
+        const m = Math.floor((elapsedAtStop % 3600) / 60)
+        const s = Math.floor(elapsedAtStop % 60)
+        const durationFormatted = h > 0 ? `${h}h ${m}m ${s}s` : m > 0 ? `${m}m ${s}s` : `${s}s`
+        setStoppedSessionMeta({
+          taskName,
+          issueKey,
+          platform,
+          durationSec: elapsedAtStop,
+          durationFormatted,
+        })
+        setShowLogWorkCard(true)
+      }
     }
     const handleStarted = async () => {
       initialize().catch(() => {})
@@ -143,16 +180,7 @@ export function Timer({ jiraConnected = false, jiraIssues = [] }: TimerProps = {
 
   const handleToggle = useCallback(async () => {
     if (isRunning) {
-      const session = useTimerStore.getState().currentSession
-      const elapsed = useTimerStore.getState().elapsedSeconds
-      const notes = session?.notes
       await stop()
-      if (notes?.startsWith('jira:')) {
-        const key = notes.slice(5).trim()
-        if (key && elapsed > 0) {
-          window.trackysnc?.logWork(key, elapsed, `Tracked via TrackSync`).catch(() => {})
-        }
-      }
     } else if (selectedJiraIssue) {
       await start({
         projectId: null,
@@ -634,144 +662,156 @@ export function Timer({ jiraConnected = false, jiraIssues = [] }: TimerProps = {
             }
           >
             <div className="flex flex-col h-full min-h-0 p-5">
-              {error && (
-                <div className="flex items-center gap-3 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2.5 mb-4 animate-fade-in-up shrink-0">
-                  <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
-                  <p className="text-sm text-red-200">{error}</p>
-                </div>
-              )}
-
-              {/* Header row — Status + Today (aligned) */}
-              <div
-                className={`flex items-center justify-between shrink-0 mb-5 pb-3 border-b ${
-                  theme === 'dark' ? 'border-white/[0.06]' : 'border-slate-200'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`w-2.5 h-2.5 rounded-full transition-all duration-500 ${
-                      isRunning
-                        ? 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.6)] animate-pulse'
-                        : theme === 'dark'
-                          ? 'bg-white/30'
-                          : 'bg-slate-300'
-                    }`}
-                    style={isRunning ? { animationDuration: '2s' } : undefined}
-                  />
-                  <span
-                    className={`text-xs font-medium ${theme === 'dark' ? (isRunning ? 'text-emerald-400/90' : 'text-white/70') : isRunning ? 'text-emerald-600' : 'text-slate-600'}`}
-                  >
-                    {isRunning ? 'Tracking' : 'Ready'}
-                  </span>
-                </div>
-                <div className="text-right">
-                  <p
-                    className={`text-[10px] uppercase tracking-widest ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}
-                  >
-                    Today
-                  </p>
-                  <p
-                    className={`text-lg font-semibold tabular-nums tracking-tight transition-all duration-300 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}
-                  >
-                    {formatDurationLong(todayTotalSec)}
-                  </p>
-                </div>
-              </div>
-
-              {/* Session timer — centered */}
-              <div
-                className={`flex flex-col items-center justify-center flex-1 min-h-0 py-5 transition-all duration-500 ${
-                  isRunning ? 'animate-timer-glow' : ''
-                }`}
-              >
-                <p
-                  className={`text-[10px] uppercase tracking-widest mb-1 ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}
-                >
-                  Session
-                </p>
-                <p
-                  className={[
-                    'text-4xl md:text-5xl font-bold tabular-nums tracking-tighter transition-all duration-300 text-center',
-                    isRunning
-                      ? 'text-emerald-300'
-                      : theme === 'dark'
-                        ? 'text-white/90'
-                        : 'text-slate-800',
-                  ].join(' ')}
-                >
-                  {formatDurationLong(elapsedSeconds)}
-                </p>
-              </div>
-
-              {/* Activity — centered */}
-              <div
-                className="flex items-center justify-center gap-2 shrink-0 mb-4"
-                title={
-                  !inputMonitorAvailable && isRunning
-                    ? window.electron?.platform === 'win32'
-                      ? 'Input monitoring could not start. Try restarting the app; on Windows, accessibility toggles are usually not required—check antivirus or run as administrator if this persists.'
-                      : 'Enable Accessibility in System Settings → Privacy & Security to track keyboard and mouse activity'
-                    : undefined
-                }
-              >
-                <Activity
-                  className={`h-3.5 w-3.5 ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-600'}`}
+              {showLogWorkCard && stoppedSessionMeta ? (
+                <LogWorkCard
+                  stoppedSession={stoppedSessionMeta}
+                  onDismiss={() => {
+                    setShowLogWorkCard(false)
+                    setStoppedSessionMeta(null)
+                  }}
                 />
-                <span
-                  className={`text-sm font-medium tabular-nums ${theme === 'dark' ? 'text-white/80' : 'text-slate-700'}`}
-                >
-                  Activity {activityScore === null ? '—' : `${activityScore}%`}
-                </span>
-                {!inputMonitorAvailable && isRunning && (
-                  <span
-                    className={`text-[10px] ${theme === 'dark' ? 'text-amber-400/80' : 'text-amber-600'}`}
-                  >
-                    (needs permission)
-                  </span>
-                )}
-              </div>
+              ) : (
+                <>
+                  {error && (
+                    <div className="flex items-center gap-3 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2.5 mb-4 animate-fade-in-up shrink-0">
+                      <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
+                      <p className="text-sm text-red-200">{error}</p>
+                    </div>
+                  )}
 
-              {/* Start/Stop button */}
-              <button
-                type="button"
-                onClick={handleToggle}
-                disabled={isLoading}
-                className={[
-                  'group w-full flex items-center justify-center gap-3 px-5 py-3 rounded-2xl shrink-0',
-                  'text-sm font-semibold transition-all duration-300 ease-out',
-                  'active:scale-[0.98] hover:scale-[1.02] disabled:hover:scale-100',
-                  isLoading
-                    ? 'opacity-90 cursor-wait'
-                    : isRunning
-                      ? `bg-red-500/20 hover:bg-red-500/30 hover:shadow-[0_0_30px_rgba(239,68,68,0.2)] ${theme === 'dark' ? 'text-red-300' : 'text-red-600'}`
-                      : theme === 'dark'
-                        ? 'bg-white/5 text-white hover:bg-white/10 hover:shadow-[0_0_20px_rgba(255,255,255,0.05)] border border-white/10 hover:border-white/20'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 hover:shadow-md border border-slate-200 hover:border-slate-300',
-                ].join(' ')}
-              >
-                {isLoading ? (
-                  <>
-                    <InlineLoader size="md" />
-                    <span>{isRunning ? 'Stop timer' : 'Start timer'}</span>
-                  </>
-                ) : isRunning ? (
-                  <>
-                    <Square
-                      className="h-5 w-5 transition-transform duration-300 group-hover:scale-110"
-                      fill="currentColor"
+                  {/* Header row — Status + Today (aligned) */}
+                  <div
+                    className={`flex items-center justify-between shrink-0 mb-5 pb-3 border-b ${
+                      theme === 'dark' ? 'border-white/[0.06]' : 'border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`w-2.5 h-2.5 rounded-full transition-all duration-500 ${
+                          isRunning
+                            ? 'bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.6)] animate-pulse'
+                            : theme === 'dark'
+                              ? 'bg-white/30'
+                              : 'bg-slate-300'
+                        }`}
+                        style={isRunning ? { animationDuration: '2s' } : undefined}
+                      />
+                      <span
+                        className={`text-xs font-medium ${theme === 'dark' ? (isRunning ? 'text-emerald-400/90' : 'text-white/70') : isRunning ? 'text-emerald-600' : 'text-slate-600'}`}
+                      >
+                        {isRunning ? 'Tracking' : 'Ready'}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <p
+                        className={`text-[10px] uppercase tracking-widest ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}
+                      >
+                        Today
+                      </p>
+                      <p
+                        className={`text-lg font-semibold tabular-nums tracking-tight transition-all duration-300 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}
+                      >
+                        {formatDurationLong(todayTotalSec)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Session timer — centered */}
+                  <div
+                    className={`flex flex-col items-center justify-center flex-1 min-h-0 py-5 transition-all duration-500 ${
+                      isRunning ? 'animate-timer-glow' : ''
+                    }`}
+                  >
+                    <p
+                      className={`text-[10px] uppercase tracking-widest mb-1 ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}
+                    >
+                      Session
+                    </p>
+                    <p
+                      className={[
+                        'text-4xl md:text-5xl font-bold tabular-nums tracking-tighter transition-all duration-300 text-center',
+                        isRunning
+                          ? 'text-emerald-300'
+                          : theme === 'dark'
+                            ? 'text-white/90'
+                            : 'text-slate-800',
+                      ].join(' ')}
+                    >
+                      {formatDurationLong(elapsedSeconds)}
+                    </p>
+                  </div>
+
+                  {/* Activity — centered */}
+                  <div
+                    className="flex items-center justify-center gap-2 shrink-0 mb-4"
+                    title={
+                      !inputMonitorAvailable && isRunning
+                        ? window.electron?.platform === 'win32'
+                          ? 'Input monitoring could not start. Try restarting the app; on Windows, accessibility toggles are usually not required—check antivirus or run as administrator if this persists.'
+                          : 'Enable Accessibility in System Settings → Privacy & Security to track keyboard and mouse activity'
+                        : undefined
+                    }
+                  >
+                    <Activity
+                      className={`h-3.5 w-3.5 ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-600'}`}
                     />
-                    Stop timer
-                  </>
-                ) : (
-                  <>
-                    <Play
-                      className="h-5 w-5 transition-transform duration-300 group-hover:translate-x-0.5"
-                      fill="currentColor"
-                    />
-                    Start timer
-                  </>
-                )}
-              </button>
+                    <span
+                      className={`text-sm font-medium tabular-nums ${theme === 'dark' ? 'text-white/80' : 'text-slate-700'}`}
+                    >
+                      Activity {activityScore === null ? '—' : `${activityScore}%`}
+                    </span>
+                    {!inputMonitorAvailable && isRunning && (
+                      <span
+                        className={`text-[10px] ${theme === 'dark' ? 'text-amber-400/80' : 'text-amber-600'}`}
+                      >
+                        (needs permission)
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Start/Stop button */}
+                  <button
+                    type="button"
+                    onClick={handleToggle}
+                    disabled={isLoading}
+                    className={[
+                      'group w-full flex items-center justify-center gap-3 px-5 py-3 rounded-2xl shrink-0',
+                      'text-sm font-semibold transition-all duration-300 ease-out',
+                      'active:scale-[0.98] hover:scale-[1.02] disabled:hover:scale-100',
+                      isLoading
+                        ? 'opacity-90 cursor-wait'
+                        : isRunning
+                          ? `bg-red-500/20 hover:bg-red-500/30 hover:shadow-[0_0_30px_rgba(239,68,68,0.2)] ${theme === 'dark' ? 'text-red-300' : 'text-red-600'}`
+                          : theme === 'dark'
+                            ? 'bg-white/5 text-white hover:bg-white/10 hover:shadow-[0_0_20px_rgba(255,255,255,0.05)] border border-white/10 hover:border-white/20'
+                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200 hover:shadow-md border border-slate-200 hover:border-slate-300',
+                    ].join(' ')}
+                  >
+                    {isLoading ? (
+                      <>
+                        <InlineLoader size="md" />
+                        <span>{isRunning ? 'Stop timer' : 'Start timer'}</span>
+                      </>
+                    ) : isRunning ? (
+                      <>
+                        <Square
+                          className="h-5 w-5 transition-transform duration-300 group-hover:scale-110"
+                          fill="currentColor"
+                        />
+                        Stop timer
+                      </>
+                    ) : (
+                      <>
+                        <Play
+                          className="h-5 w-5 transition-transform duration-300 group-hover:translate-x-0.5"
+                          fill="currentColor"
+                        />
+                        Start timer
+                      </>
+                    )}
+                  </button>
+                </>
+              )}
             </div>
           </section>
         </div>

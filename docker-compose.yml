@@ -1,3 +1,7 @@
+# Local development only — do NOT use this file in production.
+# Production docker-compose lives on the DigitalOcean droplet at /opt/tracksync/docker-compose.yml.
+# See docs/DEPLOY_DIGITALOCEAN.md for the production compose file content.
+
 services:
   backend:
     build:

@@ -1,6 +1,7 @@
 appId: io.tracksync.app
 productName: TrackSync
 directories:
+  buildResources: build
   output: release
 # NSIS / macOS: register tracksync:// for OAuth and deep links
 protocols:
@@ -8,9 +9,25 @@ protocols:
     schemes:
       - tracksync
 files:
-  - dist/**/*
+  - out/**/*
   - package.json
+# All native modules (*.node) and packages with platform dylibs/so files
+# MUST be outside the asar - you cannot dlopen files from inside an asar archive
+asarUnpack:
+  - node_modules/sharp/**
+  - node_modules/@img/**
+  - node_modules/uiohook-napi/**
+  - node_modules/keytar/**
+  - node_modules/better-sqlite3-multiple-ciphers/**
+  - node_modules/get-windows/**
+  - node_modules/screenshot-desktop/**
+  - node_modules/prebuild-install/**
+  - "**/*.node"
+  - "**/*.dylib"
+  - "**/*.so"
+  - "**/*.dll"
 mac:
+  icon: build/app.icns
   target:
     - dmg
     - zip
@@ -18,6 +35,10 @@ mac:
   hardenedRuntime: true
   gatekeeperAssess: false
 win:
+  icon: build/app.ico
+  # signAndEditExecutable=false skips rcedit/wine call that embeds EXE metadata
+  # Needed for cross-compile from Apple Silicon (bundled Wine lacks FreeType)
+  signAndEditExecutable: false
   target:
     - nsis
     - portable
@@ -26,3 +47,9 @@ linux:
     - AppImage
     - deb
   category: Utility
+publish:
+  provider: github
+  releaseType: release
+  # Tag format: desktop-v<version>  (e.g. desktop-v1.2.3)
+  # Push this tag to trigger the release-desktop CI workflow.
+  tagName: desktop-v${version}

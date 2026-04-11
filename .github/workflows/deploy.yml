@@ -48,8 +48,8 @@ jobs:
           file: packages/backend/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/tracksync-backend:${{ env.TARGET_ENV }}
-            ghcr.io/${{ github.repository_owner }}/tracksync-backend:${{ env.TARGET_ENV }}-${{ github.sha }}
+            ghcr.io/manansonpal217/tracksync-backend:${{ env.TARGET_ENV }}
+            ghcr.io/manansonpal217/tracksync-backend:${{ env.TARGET_ENV }}-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -60,7 +60,17 @@ jobs:
           file: packages/landing/Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/tracksync-landing:${{ env.TARGET_ENV }}
-            ghcr.io/${{ github.repository_owner }}/tracksync-landing:${{ env.TARGET_ENV }}-${{ github.sha }}
+            ghcr.io/manansonpal217/tracksync-landing:${{ env.TARGET_ENV }}
+            ghcr.io/manansonpal217/tracksync-landing:${{ env.TARGET_ENV }}-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Deploy backend to Droplet
+        # Only SSH-deploy when targeting production; staging can be a separate droplet/step later.
+        if: env.TARGET_ENV == 'production'
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DROPLET_IP }}
+          username: root
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: /opt/tracksync/deploy.sh

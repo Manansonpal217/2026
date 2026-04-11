@@ -9,7 +9,7 @@ if (process.env.VERCEL === '1') {
 
 const result = spawnSync(
   'npx',
-  ['electron-rebuild', '-f', '-w', 'better-sqlite3-multiple-ciphers,uiohook-napi'],
+  ['electron-rebuild', '-f', '-w', 'better-sqlite3-multiple-ciphers,uiohook-napi,keytar'],
   { stdio: 'inherit', shell: true, cwd: require('node:path').join(__dirname, '..') }
 )
 

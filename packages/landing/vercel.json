@@ -1,0 +1,5 @@
+{
+  "installCommand": "cd ../.. && HUSKY=0 pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm run build",
+  "framework": "nextjs"
+}

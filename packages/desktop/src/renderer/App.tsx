@@ -4,20 +4,7 @@ import Onboarding from './pages/Onboarding'
 import { Timer } from './pages/Timer'
 import { IntegrationConnectBar } from './components/IntegrationConnectBar'
 import type { SessionOrgSettings } from './pages/Login'
-import {
-  Zap,
-  ExternalLink,
-  Users,
-  Sun,
-  Moon,
-  Camera,
-  Clock,
-  BarChart3,
-  Settings,
-} from 'lucide-react'
-import ReportsPage from './pages/Reports'
-import ScreenshotsPage from './pages/Screenshots'
-import AppSettingsPage from './pages/AppSettings'
+import { Zap, ExternalLink, Users, Sun, Moon, Camera, Play, RefreshCw } from 'lucide-react'
 import type { JiraIssue } from './components/TaskSearchInput'
 import { SummaryPanel } from './components/SummaryPanel'
 import { useTheme } from './contexts/ThemeContext'
@@ -110,22 +97,29 @@ function formatLastCaptured(isoString: string): string {
   return `${Math.floor(diffSec / 86400)}d ago`
 }
 
-type ShellPage = 'timer' | 'reports' | 'screenshots' | 'settings'
-
 function DashboardShell({ user, workPlatform, onSignOut }: DashboardShellProps) {
   const [, setSyncStatus] = useState<{
     pending: number
     pendingActivity?: number
     pendingScreenshots?: number
   } | null>(null)
-  const [activePage, setActivePage] = useState<ShellPage>('timer')
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [streak, setStreak] = useState<number>(0)
   const [lastScreenshotAt, setLastScreenshotAt] = useState<string | null>(null)
   const [notifyScreenshotCapture, setNotifyScreenshotCapture] = useState(false)
   const [jiraConnected, setJiraConnected] = useState(false)
   const [jiraIssues, setJiraIssues] = useState<JiraIssue[]>([])
+  const [updateReady, setUpdateReady] = useState<string | null>(null)
   const { theme, toggleTheme } = useTheme()
+
+  useEffect(() => {
+    const onDownloaded = (...args: unknown[]) => {
+      const { version } = args[0] as { version: string }
+      setUpdateReady(version)
+    }
+    window.electron?.ipcRenderer?.on('updater:downloaded', onDownloaded)
+    return () => window.electron?.ipcRenderer?.off('updater:downloaded', onDownloaded)
+  }, [])
 
   const refreshJiraIssues = useCallback(async () => {
     const list = (await window.trackysnc?.getIssues()) as JiraIssue[] | undefined
@@ -255,11 +249,13 @@ function DashboardShell({ user, workPlatform, onSignOut }: DashboardShellProps) 
         }
       >
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-slate-600/40 to-slate-500/30">
-            <Clock
-              className={`h-4.5 w-4.5 ${theme === 'dark' ? 'text-white/80' : 'text-slate-600'}`}
-            />
-          </div>
+          <span
+            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 ring-1 ring-primary/10"
+            aria-hidden
+          >
+            <Play className="relative z-10 h-4 w-4 fill-primary text-primary" strokeWidth={0} />
+            <span className="absolute left-1 top-1/2 h-2.5 w-1 -translate-y-1/2 rounded-full bg-emerald-500 dark:bg-emerald-400" />
+          </span>
           <div className="flex flex-col">
             <span
               className={`text-sm font-semibold leading-tight ${theme === 'dark' ? 'text-white/90' : 'text-slate-800'}`}
@@ -317,45 +313,30 @@ function DashboardShell({ user, workPlatform, onSignOut }: DashboardShellProps) 
         </div>
       </header>
 
-      {/* Primary navigation — Timer, Reports, Screenshots, Settings */}
-      <nav
-        className={`flex items-center gap-0.5 px-4 sm:px-6 py-1.5 shrink-0 border-b ${
-          theme === 'dark'
-            ? 'border-white/[0.06] bg-[#050508]/40'
-            : 'border-slate-200/80 bg-white/50'
-        }`}
-        aria-label="Main"
-      >
-        {(
-          [
-            { id: 'timer' as const, label: 'Timer', Icon: Clock },
-            { id: 'reports' as const, label: 'Reports', Icon: BarChart3 },
-            { id: 'screenshots' as const, label: 'Screenshots', Icon: Camera },
-            { id: 'settings' as const, label: 'Settings', Icon: Settings },
-          ] as const
-        ).map(({ id, label, Icon }) => {
-          const on = activePage === id
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setActivePage(id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${
-                on
-                  ? theme === 'dark'
-                    ? 'bg-white/[0.08] text-indigo-300'
-                    : 'bg-indigo-50 text-indigo-700'
-                  : theme === 'dark'
-                    ? 'text-white/45 hover:text-white/75 hover:bg-white/[0.04]'
-                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100/80'
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5 shrink-0 opacity-90" aria-hidden />
-              {label}
-            </button>
-          )
-        })}
-      </nav>
+      {/* Auto-update banner */}
+      {updateReady && (
+        <div
+          className={`flex items-center justify-between px-6 py-2 shrink-0 text-xs ${
+            theme === 'dark'
+              ? 'bg-indigo-500/15 border-b border-indigo-500/20 text-indigo-300'
+              : 'bg-indigo-50 border-b border-indigo-100 text-indigo-700'
+          }`}
+        >
+          <span>TrackSync {updateReady} is ready to install</span>
+          <button
+            type="button"
+            onClick={() => window.electron?.ipcRenderer.invoke('updater:quit-and-install')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md font-medium transition-colors ${
+              theme === 'dark'
+                ? 'bg-indigo-500/25 hover:bg-indigo-500/45 text-indigo-200'
+                : 'bg-indigo-100 hover:bg-indigo-200 text-indigo-700'
+            }`}
+          >
+            <RefreshCw className="h-3 w-3" />
+            Restart &amp; Update
+          </button>
+        </div>
+      )}
 
       {/* Summary panel overlay */}
       <SummaryPanel
@@ -368,23 +349,15 @@ function DashboardShell({ user, workPlatform, onSignOut }: DashboardShellProps) 
         theme={theme}
       />
 
-      {/* Main content */}
+      {/* Main content — timer only (no tab strip) */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {activePage === 'timer' ? (
-          <Timer
-            jiraConnected={jiraConnected}
-            jiraIssues={jiraIssues}
-            onJiraConnected={() => setJiraConnected(true)}
-            onJiraDisconnected={() => setJiraConnected(false)}
-            refreshJiraIssues={refreshJiraIssues}
-          />
-        ) : activePage === 'reports' ? (
-          <ReportsPage />
-        ) : activePage === 'screenshots' ? (
-          <ScreenshotsPage />
-        ) : (
-          <AppSettingsPage />
-        )}
+        <Timer
+          jiraConnected={jiraConnected}
+          jiraIssues={jiraIssues}
+          onJiraConnected={() => setJiraConnected(true)}
+          onJiraDisconnected={() => setJiraConnected(false)}
+          refreshJiraIssues={refreshJiraIssues}
+        />
       </div>
 
       {/* Footer — soft, minimal */}
@@ -439,7 +412,7 @@ function DashboardShell({ user, workPlatform, onSignOut }: DashboardShellProps) 
             }`}
             title="Open your TrackSync home in the browser"
             onClick={() => {
-              window.electron?.ipcRenderer.invoke('landing:open-myhome', user.id)
+              window.electron?.ipcRenderer.invoke('landing:open-myhome')
             }}
           >
             <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
