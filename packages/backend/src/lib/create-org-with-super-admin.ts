@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client'
 import {
   GLOBAL_SCREENSHOT_RETENTION_DAYS,
+  idleIntervalsFromMinutes,
   type OrgSettingsScalarPatch,
   type WorkPlatform,
 } from './org-settings-fields.js'
@@ -47,7 +48,13 @@ export async function createOrgWithSuperAdmin(
   const work_platform = input.work_platform ?? wpFromSettings ?? 'jira_cloud'
   const settingsData = Object.fromEntries(
     Object.entries(settingsRest).filter(([k, v]) => v !== undefined && k !== 'org_id' && k !== 'id')
-  )
+  ) as Record<string, unknown>
+
+  if (typeof settingsData.idle_timeout_minutes === 'number') {
+    settingsData.idle_timeout_intervals = idleIntervalsFromMinutes(
+      settingsData.idle_timeout_minutes
+    )
+  }
 
   await tx.orgSettings.create({
     data: {

@@ -34,7 +34,7 @@ async function main() {
       email: 'admin@demo.com',
       password_hash: passwordHash,
       name: 'Demo Admin',
-      role: 'super_admin',
+      role: 'OWNER',
       is_platform_admin: true,
     },
   })

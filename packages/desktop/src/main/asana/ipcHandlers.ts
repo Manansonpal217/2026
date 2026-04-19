@@ -5,9 +5,65 @@ import { startAsanaOAuthFlow, disconnectAsana, isAsanaConnected } from './auth.j
 
 const SERVICE = 'trackysnc'
 const ASANA_ACCESS = 'asana_access_token'
+const ASANA_REFRESH = 'asana_refresh_token'
+const ASANA_TOKEN_URL = 'https://app.asana.com/-/oauth_token'
 
 async function getAsanaAccessToken(): Promise<string | null> {
   return keytar.getPassword(SERVICE, ASANA_ACCESS)
+}
+
+async function refreshAsanaToken(): Promise<string | null> {
+  const refreshToken = await keytar.getPassword(SERVICE, ASANA_REFRESH)
+  if (!refreshToken) return null
+
+  const clientId = process.env.ASANA_CLIENT_ID
+  const clientSecret = process.env.ASANA_CLIENT_SECRET
+  if (!clientId || !clientSecret) return null
+
+  try {
+    const res = await fetch(ASANA_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+      }).toString(),
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as {
+      access_token: string
+      refresh_token?: string
+    }
+    await keytar.setPassword(SERVICE, ASANA_ACCESS, data.access_token)
+    if (data.refresh_token) {
+      await keytar.setPassword(SERVICE, ASANA_REFRESH, data.refresh_token)
+    }
+    return data.access_token
+  } catch (err) {
+    log.error('[asana/ipcHandlers] Token refresh failed:', err)
+    return null
+  }
+}
+
+async function getValidAsanaToken(): Promise<string | null> {
+  const token = await getAsanaAccessToken()
+  if (!token) return null
+
+  // Probe the token with a lightweight /users/me call; refresh on 401
+  try {
+    const probe = await fetch('https://app.asana.com/api/1.0/users/me?opt_fields=gid', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (probe.status === 401) {
+      log.info('[asana/ipcHandlers] Access token expired, attempting refresh')
+      return refreshAsanaToken()
+    }
+  } catch {
+    // Network error — return the existing token and let the caller handle it
+  }
+  return token
 }
 
 export function registerAsanaHandlers(ipcMain: IpcMain): void {
@@ -16,7 +72,7 @@ export function registerAsanaHandlers(ipcMain: IpcMain): void {
   })
 
   ipcMain.handle('asana:disconnect', async () => {
-    await disconnectAsana(false)
+    await disconnectAsana(true)
     return { ok: true }
   })
 
@@ -30,7 +86,7 @@ export function registerAsanaHandlers(ipcMain: IpcMain): void {
       _,
       { taskId, durationSec, comment }: { taskId: string; durationSec: number; comment: string }
     ) => {
-      const accessToken = await getAsanaAccessToken()
+      const accessToken = await getValidAsanaToken()
       if (!accessToken) {
         throw new Error('Not connected to Asana')
       }

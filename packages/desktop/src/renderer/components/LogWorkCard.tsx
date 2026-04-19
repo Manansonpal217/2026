@@ -22,7 +22,12 @@ export function LogWorkCard({ stoppedSession, onDismiss }: LogWorkCardProps) {
   const [logSuccess, setLogSuccess] = useState(false)
   const [logError, setLogError] = useState<string | null>(null)
 
-  const platformLabel = stoppedSession.platform === 'jira' ? 'Jira' : 'Asana'
+  const platformLabel =
+    stoppedSession.platform === 'jira'
+      ? 'Jira'
+      : stoppedSession.platform === 'asana'
+        ? 'Asana'
+        : null
 
   const handleLog = async () => {
     if (!stoppedSession.issueKey || !stoppedSession.platform) return
@@ -152,7 +157,7 @@ export function LogWorkCard({ stoppedSession, onDismiss }: LogWorkCardProps) {
                 theme === 'dark' ? 'text-emerald-400' : 'text-emerald-600'
               }`}
             >
-              Logged to {platformLabel}
+              Logged to {platformLabel ?? stoppedSession.platform}
             </span>
           </div>
         ) : (
@@ -171,7 +176,7 @@ export function LogWorkCard({ stoppedSession, onDismiss }: LogWorkCardProps) {
                     : 'bg-slate-800 text-white hover:bg-slate-700 border border-slate-800',
                 ].join(' ')}
               >
-                {isLogging ? 'Logging…' : `Log to ${platformLabel}`}
+                {isLogging ? 'Logging…' : `Log to ${platformLabel ?? stoppedSession.platform}`}
               </button>
             )}
             <button

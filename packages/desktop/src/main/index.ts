@@ -123,7 +123,6 @@ function clearNotification(notif: Notification): void {
 
 async function fetchOrgSettings(): Promise<{
   idle_timeout_minutes?: number
-  idle_timeout_intervals?: number
   idle_detection_enabled?: boolean
   screenshot_interval_seconds?: number
 } | null> {
@@ -137,7 +136,6 @@ async function fetchOrgSettings(): Promise<{
     const data = (await res.json()) as {
       org_settings?: {
         idle_timeout_minutes?: number
-        idle_timeout_intervals?: number
         idle_detection_enabled?: boolean
         screenshot_interval_seconds?: number
       }
@@ -451,8 +449,12 @@ async function initAutoUpdater(): Promise<void> {
       mainWindow?.webContents.send('updater:downloaded', { version: info.version })
     })
     autoUpdater.on('error', (err) => electronLog.warn('[updater]', err))
+    const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000 // 4 hours
     setTimeout(() => {
-      void autoUpdater.checkForUpdates().catch((e) => electronLog.warn('[updater] check failed', e))
+      const check = () =>
+        autoUpdater.checkForUpdates().catch((e) => electronLog.warn('[updater] check failed', e))
+      void check()
+      setInterval(() => void check(), CHECK_INTERVAL_MS)
     }, 10_000)
   } catch (error) {
     electronLog.error('[updater] electron-updater failed to load; auto-updates disabled', error)
@@ -516,6 +518,8 @@ app.whenReady().then(async () => {
     return { ok: true as const }
   })
 
+  ipcMain.handle('app:version', () => app.getVersion())
+
   // Register timer IPC handlers (must run before createWindow so handlers are ready)
   setTimerWindowRef(() => mainWindow)
   registerTimerHandlers()
@@ -525,10 +529,14 @@ app.whenReady().then(async () => {
 
   void initAutoUpdater()
 
-  ipcMain.handle('updater:quit-and-install', () => {
+  ipcMain.handle('updater:quit-and-install', async () => {
     if (!autoUpdaterEnabled || !_autoUpdater)
       return { ok: false as const, error: 'updater_disabled' }
     try {
+      await Promise.race([
+        drainPendingSyncQueue(),
+        new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+      ])
       setImmediate(() => _autoUpdater!.quitAndInstall(false, true))
       return { ok: true as const }
     } catch (e) {
@@ -748,7 +756,7 @@ function registerTimerHandlers(): void {
         }
         const orgSettings = await fetchOrgSettings()
         const resolved = await fetchResolvedSettings()
-        const idleTimeoutIntervals = orgSettings?.idle_timeout_intervals ?? 3
+        const idleTimeoutMinutes = orgSettings?.idle_timeout_minutes ?? 5
         const idleDetectionEnabled = orgSettings?.idle_detection_enabled ?? true
         if (idleDetectionEnabled && !isInputMonitorAvailable()) {
           console.warn(
@@ -757,7 +765,7 @@ function registerTimerHandlers(): void {
         }
         startIdleManager(
           {
-            idleTimeoutMs: idleTimeoutIntervals * 10 * 1000,
+            idleTimeoutMs: idleTimeoutMinutes * 60 * 1000,
             idleDetectionEnabled,
           },
           {
@@ -979,6 +987,17 @@ function registerTimerHandlers(): void {
 
   ipcMain.handle('prefs:set-notify-screenshot-capture', (_, enabled: unknown) => {
     return writeUserPrefs({ notifyOnScreenshotCapture: enabled === true })
+  })
+
+  ipcMain.handle('settings:get-resolved', async () => fetchResolvedSettings())
+
+  ipcMain.handle('prefs:set-request-blur-all', (_, enabled: unknown) => {
+    return writeUserPrefs({ requestBlurForAllCaptures: enabled === true })
+  })
+
+  ipcMain.handle('prefs:blur-next-capture-once', () => {
+    writeUserPrefs({ requestBlurNextCaptureOnce: true })
+    return { ok: true }
   })
 
   // macOS permissions

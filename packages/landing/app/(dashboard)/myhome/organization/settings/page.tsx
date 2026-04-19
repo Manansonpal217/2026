@@ -26,8 +26,6 @@ type OrgSettings = {
   track_app_usage: boolean
   track_url: boolean
   time_approval_required: boolean
-  mfa_required_for_admins: boolean
-  mfa_required_for_managers: boolean
   expected_daily_work_minutes: number
   allow_employee_offline_time: boolean
 }
@@ -50,8 +48,6 @@ const DEFAULTS: OrgSettings = {
   track_app_usage: true,
   track_url: false,
   time_approval_required: false,
-  mfa_required_for_admins: false,
-  mfa_required_for_managers: false,
   expected_daily_work_minutes: 480,
   allow_employee_offline_time: false,
 }
@@ -396,8 +392,6 @@ function SecurityTab({
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const isDirty =
-    form.mfa_required_for_admins !== baseline.current.mfa_required_for_admins ||
-    form.mfa_required_for_managers !== baseline.current.mfa_required_for_managers ||
     form.time_approval_required !== baseline.current.time_approval_required ||
     form.allow_employee_offline_time !== baseline.current.allow_employee_offline_time
 
@@ -406,8 +400,6 @@ function SecurityTab({
     setSaving(true)
     try {
       const { data } = await api.patch<{ settings: OrgSettings }>('/v1/admin/settings', {
-        mfa_required_for_admins: form.mfa_required_for_admins,
-        mfa_required_for_managers: form.mfa_required_for_managers,
         time_approval_required: form.time_approval_required,
         allow_employee_offline_time: form.allow_employee_offline_time,
       })
@@ -499,7 +491,7 @@ const OVERRIDE_KEY_META: {
   },
   {
     key: 'ss_blur_allowed',
-    label: 'Allow screenshot blur',
+    label: 'Allow requesting screenshot blur (per capture)',
     section: 'Screenshots',
     type: 'boolean',
   },

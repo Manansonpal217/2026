@@ -227,6 +227,16 @@
   }
 }
 
+/* Recording pulse — blinking red dot in hero preview */
+@keyframes recording-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-recording {
+  animation: recording-pulse 1.6s ease-in-out infinite;
+}
+
 /* Sonner: above dialogs; comfortable width, centered stack */
 [data-sonner-toaster] {
   z-index: 200;

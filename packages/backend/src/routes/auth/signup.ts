@@ -8,15 +8,15 @@ import {
   createOrgWithSuperAdmin,
   isDisposableSignupEmail,
 } from '../../lib/create-org-with-super-admin.js'
+import { allocateUniqueOrgSlug, isPrismaUniqueOnOrganizationSlug } from '../../lib/org-slug.js'
 import type { Config } from '../../config.js'
 
 const signupSchema = {
   body: {
     type: 'object',
-    required: ['org_name', 'slug', 'full_name', 'email', 'password'],
+    required: ['org_name', 'full_name', 'email', 'password'],
     properties: {
       org_name: { type: 'string', minLength: 1 },
-      slug: { type: 'string', pattern: '^[a-z0-9-]+$', minLength: 2, maxLength: 40 },
       full_name: { type: 'string', minLength: 1 },
       email: { type: 'string', format: 'email' },
       password: { type: 'string', minLength: 8 },
@@ -31,7 +31,6 @@ export async function signupRoutes(fastify: FastifyInstance, opts: { config: Con
   fastify.post<{
     Body: {
       org_name: string
-      slug: string
       full_name: string
       email: string
       password: string
@@ -47,7 +46,6 @@ export async function signupRoutes(fastify: FastifyInstance, opts: { config: Con
       request: FastifyRequest<{
         Body: {
           org_name: string
-          slug: string
           full_name: string
           email: string
           password: string
@@ -56,7 +54,7 @@ export async function signupRoutes(fastify: FastifyInstance, opts: { config: Con
       }>,
       reply: FastifyReply
     ) => {
-      const { org_name, slug, full_name, email, password, data_region } = request.body
+      const { org_name, full_name, email, password, data_region } = request.body
 
       if (isDisposableSignupEmail(email)) {
         return reply.status(400).send({
@@ -65,47 +63,51 @@ export async function signupRoutes(fastify: FastifyInstance, opts: { config: Con
         })
       }
 
-      const existing = await prisma.organization.findUnique({
-        where: { slug: slug.toLowerCase() },
-      })
-      if (existing) {
-        return reply.status(400).send({
-          code: 'SLUG_TAKEN',
-          message: 'Organization slug is already taken',
-        })
-      }
-
       const password_hash = await hashPassword(password)
 
       let userId: string = ''
 
-      try {
-        await prisma.$transaction(async (tx) => {
-          const { userId: createdUserId } = await createOrgWithSuperAdmin(tx, {
-            org_name,
-            slug,
-            full_name,
-            email,
-            password_hash,
-            data_region,
+      const maxSlugAttempts = 8
+      for (let attempt = 0; attempt < maxSlugAttempts; attempt++) {
+        const slug = await allocateUniqueOrgSlug(prisma, org_name)
+        try {
+          await prisma.$transaction(async (tx) => {
+            const { userId: createdUserId } = await createOrgWithSuperAdmin(tx, {
+              org_name,
+              slug,
+              full_name,
+              email,
+              password_hash,
+              data_region,
+            })
+            userId = createdUserId
           })
-          userId = createdUserId
-        })
-      } catch (err: unknown) {
-        const errObj = err as { code?: string }
-        if (errObj?.code === 'DISPOSABLE_EMAIL') {
-          return reply.status(400).send({
-            code: 'DISPOSABLE_EMAIL',
-            message: 'Please use a work email address',
-          })
+          break
+        } catch (err: unknown) {
+          const errObj = err as { code?: string }
+          if (errObj?.code === 'DISPOSABLE_EMAIL') {
+            return reply.status(400).send({
+              code: 'DISPOSABLE_EMAIL',
+              message: 'Please use a work email address',
+            })
+          }
+          if (errObj?.code === 'P2002' && isPrismaUniqueOnOrganizationSlug(err)) {
+            if (attempt === maxSlugAttempts - 1) {
+              return reply.status(409).send({
+                code: 'SLUG_ALLOCATION_FAILED',
+                message: 'Could not assign a unique organization URL slug. Try again.',
+              })
+            }
+            continue
+          }
+          if (errObj?.code === 'P2002') {
+            return reply.status(400).send({
+              code: 'SLUG_TAKEN',
+              message: 'Organization slug is already taken',
+            })
+          }
+          throw err
         }
-        if (errObj?.code === 'P2002') {
-          return reply.status(400).send({
-            code: 'SLUG_TAKEN',
-            message: 'Organization slug is already taken',
-          })
-        }
-        throw err
       }
 
       const verifyToken = randomUUID()

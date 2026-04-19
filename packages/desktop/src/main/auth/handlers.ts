@@ -96,38 +96,8 @@ export function authHandlers(
       }
 
       const data = await res.json()
-
-      if (data.mfa_required) {
-        return { mfa_required: true, mfa_token: data.mfa_token }
-      }
-
       await storeTokens(data.access_token, data.refresh_token)
       return { user: data.user, org_settings: data.org_settings }
-    }
-  )
-
-  ipcMain.handle(
-    'auth:mfa-verify',
-    async (_, { mfa_token, totp_code }: { mfa_token: string; totp_code: string }) => {
-      const res = await fetch(`${API_URL}/v1/app/auth/mfa/verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mfa_token, totp_code }),
-      })
-
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as { message?: string }
-        // Auth failures (401/402/403): return user-friendly message — never "Server error"
-        if (res.status === 401 || res.status === 402 || res.status === 403) {
-          return { error: err.message || 'Invalid code' }
-        }
-        // 5xx or other: generic message — never expose internal server details
-        throw new Error('Something went wrong. Please try again.')
-      }
-
-      const data = await res.json()
-      await storeTokens(data.access_token, data.refresh_token)
-      return { user: data.user, org_settings: data.org_settings ?? null }
     }
   )
 

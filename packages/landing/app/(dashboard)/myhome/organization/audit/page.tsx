@@ -62,7 +62,6 @@ function classifyAction(action: string): ActionCategory {
   )
     return 'user'
   if (
-    a.includes('mfa') ||
     a.includes('password') ||
     a.includes('login') ||
     a.includes('security') ||

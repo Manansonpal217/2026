@@ -12,7 +12,7 @@ export const Permission = {
   // Settings
   SETTINGS_MANAGE_SS_DURATION: 'settings.manage_ss_duration',
   SETTINGS_MANAGE_BLUR_DELETE: 'settings.manage_blur_delete',
-  /** Activity weights, tracking flags, idle, MFA org flags, time approval, expected daily minutes, etc. */
+  /** Activity weights, tracking flags, idle, time approval, expected daily minutes, etc. */
   SETTINGS_MANAGE_ADVANCED: 'settings.manage_advanced',
   /** Billing plan changes — OWNER only. */
   SETTINGS_MANAGE_BILLING: 'settings.manage_billing',
@@ -109,12 +109,9 @@ export const SETTINGS_PATCH_KEY_PERMISSION: Partial<Record<string, Permission>> 
   track_app_usage: Permission.SETTINGS_MANAGE_ADVANCED,
   track_url: Permission.SETTINGS_MANAGE_ADVANCED,
   time_approval_required: Permission.SETTINGS_MANAGE_ADVANCED,
-  mfa_required_for_admins: Permission.SETTINGS_MANAGE_ADVANCED,
-  mfa_required_for_managers: Permission.SETTINGS_MANAGE_ADVANCED,
   expected_daily_work_minutes: Permission.SETTINGS_MANAGE_ADVANCED,
   idle_detection_enabled: Permission.SETTINGS_MANAGE_ADVANCED,
   idle_timeout_minutes: Permission.SETTINGS_MANAGE_ADVANCED,
-  idle_timeout_intervals: Permission.SETTINGS_MANAGE_ADVANCED,
   work_platform: Permission.SETTINGS_MANAGE_ADVANCED,
 }
 

@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { prisma } from '../../db/prisma.js'
 import { comparePassword, hashRefreshToken } from '../../lib/password.js'
-import { issueAccessToken, createRefreshToken, issueMfaPendingToken } from '../../lib/jwt.js'
+import { issueAccessToken, createRefreshToken } from '../../lib/jwt.js'
 import type { Config } from '../../config.js'
 import { toPublicOrgSettings } from '../../lib/org-settings-fields.js'
 
@@ -72,32 +72,6 @@ export async function loginRoutes(fastify: FastifyInstance, _opts: { config: Con
       }
 
       const orgId = org?.id ?? null
-
-      if (org) {
-        const orgSettingsForMfa = await prisma.orgSettings.findUnique({
-          where: { org_id: org.id },
-          select: { mfa_required_for_admins: true, mfa_required_for_managers: true },
-        })
-        const mfaPolicyRequired =
-          (user.role === 'ADMIN' && orgSettingsForMfa?.mfa_required_for_admins) ||
-          (user.role === 'MANAGER' && orgSettingsForMfa?.mfa_required_for_managers) ||
-          (user.role === 'OWNER' && orgSettingsForMfa?.mfa_required_for_admins)
-
-        if (mfaPolicyRequired && !user.mfa_enabled) {
-          return reply.status(403).send({
-            code: 'MFA_SETUP_REQUIRED',
-            message: 'Your organization requires MFA for your role. Enable MFA before signing in.',
-          })
-        }
-      }
-
-      if (
-        user.mfa_enabled &&
-        (user.mfa_secret || (user.mfa_secret_encrypted && user.mfa_secret_encrypted.length > 0))
-      ) {
-        const mfaToken = await issueMfaPendingToken(user.id, orgId)
-        return reply.send({ mfa_required: true, mfa_token: mfaToken })
-      }
 
       const accessToken = await issueAccessToken(
         user.id,

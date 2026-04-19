@@ -17,6 +17,8 @@
     "db:push": "pnpm --filter backend exec prisma db push",
     "db:seed": "pnpm --filter backend exec npx tsx scripts/seed.ts",
     "rebuild:desktop": "pnpm --filter desktop exec electron-rebuild -f -w better-sqlite3-multiple-ciphers,uiohook-napi,keytar",
+    "desktop:pack:win": "pnpm rebuild:desktop && pnpm --filter desktop run pack:win",
+    "desktop:pack:win:x64": "pnpm rebuild:desktop && pnpm --filter desktop run pack:win:x64",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
     "prepare": "husky"
   },

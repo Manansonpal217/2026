@@ -91,6 +91,9 @@ const EMBEDDED_MIGRATIONS: Record<string, string> = {
     ALTER TABLE local_screenshots ADD COLUMN thumb_local_path TEXT;
     ALTER TABLE local_screenshots ADD COLUMN thumb_file_size_bytes INTEGER NOT NULL DEFAULT 0;
   `,
+  '008_screenshot_request_blur.sql': `
+    ALTER TABLE local_screenshots ADD COLUMN request_blur INTEGER NOT NULL DEFAULT 0;
+  `,
 }
 
 const SYNCED_RETENTION_DAYS = 30

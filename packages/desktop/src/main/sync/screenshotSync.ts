@@ -14,6 +14,8 @@ interface LocalScreenshot {
   activity_score: number
   file_size_bytes: number
   thumb_file_size_bytes: number
+  /** 1 = ask server to blur this upload when org policy allows */
+  request_blur?: number
   sync_attempts: number
   last_sync_attempt_at: string | null
   pending_upload_id: string | null
@@ -21,6 +23,11 @@ interface LocalScreenshot {
 
 const UPLOAD_CONCURRENCY = 4
 const nowIso = () => new Date().toISOString()
+
+function confirmBody(uploadId: string, screenshot: LocalScreenshot): string {
+  const requestBlur = screenshot.request_blur === 1
+  return JSON.stringify({ upload_id: uploadId, ...(requestBlur ? { request_blur: true } : {}) })
+}
 
 /** Best-effort parse of JSON or text body for last_sync_error (consumes response body). */
 async function readErrorHint(res: Response): Promise<string> {
@@ -119,7 +126,7 @@ async function syncOneScreenshot(
       confirmRes = await fetch(`${apiBase}/v1/screenshots/confirm`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ upload_id: uploadId }),
+        body: confirmBody(uploadId, screenshot),
       })
       if (confirmRes.ok) break
       if (confirmRes.status === 429) return { rateLimited: true }
@@ -319,14 +326,14 @@ async function syncOneScreenshot(
   let confirmRes = await fetch(`${apiBase}/v1/screenshots/confirm`, {
     method: 'POST',
     headers: { ...headers, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ upload_id: json.upload_id }),
+    body: confirmBody(json.upload_id, screenshot),
   })
   for (let attempt = 0; attempt < 3 && !confirmRes.ok && confirmRes.status >= 500; attempt++) {
     if (attempt > 0) await sleep(2000)
     confirmRes = await fetch(`${apiBase}/v1/screenshots/confirm`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ upload_id: json.upload_id }),
+      body: confirmBody(json.upload_id, screenshot),
     })
   }
   if (confirmRes.status === 429) return { rateLimited: true }

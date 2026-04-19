@@ -60,7 +60,6 @@ async function main() {
           role: 'OWNER',
           status: 'ACTIVE',
           is_platform_admin: true,
-          mfa_enabled: false,
           org_id: null,
         },
         select: { id: true },

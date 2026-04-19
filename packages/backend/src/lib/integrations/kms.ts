@@ -71,31 +71,6 @@ export async function encryptAuthData(data: object, config: Config): Promise<Buf
 
 import type { AuthTokens } from './adapter.js'
 
-/** Encrypt a plaintext string (e.g. MFA secret) at rest. */
-export async function encryptMfaSecret(plaintext: string, config: Config): Promise<Buffer> {
-  return encryptAuthData({ v: plaintext }, config)
-}
-
-/** Resolve MFA secret from user (encrypted or legacy plaintext). */
-export async function resolveMfaSecret(
-  user: { mfa_secret_encrypted?: Buffer | null; mfa_secret?: string | null },
-  config: Config
-): Promise<string | null> {
-  if (user.mfa_secret_encrypted && user.mfa_secret_encrypted.length > 0) {
-    return decryptMfaSecret(Buffer.from(user.mfa_secret_encrypted), config)
-  }
-  return user.mfa_secret ?? null
-}
-
-/** Decrypt an MFA secret blob. */
-export async function decryptMfaSecret(blob: Buffer, config: Config): Promise<string> {
-  const parsed = (await decryptBlob(blob, config)) as { v?: string }
-  if (typeof parsed.v !== 'string') {
-    throw new Error('Invalid MFA secret blob')
-  }
-  return parsed.v
-}
-
 /** Decrypt blob to parsed JSON (internal). */
 async function decryptBlob(blob: Buffer, config: Config): Promise<unknown> {
   const encryptedKeyLen = blob.readUInt32BE(0)

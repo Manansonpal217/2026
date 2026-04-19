@@ -20,17 +20,19 @@ export const orgSettingsScalarPatchSchema = z.object({
   track_app_usage: z.boolean().optional(),
   track_url: z.boolean().optional(),
   time_approval_required: z.boolean().optional(),
-  mfa_required_for_admins: z.boolean().optional(),
-  mfa_required_for_managers: z.boolean().optional(),
   expected_daily_work_minutes: z.number().int().min(15).max(1440).optional(),
   allow_employee_offline_time: z.boolean().optional(),
   idle_detection_enabled: z.boolean().optional(),
   idle_timeout_minutes: z.number().int().min(1).max(60).optional(),
-  idle_timeout_intervals: z.number().int().min(1).max(10).optional(),
   work_platform: workPlatformSchema.optional(),
 })
 
 export type OrgSettingsScalarPatch = z.infer<typeof orgSettingsScalarPatchSchema>
+
+/** Desktop polls activity every 10s; keep `idle_timeout_intervals` aligned with minutes. */
+export function idleIntervalsFromMinutes(minutes: number): number {
+  return Math.max(1, Math.round((minutes * 60) / 10))
+}
 
 export function assertActivityWeightsSum(
   patch: OrgSettingsScalarPatch,
@@ -60,7 +62,7 @@ export function assertActivityWeightsSum(
   }
 }
 
-/** Subset exposed to app / desktop clients (login, /me, MFA). */
+/** Subset exposed to app / desktop clients (login, /me). */
 export function toPublicOrgSettings(orgSettings: OrgSettings | null) {
   if (!orgSettings) return null
   return {
@@ -70,7 +72,6 @@ export function toPublicOrgSettings(orgSettings: OrgSettings | null) {
     time_approval_required: orgSettings.time_approval_required,
     idle_detection_enabled: orgSettings.idle_detection_enabled,
     idle_timeout_minutes: orgSettings.idle_timeout_minutes,
-    idle_timeout_intervals: orgSettings.idle_timeout_intervals,
     expected_daily_work_minutes: orgSettings.expected_daily_work_minutes,
     work_platform: orgSettings.work_platform as WorkPlatform,
   }

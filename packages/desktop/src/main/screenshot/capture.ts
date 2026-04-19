@@ -7,7 +7,7 @@ import screenshotDesktop from 'screenshot-desktop'
 import sharp from 'sharp'
 import { getDb } from '../db/index.js'
 import { getDbEncryptionKey } from '../db/key.js'
-import { shouldNotifyOnScreenshotCapture } from '../userPrefs.js'
+import { readUserPrefs, shouldNotifyOnScreenshotCapture, writeUserPrefs } from '../userPrefs.js'
 
 /**
  * AES-256-GCM wire format:
@@ -59,13 +59,22 @@ export async function captureAndStore(
     writeFileSync(localPath, encrypted)
     writeFileSync(thumbLocalPath, thumbEncrypted)
 
+    const prefs = readUserPrefs()
+    let requestBlur = 0
+    if (prefs.requestBlurForAllCaptures || prefs.requestBlurNextCaptureOnce) {
+      requestBlur = 1
+    }
+    if (prefs.requestBlurNextCaptureOnce) {
+      writeUserPrefs({ requestBlurNextCaptureOnce: false })
+    }
+
     // Persist to local SQLite
     const db = getDb()
     db.prepare(
       `
       INSERT INTO local_screenshots
-        (id, session_id, local_path, thumb_local_path, taken_at, activity_score, file_size_bytes, thumb_file_size_bytes, synced, sync_attempts, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
+        (id, session_id, local_path, thumb_local_path, taken_at, activity_score, file_size_bytes, thumb_file_size_bytes, request_blur, synced, sync_attempts, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
     `
     ).run(
       id,
@@ -76,6 +85,7 @@ export async function captureAndStore(
       activityScore,
       encrypted.length,
       thumbEncrypted.length,
+      requestBlur,
       new Date().toISOString()
     )
 

@@ -4,7 +4,15 @@ import type { FormEvent } from 'react'
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Building2, CheckCircle2, Layers, Shield, UserPlus } from 'lucide-react'
+import {
+  ArrowLeft,
+  Building2,
+  CheckCircle2,
+  ChevronDown,
+  Layers,
+  Shield,
+  UserPlus,
+} from 'lucide-react'
 import { api } from '@/lib/api'
 import { adminToast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
@@ -19,7 +27,13 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion'
 import { OrgAgentTokenPanel } from '../../org-agent-token-panel'
-import { cn } from '@/lib/utils'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 const WORK_PLATFORMS = [
   { value: 'jira_cloud', label: 'Jira / Atlassian Cloud' },
@@ -47,33 +61,29 @@ function rowSwitch(
 export default function AdminCreateOrgPage() {
   const router = useRouter()
   const [submitting, setSubmitting] = useState(false)
-  const [createdOrg, setCreatedOrg] = useState<{ id: string; name: string } | null>(null)
+  const [createdOrg, setCreatedOrg] = useState<{ id: string; name: string; slug: string } | null>(
+    null
+  )
 
   const [orgName, setOrgName] = useState('')
-  const [slug, setSlug] = useState('')
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [workPlatform, setWorkPlatform] = useState<string>('jira_cloud')
 
-  const [screenshotIntervalSeconds, setScreenshotIntervalSeconds] = useState(60)
+  const [screenshotIntervalSeconds, setScreenshotIntervalSeconds] = useState<number | ''>(60)
   const [blurScreenshots, setBlurScreenshots] = useState(false)
   const [timeApprovalRequired, setTimeApprovalRequired] = useState(false)
   const [idleDetectionEnabled, setIdleDetectionEnabled] = useState(true)
-  const [idleTimeoutMinutes, setIdleTimeoutMinutes] = useState(5)
-  const [idleTimeoutIntervals, setIdleTimeoutIntervals] = useState(3)
-  const [expectedDailyWorkMinutes, setExpectedDailyWorkMinutes] = useState(480)
+  const [idleTimeoutMinutes, setIdleTimeoutMinutes] = useState<number | ''>(5)
+  const [expectedDailyWorkMinutes, setExpectedDailyWorkMinutes] = useState<number | ''>(480)
   const [allowEmployeeOfflineTime, setAllowEmployeeOfflineTime] = useState(false)
   const [trackKeyboard, setTrackKeyboard] = useState(true)
   const [trackMouse, setTrackMouse] = useState(true)
   const [trackAppUsage, setTrackAppUsage] = useState(true)
   const [trackUrl, setTrackUrl] = useState(false)
-  const [mfaRequiredAdmins, setMfaRequiredAdmins] = useState(false)
-  const [mfaRequiredManagers, setMfaRequiredManagers] = useState(false)
-
   function resetForAnother() {
     setOrgName('')
-    setSlug('')
     setFullName('')
     setEmail('')
     setPassword('')
@@ -83,15 +93,12 @@ export default function AdminCreateOrgPage() {
     setTimeApprovalRequired(false)
     setIdleDetectionEnabled(true)
     setIdleTimeoutMinutes(5)
-    setIdleTimeoutIntervals(3)
     setExpectedDailyWorkMinutes(480)
     setAllowEmployeeOfflineTime(false)
     setTrackKeyboard(true)
     setTrackMouse(true)
     setTrackAppUsage(true)
     setTrackUrl(false)
-    setMfaRequiredAdmins(false)
-    setMfaRequiredManagers(false)
     setCreatedOrg(null)
   }
 
@@ -100,33 +107,35 @@ export default function AdminCreateOrgPage() {
     setSubmitting(true)
     try {
       const { data } = await api.post<{
-        organization?: { id: string; name: string }
+        organization?: { id: string; name: string; slug: string }
       }>('/v1/platform/orgs', {
         org_name: orgName,
-        slug: slug.trim().toLowerCase(),
         full_name: fullName,
         email: email.trim().toLowerCase(),
         password,
         work_platform: workPlatform,
         settings: {
-          screenshot_interval_seconds: screenshotIntervalSeconds,
+          screenshot_interval_seconds:
+            screenshotIntervalSeconds === '' ? 60 : screenshotIntervalSeconds,
           blur_screenshots: blurScreenshots,
           time_approval_required: timeApprovalRequired,
           idle_detection_enabled: idleDetectionEnabled,
-          idle_timeout_minutes: idleTimeoutMinutes,
-          idle_timeout_intervals: idleTimeoutIntervals,
-          expected_daily_work_minutes: expectedDailyWorkMinutes,
+          idle_timeout_minutes: idleTimeoutMinutes === '' ? 5 : idleTimeoutMinutes,
+          expected_daily_work_minutes:
+            expectedDailyWorkMinutes === '' ? 480 : expectedDailyWorkMinutes,
           allow_employee_offline_time: allowEmployeeOfflineTime,
           track_keyboard: trackKeyboard,
           track_mouse: trackMouse,
           track_app_usage: trackAppUsage,
           track_url: trackUrl,
-          mfa_required_for_admins: mfaRequiredAdmins,
-          mfa_required_for_managers: mfaRequiredManagers,
         },
       })
       if (data.organization?.id) {
-        setCreatedOrg({ id: data.organization.id, name: data.organization.name })
+        setCreatedOrg({
+          id: data.organization.id,
+          name: data.organization.name,
+          slug: data.organization.slug,
+        })
         adminToast.success(
           'Organization created successfully',
           'A verification email was sent to the admin. For self-hosted Jira, generate an agent token below.'
@@ -141,11 +150,6 @@ export default function AdminCreateOrgPage() {
       setSubmitting(false)
     }
   }
-
-  const selectClass = cn(
-    'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
-  )
 
   if (createdOrg) {
     return (
@@ -169,8 +173,9 @@ export default function AdminCreateOrgPage() {
                 {createdOrg.name} is ready
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                A verification email was sent to the admin. For self-hosted Jira, generate an agent
-                token below.
+                A verification email was sent to the admin. Organization URL slug:{' '}
+                <span className="font-mono text-foreground">{createdOrg.slug}</span>. For
+                self-hosted Jira, generate an agent token below.
               </p>
             </div>
           </div>
@@ -232,10 +237,12 @@ export default function AdminCreateOrgPage() {
               <Building2 className="h-5 w-5 text-primary" aria-hidden />
               Tenant
             </CardTitle>
-            <CardDescription>Organization name and URL slug.</CardDescription>
+            <CardDescription>
+              Display name only; a unique URL slug is assigned automatically from this name.
+            </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2 sm:col-span-2">
+          <CardContent className="grid gap-4">
+            <div className="space-y-2">
               <Label htmlFor="org_name">Organization name</Label>
               <Input
                 id="org_name"
@@ -243,18 +250,6 @@ export default function AdminCreateOrgPage() {
                 onChange={(e) => setOrgName(e.target.value)}
                 required
                 placeholder="Acme Inc"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="slug">Slug</Label>
-              <Input
-                id="slug"
-                value={slug}
-                onChange={(e) => setSlug(e.target.value)}
-                required
-                placeholder="acme-inc"
-                pattern="[a-z0-9\-]+"
-                title="Lowercase letters, numbers, and hyphens only"
               />
             </div>
           </CardContent>
@@ -273,18 +268,34 @@ export default function AdminCreateOrgPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             <Label htmlFor="work-platform">Platform</Label>
-            <select
-              id="work-platform"
-              className={selectClass}
-              value={workPlatform}
-              onChange={(e) => setWorkPlatform(e.target.value)}
-            >
-              {WORK_PLATFORMS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  id="work-platform"
+                  variant="outline"
+                  aria-haspopup="listbox"
+                  className="h-10 w-full justify-between rounded-lg border-border bg-input font-normal shadow-[inset_0_1px_0_0_hsl(var(--foreground)/0.04)] hover:bg-input hover:border-border focus-visible:ring-2 focus-visible:ring-ring/40"
+                >
+                  <span className="truncate text-left">
+                    {WORK_PLATFORMS.find((p) => p.value === workPlatform)?.label ?? workPlatform}
+                  </span>
+                  <ChevronDown className="h-4 w-4 shrink-0 opacity-50" aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="min-w-[var(--radix-dropdown-menu-trigger-width,12rem)] max-w-[calc(100vw-2rem)]"
+              >
+                <DropdownMenuRadioGroup value={workPlatform} onValueChange={setWorkPlatform}>
+                  {WORK_PLATFORMS.map((p) => (
+                    <DropdownMenuRadioItem key={p.value} value={p.value}>
+                      {p.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </CardContent>
         </Card>
 
@@ -348,30 +359,41 @@ export default function AdminCreateOrgPage() {
               defaultValue={['screenshots']}
             >
               <AccordionItem value="screenshots" className="border-b-0">
-                <AccordionTrigger className="px-4 py-3 text-sm">
-                  Screenshots &amp; retention
-                </AccordionTrigger>
+                <AccordionTrigger className="px-4 py-3 text-sm">Screenshots</AccordionTrigger>
                 <AccordionContent className="space-y-3 px-4 pb-4">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="ss-int">Capture interval (seconds)</Label>
-                      <Input
-                        id="ss-int"
-                        type="number"
-                        min={60}
-                        max={3600}
-                        value={screenshotIntervalSeconds}
-                        onChange={(e) => setScreenshotIntervalSeconds(Number(e.target.value))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Retention policy</Label>
-                      <p className="rounded-md border border-input bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                        Fixed at 9 months (270 days) for all organizations.
-                      </p>
-                    </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="ss-int">Capture interval (seconds)</Label>
+                    <Input
+                      id="ss-int"
+                      type="number"
+                      min={60}
+                      max={3600}
+                      value={screenshotIntervalSeconds}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setScreenshotIntervalSeconds(v === '' ? '' : Number(v))
+                      }}
+                      onBlur={() => {
+                        if (screenshotIntervalSeconds === '') setScreenshotIntervalSeconds(60)
+                        else
+                          setScreenshotIntervalSeconds(
+                            Math.min(3600, Math.max(60, screenshotIntervalSeconds))
+                          )
+                      }}
+                    />
                   </div>
-                  {rowSwitch('blur-ss', 'Blur screenshots', blurScreenshots, setBlurScreenshots)}
+                  <div className="space-y-1">
+                    {rowSwitch(
+                      'blur-ss',
+                      'Allow employees to request screenshot blur',
+                      blurScreenshots,
+                      setBlurScreenshots
+                    )}
+                    <p className="text-xs text-muted-foreground pl-0.5">
+                      When on, employees can opt in per capture in the desktop app. Org admins can
+                      remove blur for specific users under Organization → Per-user overrides.
+                    </p>
+                  </div>
                 </AccordionContent>
               </AccordionItem>
               <AccordionItem value="idle" className="border-t border-border">
@@ -383,29 +405,23 @@ export default function AdminCreateOrgPage() {
                     idleDetectionEnabled,
                     setIdleDetectionEnabled
                   )}
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="idle-min">Idle timeout (minutes)</Label>
-                      <Input
-                        id="idle-min"
-                        type="number"
-                        min={1}
-                        max={60}
-                        value={idleTimeoutMinutes}
-                        onChange={(e) => setIdleTimeoutMinutes(Number(e.target.value))}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="idle-int">Idle intervals</Label>
-                      <Input
-                        id="idle-int"
-                        type="number"
-                        min={1}
-                        max={10}
-                        value={idleTimeoutIntervals}
-                        onChange={(e) => setIdleTimeoutIntervals(Number(e.target.value))}
-                      />
-                    </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="idle-min">Idle after no activity (minutes)</Label>
+                    <Input
+                      id="idle-min"
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={idleTimeoutMinutes}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setIdleTimeoutMinutes(v === '' ? '' : Number(v))
+                      }}
+                      onBlur={() => {
+                        if (idleTimeoutMinutes === '') setIdleTimeoutMinutes(5)
+                        else setIdleTimeoutMinutes(Math.min(60, Math.max(1, idleTimeoutMinutes)))
+                      }}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="expected-day">Expected work per day (minutes)</Label>
@@ -415,7 +431,17 @@ export default function AdminCreateOrgPage() {
                       min={15}
                       max={1440}
                       value={expectedDailyWorkMinutes}
-                      onChange={(e) => setExpectedDailyWorkMinutes(Number(e.target.value))}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setExpectedDailyWorkMinutes(v === '' ? '' : Number(v))
+                      }}
+                      onBlur={() => {
+                        if (expectedDailyWorkMinutes === '') setExpectedDailyWorkMinutes(480)
+                        else
+                          setExpectedDailyWorkMinutes(
+                            Math.min(1440, Math.max(15, expectedDailyWorkMinutes))
+                          )
+                      }}
                     />
                   </div>
                   {rowSwitch(
@@ -439,23 +465,6 @@ export default function AdminCreateOrgPage() {
                   {rowSwitch('tm', 'Track mouse', trackMouse, setTrackMouse)}
                   {rowSwitch('ta', 'Track app usage', trackAppUsage, setTrackAppUsage)}
                   {rowSwitch('tu', 'Track URLs', trackUrl, setTrackUrl)}
-                </AccordionContent>
-              </AccordionItem>
-              <AccordionItem value="mfa" className="border-t border-border">
-                <AccordionTrigger className="px-4 py-3 text-sm">MFA policy</AccordionTrigger>
-                <AccordionContent className="space-y-1 px-4 pb-4">
-                  {rowSwitch(
-                    'mfa-a',
-                    'MFA required for admins',
-                    mfaRequiredAdmins,
-                    setMfaRequiredAdmins
-                  )}
-                  {rowSwitch(
-                    'mfa-m',
-                    'MFA required for managers',
-                    mfaRequiredManagers,
-                    setMfaRequiredManagers
-                  )}
                 </AccordionContent>
               </AccordionItem>
             </Accordion>

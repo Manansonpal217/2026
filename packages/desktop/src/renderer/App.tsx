@@ -107,18 +107,37 @@ function DashboardShell({ user, workPlatform, onSignOut }: DashboardShellProps) 
   const [streak, setStreak] = useState<number>(0)
   const [lastScreenshotAt, setLastScreenshotAt] = useState<string | null>(null)
   const [notifyScreenshotCapture, setNotifyScreenshotCapture] = useState(false)
+  const [ssBlurAllowed, setSsBlurAllowed] = useState(false)
+  const [requestBlurForAllCaptures, setRequestBlurForAllCaptures] = useState(false)
   const [jiraConnected, setJiraConnected] = useState(false)
   const [jiraIssues, setJiraIssues] = useState<JiraIssue[]>([])
   const [updateReady, setUpdateReady] = useState<string | null>(null)
+  const [updateDownloading, setUpdateDownloading] = useState<string | null>(null)
+  const [appVersion, setAppVersion] = useState<string>('…')
   const { theme, toggleTheme } = useTheme()
 
   useEffect(() => {
+    window.electron?.ipcRenderer
+      ?.invoke('app:version')
+      .then((v) => setAppVersion((v as string) || '…'))
+  }, [])
+
+  useEffect(() => {
+    const onAvailable = (...args: unknown[]) => {
+      const { version } = args[0] as { version: string }
+      setUpdateDownloading(version)
+    }
     const onDownloaded = (...args: unknown[]) => {
       const { version } = args[0] as { version: string }
+      setUpdateDownloading(null)
       setUpdateReady(version)
     }
+    window.electron?.ipcRenderer?.on('updater:available', onAvailable)
     window.electron?.ipcRenderer?.on('updater:downloaded', onDownloaded)
-    return () => window.electron?.ipcRenderer?.off('updater:downloaded', onDownloaded)
+    return () => {
+      window.electron?.ipcRenderer?.off('updater:available', onAvailable)
+      window.electron?.ipcRenderer?.off('updater:downloaded', onDownloaded)
+    }
   }, [])
 
   const refreshJiraIssues = useCallback(async () => {
@@ -151,16 +170,26 @@ function DashboardShell({ user, workPlatform, onSignOut }: DashboardShellProps) 
       .then((t) => setLastScreenshotAt((t as string | null) ?? null))
   }
 
-  useEffect(() => {
-    window.electron?.ipcRenderer
-      .invoke('prefs:get')
-      .then((p) =>
-        setNotifyScreenshotCapture(
-          (p as { notifyOnScreenshotCapture?: boolean }).notifyOnScreenshotCapture === true
-        )
-      )
+  const refreshPrefsAndSettings = useCallback(() => {
+    const ipc = window.electron?.ipcRenderer
+    if (!ipc) return
+    void Promise.all([ipc.invoke('prefs:get'), ipc.invoke('settings:get-resolved')])
+      .then(([p, s]) => {
+        const prefs = p as {
+          notifyOnScreenshotCapture?: boolean
+          requestBlurForAllCaptures?: boolean
+        }
+        const settings = s as Record<string, string> | null
+        setNotifyScreenshotCapture(prefs.notifyOnScreenshotCapture === true)
+        setRequestBlurForAllCaptures(prefs.requestBlurForAllCaptures === true)
+        setSsBlurAllowed(settings?.ss_blur_allowed === 'true')
+      })
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    refreshPrefsAndSettings()
+  }, [refreshPrefsAndSettings])
 
   useEffect(() => {
     fetchLastScreenshot()
@@ -265,7 +294,7 @@ function DashboardShell({ user, workPlatform, onSignOut }: DashboardShellProps) 
             <span
               className={`text-[11px] leading-tight ${theme === 'dark' ? 'text-white/40' : 'text-slate-500'}`}
             >
-              v2.1.0
+              v{appVersion}
             </span>
           </div>
         </div>
@@ -313,6 +342,22 @@ function DashboardShell({ user, workPlatform, onSignOut }: DashboardShellProps) 
         </div>
       </header>
 
+      {/* Auto-update: downloading */}
+      {updateDownloading && !updateReady && (
+        <div
+          className={`flex items-center justify-between px-6 py-2 shrink-0 text-xs ${
+            theme === 'dark'
+              ? 'bg-indigo-500/10 border-b border-indigo-500/15 text-indigo-200/90'
+              : 'bg-indigo-50/80 border-b border-indigo-100 text-indigo-800'
+          }`}
+        >
+          <span>Downloading TrackSync {updateDownloading}…</span>
+          <span className="inline-flex animate-spin" aria-hidden>
+            <RefreshCw className="h-3 w-3" />
+          </span>
+        </div>
+      )}
+
       {/* Auto-update banner */}
       {updateReady && (
         <div
@@ -354,6 +399,7 @@ function DashboardShell({ user, workPlatform, onSignOut }: DashboardShellProps) 
         <Timer
           jiraConnected={jiraConnected}
           jiraIssues={jiraIssues}
+          workPlatform={workPlatform}
           onJiraConnected={() => setJiraConnected(true)}
           onJiraDisconnected={() => setJiraConnected(false)}
           refreshJiraIssues={refreshJiraIssues}
@@ -401,6 +447,44 @@ function DashboardShell({ user, workPlatform, onSignOut }: DashboardShellProps) 
             />
             <span className="tabular-nums">Screenshot alerts</span>
           </label>
+          {ssBlurAllowed ? (
+            <>
+              <label
+                className={`flex items-center gap-2 cursor-pointer select-none ${
+                  theme === 'dark'
+                    ? 'text-white/45 hover:text-white/65'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+                title="When checked, each screenshot upload asks the server to apply privacy blur (org policy and admin overrides still apply)"
+              >
+                <input
+                  type="checkbox"
+                  className="rounded border-white/20 bg-white/5 accent-indigo-500 h-3.5 w-3.5 shrink-0"
+                  checked={requestBlurForAllCaptures}
+                  onChange={(e) => {
+                    const on = e.target.checked
+                    setRequestBlurForAllCaptures(on)
+                    window.electron?.ipcRenderer.invoke('prefs:set-request-blur-all', on)
+                  }}
+                />
+                <span className="tabular-nums">Blur my screenshots</span>
+              </label>
+              <button
+                type="button"
+                className={`tabular-nums underline-offset-2 hover:underline bg-transparent border-0 p-0 cursor-pointer ${
+                  theme === 'dark'
+                    ? 'text-white/45 hover:text-white/70'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+                title="Only the next capture will request blur"
+                onClick={() => {
+                  void window.electron?.ipcRenderer.invoke('prefs:blur-next-capture-once')
+                }}
+              >
+                Blur next only
+              </button>
+            </>
+          ) : null}
         </div>
         <div className="flex items-center gap-5">
           <button

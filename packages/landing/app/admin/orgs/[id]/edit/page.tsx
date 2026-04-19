@@ -20,7 +20,6 @@ type UserRow = {
   email: string
   role: string
   status: string
-  mfa_enabled: boolean
   created_at: string
 }
 

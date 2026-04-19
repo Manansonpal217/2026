@@ -22,6 +22,7 @@ export function screenshotWorker(config: Config): Worker {
       })
 
       const forceBlur = job.data.forceBlur === true
+      // Org must allow blur for automated jobs; confirm() only enqueues when org blur is on and user opted in. Manual blur uses forceBlur.
       if (!forceBlur && !orgSettings?.blur_screenshots) {
         return { skipped: true, reason: 'blur_screenshots is disabled' }
       }

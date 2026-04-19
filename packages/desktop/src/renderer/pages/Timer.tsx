@@ -16,12 +16,17 @@ import { LogWorkCard, type StoppedSessionMeta } from '../components/LogWorkCard'
 interface TimerProps {
   jiraConnected?: boolean
   jiraIssues?: JiraIssue[]
+  workPlatform?: string
   onJiraConnected?: () => void
   onJiraDisconnected?: () => void
   refreshJiraIssues?: () => void | Promise<void>
 }
 
-export function Timer({ jiraConnected = false, jiraIssues = [] }: TimerProps = {}) {
+export function Timer({
+  jiraConnected = false,
+  jiraIssues = [],
+  workPlatform = 'jira_cloud',
+}: TimerProps = {}) {
   const { theme } = useTheme()
   const {
     isRunning,
@@ -189,10 +194,15 @@ export function Timer({ jiraConnected = false, jiraIssues = [] }: TimerProps = {
       })
       await Promise.all([refreshTodaySessions(), fetchRecentSessions()])
     } else if (selectedProjectId && selectedTaskId) {
+      // For Asana orgs, encode the task's external GID in notes so log-work can route correctly
+      const asanaNotes =
+        workPlatform === 'asana' && selectedTask?.external_id
+          ? `asana:${selectedTask.external_id}`
+          : null
       await start({
         projectId: selectedProjectId,
         taskId: selectedTaskId,
-        notes: null,
+        notes: asanaNotes,
       })
       await Promise.all([refreshTodaySessions(), fetchRecentSessions()])
     } else {
@@ -209,7 +219,9 @@ export function Timer({ jiraConnected = false, jiraIssues = [] }: TimerProps = {
     start,
     selectedProjectId,
     selectedTaskId,
+    selectedTask,
     selectedJiraIssue,
+    workPlatform,
     inputValue,
     refreshTodaySessions,
     fetchRecentSessions,
@@ -228,14 +240,18 @@ export function Timer({ jiraConnected = false, jiraIssues = [] }: TimerProps = {
       setSelectedJiraIssue(null)
       if (manualNotes !== undefined) setInputValue(manualNotes)
       if (isRunning) {
+        const asanaNotes =
+          workPlatform === 'asana' && projectId && taskId && task?.external_id
+            ? `asana:${task.external_id}`
+            : null
         await switchTask({
           projectId,
           taskId,
-          notes: projectId && taskId ? null : (manualNotes ?? inputValue).trim() || null,
+          notes: projectId && taskId ? asanaNotes : (manualNotes ?? inputValue).trim() || null,
         })
       }
     },
-    [isRunning, switchTask, inputValue]
+    [isRunning, switchTask, inputValue, workPlatform]
   )
 
   const handleJiraTaskSelect = useCallback(

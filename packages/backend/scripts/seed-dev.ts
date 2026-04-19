@@ -5,9 +5,6 @@
  * Platform super admin:  manan@admin.com / manan
  * Org admin (Acme Corp): manan@admin.com / manan  (same account, is OWNER)
  *
- * MFA trick: mfa_enabled=true but no secret stored → login never triggers
- * MFA challenge, but requirePlatformAdmin() middleware check passes.
- *
  * Run:  pnpm --filter backend exec tsx scripts/seed-dev.ts
  */
 
@@ -136,7 +133,6 @@ async function main() {
         org_id: enterprise.id,
         screenshot_interval_seconds: 900,
         screenshot_retention_days: 90,
-        mfa_required_for_admins: true,
         expected_daily_work_minutes: 540,
       },
     ],
@@ -153,8 +149,6 @@ async function main() {
       role: 'OWNER',
       status: 'ACTIVE',
       is_platform_admin: true,
-      // mfa_enabled=true but no secret → skips challenge, passes requirePlatformAdmin()
-      mfa_enabled: true,
       timezone: 'America/New_York',
     },
   })
@@ -710,16 +704,6 @@ async function main() {
         new_value: { provider: 'jira' },
         ip_address: '192.168.1.1',
         created_at: subDays(new Date(), 3),
-      },
-      {
-        org_id: acme.id,
-        actor_id: sarah.id,
-        action: 'security.mfa_enabled',
-        target_type: 'user',
-        target_id: sarah.id,
-        new_value: { user: 'sarah@acme.com' },
-        ip_address: '192.168.1.2',
-        created_at: subDays(new Date(), 10),
       },
       {
         org_id: acme.id,

@@ -84,7 +84,6 @@ export async function adminUserRoutes(fastify: FastifyInstance, opts: { config: 
             role: true,
             status: true,
             created_at: true,
-            mfa_enabled: true,
             manager_id: true,
             can_add_offline_time: true,
             manager: { select: { id: true, name: true, email: true } },

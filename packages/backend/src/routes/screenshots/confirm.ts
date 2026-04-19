@@ -5,9 +5,12 @@ import { createAuthenticateMiddleware } from '../../middleware/authenticate.js'
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
 import { objectExists } from '../../lib/s3.js'
+import { resolveFeature } from '../../lib/settings.js'
 
 const confirmSchema = z.object({
   upload_id: z.string().uuid(),
+  /** When true, queue privacy blur for this upload if org allows blur and user is allowed (see ss_blur_allowed). */
+  request_blur: z.boolean().optional(),
 })
 
 export async function screenshotConfirmRoutes(fastify: FastifyInstance, opts: { config: Config }) {
@@ -34,12 +37,10 @@ export async function screenshotConfirmRoutes(fastify: FastifyInstance, opts: { 
       // Verify file actually exists in S3
       const exists = await objectExists(opts.config, screenshot.s3_key)
       if (!exists) {
-        return reply
-          .status(422)
-          .send({
-            code: 'S3_OBJECT_NOT_FOUND',
-            message: 'File not found in S3 — upload may have failed',
-          })
+        return reply.status(422).send({
+          code: 'S3_OBJECT_NOT_FOUND',
+          message: 'File not found in S3 — upload may have failed',
+        })
       }
 
       if (screenshot.thumb_s3_key) {
@@ -58,13 +59,15 @@ export async function screenshotConfirmRoutes(fastify: FastifyInstance, opts: { 
         data: { updated_at: new Date() },
       })
 
-      // Check if org has blur_screenshots enabled and enqueue worker
+      // Opt-in blur: org enables the feature; user requests blur for this upload; admin may deny via ss_blur_allowed override.
       const orgSettings = await prisma.orgSettings.findFirst({
         where: { org_id: user.org_id },
       })
-      if (orgSettings?.blur_screenshots) {
-        // Enqueue screenshot worker for blur processing
-        // (worker import would create circular deps; use queue name directly)
+      const requestBlur = body.data.request_blur === true
+      const userMayBlur =
+        orgSettings?.blur_screenshots === true &&
+        (await resolveFeature(user.org_id, user.id, 'ss_blur_allowed')) === 'true'
+      if (requestBlur && userMayBlur) {
         const { getScreenshotQueue } = await import('../../queues/index.js')
         const queue = getScreenshotQueue()
         await queue.add(

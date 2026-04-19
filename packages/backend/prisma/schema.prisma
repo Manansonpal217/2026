@@ -122,11 +122,10 @@ model OrgSettings {
   track_app_usage             Boolean @default(true)
   track_url                   Boolean @default(false)
   time_approval_required       Boolean @default(false)
-  mfa_required_for_admins      Boolean @default(false)
-  mfa_required_for_managers    Boolean @default(false)
   idle_detection_enabled       Boolean @default(true)
   idle_timeout_minutes         Int     @default(5)
-  idle_timeout_intervals       Int     @default(3)
+  /// Derived from minutes (10s activity polls); default matches 5 min.
+  idle_timeout_intervals       Int     @default(30)
   // Expected tracked time per calendar day for progress fill (minutes); default 8h.
   expected_daily_work_minutes  Int     @default(480)
   // When true, employees may add their own offline time unless overridden per-user.
@@ -154,10 +153,6 @@ model User {
   name             String
   timezone         String     @default("UTC")
   status           UserStatus @default(ACTIVE)
-  mfa_enabled       Boolean   @default(false)
-  mfa_secret        String?   // Legacy plaintext; prefer mfa_secret_encrypted
-  mfa_secret_encrypted Bytes?
-  mfa_backup_codes  String[]  @default([])
   is_platform_admin Boolean   @default(false)
   // null = follow OrgSettings.allow_employee_offline_time; true/false = override
   can_add_offline_time Boolean?

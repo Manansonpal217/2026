@@ -8,9 +8,13 @@ protocols:
   - name: TrackSync
     schemes:
       - tracksync
+# If package.json has a top-level "build" field, electron-builder ignores this file entirely
+# and uses default "pack everything" globs — that accidentally bundled `release/` (~800MB+ of old installers).
 files:
   - out/**/*
   - package.json
+  - '!release/**'
+  - '!dist/**'
 # All native modules (*.node) and packages with platform dylibs/so files
 # MUST be outside the asar - you cannot dlopen files from inside an asar archive
 asarUnpack:
@@ -41,7 +45,15 @@ win:
   signAndEditExecutable: false
   target:
     - nsis
-    - portable
+# NSIS installer only — portable exe is incompatible with electron-updater.
+# Shortcuts: use the NSIS installer (`TrackSync Setup …exe`).
+# SmartScreen "don’t run" / unknown publisher: normal for unsigned builds. Fix with an Authenticode cert (sign in CI via CSC_LINK + CSC_KEY_PASSWORD). Users can click "More info" → "Run anyway" until then.
+nsis:
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: TrackSync
+  menuCategory: TrackSync
+  runAfterFinish: true
 linux:
   target:
     - AppImage
@@ -50,6 +62,5 @@ linux:
 publish:
   provider: github
   releaseType: release
-  # Tag format: desktop-v<version>  (e.g. desktop-v1.2.3)
-  # Push this tag to trigger the release-desktop CI workflow.
-  tagName: desktop-v${version}
+  # GitHub publisher schema has no `tagName`; tag is derived from version (see electron-builder publish docs).
+  # CI can still trigger on your repo’s tag pattern; set owner/repo via package.json `repository` if auto-detect fails.

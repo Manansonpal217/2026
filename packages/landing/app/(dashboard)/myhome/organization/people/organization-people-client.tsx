@@ -36,7 +36,6 @@ type UserRow = {
   role: string
   status: string
   created_at: string
-  mfa_enabled: boolean
   manager_id: string | null
   can_add_offline_time: boolean | null
   manager: { id: string; name: string; email: string } | null

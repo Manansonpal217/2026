@@ -116,7 +116,7 @@ async function main() {
           const payload = await verifyToken(raw)
           return `org:${payload.org_id}`
         } catch {
-          /* invalid/expired/MFA-pending token — fall back to IP */
+          /* invalid/expired token — fall back to IP */
         }
       }
       return `ip:${request.ip}`

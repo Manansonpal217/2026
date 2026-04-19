@@ -11,6 +11,7 @@ import {
   orgSettingsScalarPatchSchema as patchSettingsSchema,
   assertActivityWeightsSum,
   GLOBAL_SCREENSHOT_RETENTION_DAYS,
+  idleIntervalsFromMinutes,
 } from '../../lib/org-settings-fields.js'
 import { isOverridableKey, type OverridableKey } from '../../lib/settings.js'
 import { registerOrgReportJobs } from '../../lib/report-jobs.js'
@@ -62,9 +63,15 @@ export async function adminSettingsRoutes(fastify: FastifyInstance, opts: { conf
       }
 
       const { timezone, ...settingsData } = body.data
-      const settingsDataWithRetention = {
+      let settingsDataWithRetention: Record<string, unknown> = {
         ...settingsData,
         screenshot_retention_days: GLOBAL_SCREENSHOT_RETENTION_DAYS,
+      }
+      if (settingsData.idle_timeout_minutes !== undefined) {
+        settingsDataWithRetention = {
+          ...settingsDataWithRetention,
+          idle_timeout_intervals: idleIntervalsFromMinutes(settingsData.idle_timeout_minutes),
+        }
       }
 
       for (const key of Object.keys(

@@ -17,7 +17,7 @@ export function passwordChangedHtml(params: PasswordChangedParams): string {
   const inner = `
 ${bodyParagraph(`Hi <strong style="color:#0f172a;">${escapeHtml(userName)}</strong>,`)}
 ${bodyParagraph('The password for your TrackSync account was <strong style="color:#0f172a;">just changed</strong>. If you made this update, you&apos;re all set—no further action needed.')}
-${infoPanel(`<strong style="color:#312e81;">Security tip</strong><br /><span style="color:#4338a3;">Use a unique password and consider enabling MFA for admins when your org enables it.</span>`)}
+${infoPanel(`<strong style="color:#312e81;">Security tip</strong><br /><span style="color:#4338a3;">Use a unique, strong password that you don&apos;t reuse on other sites.</span>`)}
 ${warningPanel(`If you <strong>did not</strong> change your password, contact us immediately at <a href="mailto:support@tracksync.dev" style="color:#991b1b;text-decoration:underline;">support@tracksync.dev</a> so we can help secure your account.`)}
 ${finePrint('This is an automated security message from TrackSync.')}
 `

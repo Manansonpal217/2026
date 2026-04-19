@@ -5,8 +5,6 @@ import {
   Users,
   Plus,
   Search,
-  Shield,
-  ShieldCheck,
   UserCog,
   Building2,
   MoreHorizontal,
@@ -45,7 +43,6 @@ type UserRow = {
   role: string
   status: string
   created_at: string
-  mfa_enabled: boolean
 }
 
 function roleLabel(role: string): string {
@@ -136,8 +133,7 @@ export default function AdminUsersPage() {
   const stats = useMemo(() => {
     const active = users.filter((u) => u.status === 'ACTIVE').length
     const admins = users.filter((u) => u.role === 'admin' || u.role === 'super_admin').length
-    const mfa = users.filter((u) => u.mfa_enabled).length
-    return { total: users.length, active, admins, mfa }
+    return { total: users.length, active, admins }
   }, [users])
 
   const loadOrgs = useCallback(async () => {
@@ -316,20 +312,6 @@ export default function AdminUsersPage() {
                 </div>
                 <p className="mt-1 text-2xl font-bold text-foreground">{stats.admins}</p>
               </motion.div>
-
-              <motion.div
-                custom={3}
-                variants={cardVariants}
-                initial="hidden"
-                animate="visible"
-                className="rounded-xl border border-l-4 border-border border-l-amber-500 bg-card p-4"
-              >
-                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                  <ShieldCheck className="h-3.5 w-3.5 text-amber-500" />
-                  MFA Enabled
-                </div>
-                <p className="mt-1 text-2xl font-bold text-foreground">{stats.mfa}</p>
-              </motion.div>
             </>
           )}
         </div>
@@ -408,7 +390,6 @@ export default function AdminUsersPage() {
                 <th className="px-4 py-3 font-medium text-muted-foreground">User</th>
                 <th className="px-4 py-3 font-medium text-muted-foreground">Role</th>
                 <th className="px-4 py-3 font-medium text-muted-foreground">Status</th>
-                <th className="px-4 py-3 font-medium text-muted-foreground">MFA</th>
                 <th className="px-4 py-3 font-medium text-muted-foreground">Created</th>
                 {isPlatformAdmin && (
                   <th className="px-4 py-3 text-right font-medium text-muted-foreground">
@@ -468,13 +449,6 @@ export default function AdminUsersPage() {
                             ? 'Suspended'
                             : u.status}
                       </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {u.mfa_enabled ? (
-                        <ShieldCheck className="h-4 w-4 text-emerald-500" />
-                      ) : (
-                        <Shield className="h-4 w-4 text-muted-foreground/40" />
-                      )}
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {relativeDate(u.created_at)}

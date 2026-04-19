@@ -23,6 +23,7 @@ import {
   assertActivityWeightsSum,
 } from '../../lib/org-settings-fields.js'
 import { registerOrgReportJobs } from '../../lib/report-jobs.js'
+import { allocateUniqueOrgSlug, isPrismaUniqueOnOrganizationSlug } from '../../lib/org-slug.js'
 
 const orgSettingsForCreateSchema = orgSettingsScalarPatchSchema.omit({ work_platform: true })
 
@@ -33,11 +34,6 @@ const listOrgsQuery = z.object({
 
 const createOrgBody = z.object({
   org_name: z.string().min(1),
-  slug: z
-    .string()
-    .regex(/^[a-z0-9-]+$/)
-    .min(2)
-    .max(40),
   full_name: z.string().min(1),
   email: z.string().email(),
   password: z.string().min(8),
@@ -139,7 +135,7 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
       if (!body.success) {
         return reply.status(400).send({ code: 'VALIDATION_ERROR', errors: body.error.flatten() })
       }
-      const { org_name, slug, full_name, email, password, data_region, work_platform, settings } =
+      const { org_name, full_name, email, password, data_region, work_platform, settings } =
         body.data
 
       try {
@@ -155,48 +151,53 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
         throw e
       }
 
-      const existing = await prisma.organization.findUnique({
-        where: { slug: slug.toLowerCase() },
-      })
-      if (existing) {
-        return reply.status(400).send({
-          code: 'SLUG_TAKEN',
-          message: 'Organization slug is already taken',
-        })
-      }
-
       const password_hash = await hashPassword(password)
       let userId = ''
+      let slug = ''
 
-      try {
-        await prisma.$transaction(async (tx) => {
-          const { userId: uid } = await createOrgWithSuperAdmin(tx, {
-            org_name,
-            slug,
-            full_name,
-            email,
-            password_hash,
-            data_region,
-            work_platform,
-            settings,
+      const maxSlugAttempts = 8
+      for (let attempt = 0; attempt < maxSlugAttempts; attempt++) {
+        slug = await allocateUniqueOrgSlug(prisma, org_name)
+        try {
+          await prisma.$transaction(async (tx) => {
+            const { userId: uid } = await createOrgWithSuperAdmin(tx, {
+              org_name,
+              slug,
+              full_name,
+              email,
+              password_hash,
+              data_region,
+              work_platform,
+              settings,
+            })
+            userId = uid
           })
-          userId = uid
-        })
-      } catch (err: unknown) {
-        const errObj = err as { code?: string }
-        if (errObj?.code === 'DISPOSABLE_EMAIL') {
-          return reply.status(400).send({
-            code: 'DISPOSABLE_EMAIL',
-            message: 'Please use a work email address',
-          })
+          break
+        } catch (err: unknown) {
+          const errObj = err as { code?: string }
+          if (errObj?.code === 'DISPOSABLE_EMAIL') {
+            return reply.status(400).send({
+              code: 'DISPOSABLE_EMAIL',
+              message: 'Please use a work email address',
+            })
+          }
+          if (errObj?.code === 'P2002' && isPrismaUniqueOnOrganizationSlug(err)) {
+            if (attempt === maxSlugAttempts - 1) {
+              return reply.status(409).send({
+                code: 'SLUG_ALLOCATION_FAILED',
+                message: 'Could not assign a unique organization URL slug. Try again.',
+              })
+            }
+            continue
+          }
+          if (errObj?.code === 'P2002') {
+            return reply.status(400).send({
+              code: 'SLUG_TAKEN',
+              message: 'Organization slug is already taken',
+            })
+          }
+          throw err
         }
-        if (errObj?.code === 'P2002') {
-          return reply.status(400).send({
-            code: 'SLUG_TAKEN',
-            message: 'Organization slug is already taken',
-          })
-        }
-        throw err
       }
 
       const org = await prisma.organization.findFirst({
@@ -375,7 +376,6 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
             role: true,
             status: true,
             created_at: true,
-            mfa_enabled: true,
           },
           orderBy: { created_at: 'desc' },
           skip: (query.page - 1) * query.limit,
@@ -456,7 +456,6 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
             role: true,
             status: true,
             created_at: true,
-            mfa_enabled: true,
           },
         })
       } catch (err: unknown) {

@@ -9,7 +9,6 @@ import {
   verifyEmailRoutes,
   passwordResetRoutes,
   inviteRoutes,
-  mfaRoutes,
 } from './auth/index.js'
 import { projectRoutes } from './projects/index.js'
 import { taskRoutes } from './tasks/index.js'
@@ -93,7 +92,6 @@ export async function v1Routes(fastify: FastifyInstance, opts: { config: Config 
   fastify.register(refreshRoutes, { prefix: '/app/auth', config })
   fastify.register(logoutRoutes, { prefix: '/app/auth', config })
   fastify.register(meRoutes, { prefix: '/app/auth', config })
-  fastify.register(mfaRoutes, { prefix: '/app/auth', config })
   fastify.register(appSettingsRoutes, { prefix: '/app/settings', config })
   fastify.register(notificationRoutes, { prefix: '/app/notifications', config })
   fastify.register(appDashboardRoutes, { prefix: '/app', config })

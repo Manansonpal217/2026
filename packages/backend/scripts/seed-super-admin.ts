@@ -1,5 +1,5 @@
 /**
- * Seed script: provisions the first platform super admin with mandatory TOTP MFA.
+ * Seed script: provisions the first platform super admin.
  *
  * Usage:
  *   pnpm --filter backend exec tsx scripts/seed-super-admin.ts
@@ -9,7 +9,6 @@
 import { PrismaClient } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import bcrypt from 'bcryptjs'
-import { generateSecret } from 'otplib'
 
 const EMAIL = 'superadmin@tracksync.dev'
 const NAME = 'Platform Admin'
@@ -32,8 +31,6 @@ async function main() {
 
     const tempPassword = randomBytes(16).toString('base64url')
     const passwordHash = await bcrypt.hash(tempPassword, SALT_ROUNDS)
-    const totpSecret = generateSecret()
-    const totpUri = `otpauth://totp/TrackSync:${EMAIL}?secret=${totpSecret}&issuer=TrackSync`
 
     const user = await prisma.user.create({
       data: {
@@ -43,7 +40,6 @@ async function main() {
         role: 'OWNER',
         status: 'ACTIVE',
         is_platform_admin: true,
-        mfa_enabled: false,
         org_id: null,
       },
     })
@@ -54,15 +50,6 @@ async function main() {
     console.log(`  Email:    ${EMAIL}`)
     console.log(`  Password: ${tempPassword}`)
     console.log(`  User ID:  ${user.id}`)
-    console.log('')
-    console.log('  TOTP Setup URL (scan with authenticator app):')
-    console.log(`  ${totpUri}`)
-    console.log('')
-    console.log('  TOTP Secret (manual entry):')
-    console.log(`  ${totpSecret}`)
-    console.log('')
-    console.log('  IMPORTANT: Enable MFA via /mfa/setup + /mfa/enable before')
-    console.log('  accessing any /admin/* routes (MFA is mandatory for platform admins).')
     console.log('  ────────────────────────────────────────────\n')
   } finally {
     await prisma.$disconnect()

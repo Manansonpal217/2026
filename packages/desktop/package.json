@@ -2,16 +2,13 @@
   "name": "desktop",
   "version": "0.1.0",
   "private": true,
-  "main": "./out/main/index.js",
-  "build": {
-    "appId": "io.tracksync.app",
-    "protocols": {
-      "name": "TrackSync",
-      "schemes": [
-        "tracksync"
-      ]
-    }
+  "description": "TrackSync desktop time tracker",
+  "author": "TrackSync",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Manansonpal217/2026.git"
   },
+  "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
@@ -22,6 +19,8 @@
     "test:watch": "vitest",
     "postinstall": "node ./scripts/electron-rebuild-if-local.cjs",
     "export-db": "npx tsx scripts/export-db.ts",
+    "pack:win": "electron-vite build && electron-builder --win --publish never",
+    "pack:win:x64": "electron-vite build && electron-builder --win --x64 --publish never",
     "release": "electron-vite build && electron-builder --publish always"
   },
   "dependencies": {
