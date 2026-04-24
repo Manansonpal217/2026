@@ -57,11 +57,8 @@ packages/backend/
 │   └── migrations/            # Ordered SQL migrations (source of truth for DB history)
 ├── scripts/
 │   ├── generate-keys.ts       # RSA key pair for JWT
-│   ├── migrate-mfa-secrets.ts # MFA secret migration helper
-│   ├── seed.ts                # Demo seed data
 │   ├── send-test-emails.ts    # Sends samples via Resend
-│   ├── test-s3-upload.ts      # S3 connectivity test
-│   └── wipe-all-data.ts       # Destructive wipe (DB + optional R2/Redis)
+│   └── test-s3-upload.ts      # S3 connectivity test
 └── src/
     ├── main.ts                # Fastify app: plugins, /health, /metrics, /v1, workers
     ├── config.ts              # Zod-validated environment
@@ -148,22 +145,22 @@ packages/backend/
 
 #### `OrgSettings`
 
-| Column                                                  | Type                   | Notes                                                           |
-| ------------------------------------------------------- | ---------------------- | --------------------------------------------------------------- |
-| id                                                      | String, PK, uuid       |                                                                 |
-| org_id                                                  | String, **unique**     | FK → Organization                                               |
-| screenshot_interval_seconds                             | Int, default 60        |                                                                 |
-| screenshot_retention_days                               | Int, default 30        |                                                                 |
-| blur_screenshots                                        | Boolean, default false |                                                                 |
-| activity*weight*\*                                      | Float                  | keyboard, mouse, movement                                       |
-| track_keyboard, track_mouse, track_app_usage, track_url | Boolean                |                                                                 |
-| time_approval_required                                  | Boolean, default false | ⚠️ Not enforced server-side on session create/reports (see §11) |
-| mfa_required_for_admins, mfa_required_for_managers      | Boolean                | ⚠️ Stored; ❌ not enforced on login                             |
-| idle_detection_enabled                                  | Boolean, default true  |                                                                 |
-| idle_timeout_minutes                                    | Int, default 5         |                                                                 |
-| idle_timeout_intervals                                  | Int, default 3         |                                                                 |
-| expected_daily_work_minutes                             | Int, default 480       |                                                                 |
-| allow_employee_offline_time                             | Boolean, default false |                                                                 |
+| Column                                                  | Type                   | Notes                                                                                                       |
+| ------------------------------------------------------- | ---------------------- | ----------------------------------------------------------------------------------------------------------- |
+| id                                                      | String, PK, uuid       |                                                                                                             |
+| org_id                                                  | String, **unique**     | FK → Organization                                                                                           |
+| screenshot_interval_seconds                             | Int, default 60        |                                                                                                             |
+| screenshot_retention_days                               | Int, default 30        |                                                                                                             |
+| blur_screenshots                                        | Boolean, default false |                                                                                                             |
+| activity*weight*\*                                      | Float                  | keyboard, mouse, movement                                                                                   |
+| track_keyboard, track_mouse, track_app_usage, track_url | Boolean                |                                                                                                             |
+| time_approval_required                                  | Boolean, default false | ⚠️ Not enforced server-side on session create/reports (see §11)                                             |
+| mfa_required_for_admins, mfa_required_for_managers      | Boolean                | ⚠️ Stored; ❌ not enforced on login                                                                         |
+| idle_detection_enabled                                  | Boolean, default true  |                                                                                                             |
+| idle_timeout_minutes                                    | Int, default 5         |                                                                                                             |
+| idle_timeout_intervals                                  | Int, default 3         |                                                                                                             |
+| expected_daily_work_minutes                             | Int, default 480       |                                                                                                             |
+| allow_employee_offline_time                             | Boolean, default false | When true, employees’ own offline posts are approved immediately; when false, they submit pending requests. |
 
 **FK**: org_id → Organization.id
 
@@ -458,8 +455,17 @@ Integrated projects use synthetic ids `ext-{type}-{externalId}` (see integration
 | GET    | `/verify-email`    | query `token`                                            | message                           | ✅     |
 | POST   | `/forgot-password` | email, org_slug?                                         | generic message                   | ✅     |
 | POST   | `/reset-password`  | token, password                                          | message                           | ✅     |
-| POST   | `/invite/accept`   | token, full_name, password                               | 201 tokens + user                 | ✅     |
+| POST   | `/invite/accept`   | token, password; optional deprecated `full_name`         | 201 tokens + user                 | ✅     |
 | GET    | `/invite/info`     | query `token`                                            | email, org_name, role, expires_at | ✅     |
+
+**Who may assign which invited role** (`getAllowedInviteRoles` in `src/lib/permissions.ts` — enforced on `POST /public/auth/invite`, resend, and revoke):
+
+| Caller (JWT `UserRole`) | May invite / manage invites for roles |
+| ----------------------- | ------------------------------------- |
+| OWNER                   | ADMIN, MANAGER, EMPLOYEE, VIEWER      |
+| ADMIN                   | MANAGER, EMPLOYEE, VIEWER             |
+| MANAGER                 | EMPLOYEE, VIEWER only                 |
+| EMPLOYEE / VIEWER       | _(cannot create or resend invites)_   |
 
 ---
 
@@ -480,11 +486,14 @@ Integrated projects use synthetic ids `ext-{type}-{externalId}` (see integration
 
 ### `/v1` — Invites (authenticated)
 
-| Method | Path                  | Auth                    | Body         | Status |
-| ------ | --------------------- | ----------------------- | ------------ | ------ |
-| POST   | `/public/auth/invite` | JWT + admin/super_admin | email, role? | ✅     |
+| Method | Path                        | Auth                           | Body / params                                    | Notes                                                                                                                                                                                                                                                                                                     |
+| ------ | --------------------------- | ------------------------------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/public/auth/invite`       | JWT + OWNER, ADMIN, or MANAGER | email, first_name, last_name, role?, manager_id? | Invited user’s display name = trimmed `first_name` + `last_name`. Role must be allowed for caller. For **EMPLOYEE**, `manager_id` is required: an active same-org user with role **OWNER**, **ADMIN**, or **MANAGER**; stored on the invite and applied as `User.manager_id` when the invite is accepted. |
+| GET    | `/admin/invites`            | JWT + OWNER, ADMIN, or MANAGER | query: page, limit, status?, search?             | Lists org invites (includes `manager_id` and nested `line_manager` when set).                                                                                                                                                                                                                             |
+| DELETE | `/admin/invites/:id`        | JWT + OWNER, ADMIN, or MANAGER | —                                                | Revoke pending invite; 403 if caller cannot assign that invite’s role.                                                                                                                                                                                                                                    |
+| POST   | `/admin/invites/:id/resend` | JWT + OWNER, ADMIN, or MANAGER | —                                                | New token + email; 403 if caller cannot assign that invite’s role.                                                                                                                                                                                                                                        |
 
-_(Registered under `public/auth` prefix in `v1.ts` — full path `/v1/public/auth/invite`.)_
+_(Create invite is under `public/auth` in `v1.ts` — full path `/v1/public/auth/invite`. List/resend/revoke are under `/v1/admin`.)_
 
 ---
 

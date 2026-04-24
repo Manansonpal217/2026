@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { signOut } from 'next-auth/react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { Eye, EyeOff, AlertCircle, CheckCircle2 } from 'lucide-react'
@@ -9,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
+import { orgMemberRoleDisplayLabel } from '@/lib/roles'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
 
@@ -16,26 +18,15 @@ const authInputClass =
   'h-12 rounded-xl border-border bg-background shadow-sm placeholder:text-muted-foreground/70 transition-all focus:bg-background focus:ring-2 focus:ring-ring/35 focus:border-primary/45'
 const labelClass = 'text-xs font-medium uppercase tracking-wider text-muted-foreground/80'
 
-function roleLabel(role: string): string {
-  switch (role) {
-    case 'super_admin':
-      return 'Super admin'
-    case 'admin':
-      return 'Admin'
-    case 'manager':
-      return 'Manager'
-    case 'employee':
-      return 'Employee'
-    default:
-      return role
-  }
-}
-
 type InviteInfo = {
   email: string
   org_name: string
   role: string
   expires_at: string
+  first_name?: string
+  last_name?: string
+  display_name?: string
+  line_manager?: { id: string; name: string; email: string } | null
 }
 
 export default function InviteAcceptPage() {
@@ -46,9 +37,10 @@ export default function InviteAcceptPage() {
   const [info, setInfo] = useState<InviteInfo | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  const [fullName, setFullName] = useState('')
   const [password, setPassword] = useState('')
+  const [passwordConfirm, setPasswordConfirm] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
   const loadInfo = useCallback(async () => {
@@ -85,13 +77,12 @@ export default function InviteAcceptPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!token) return
-    const name = fullName.trim()
-    if (!name) {
-      setErrorMessage('Enter your name.')
-      return
-    }
     if (password.length < 8) {
       setErrorMessage('Password must be at least 8 characters.')
+      return
+    }
+    if (password !== passwordConfirm) {
+      setErrorMessage('Passwords do not match. Re-enter both fields.')
       return
     }
     setSubmitting(true)
@@ -101,13 +92,14 @@ export default function InviteAcceptPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'omit',
-        body: JSON.stringify({ token, full_name: name, password }),
+        body: JSON.stringify({ token, password }),
       })
       const data = (await res.json()) as { message?: string }
       if (!res.ok) {
         setErrorMessage(data.message ?? 'Could not accept invitation.')
         return
       }
+      await signOut({ redirect: false })
       setPhase('done')
     } catch {
       setErrorMessage('Something went wrong. Please try again.')
@@ -148,14 +140,29 @@ export default function InviteAcceptPage() {
                   </h1>
                   <p className="mt-2 text-sm text-muted-foreground">
                     You are invited as{' '}
-                    <strong className="text-foreground">{roleLabel(info.role)}</strong>
+                    <strong className="text-foreground">
+                      {orgMemberRoleDisplayLabel(info.role)}
+                    </strong>
+                    {info.display_name?.trim() ? (
+                      <span className="mt-1 block text-sm font-medium text-foreground">
+                        {info.display_name.trim()}
+                      </span>
+                    ) : null}
                     <span className="block truncate text-xs normal-case text-muted-foreground/90">
                       {info.email}
                     </span>
+                    {info.role?.toUpperCase() === 'EMPLOYEE' && info.line_manager ? (
+                      <span className="mt-2 block text-xs text-muted-foreground">
+                        You will report to{' '}
+                        <span className="font-medium text-foreground">
+                          {info.line_manager.name?.trim() || info.line_manager.email}
+                        </span>
+                      </span>
+                    ) : null}
                   </p>
                 </div>
 
-                <form onSubmit={onSubmit} className="space-y-5">
+                <form onSubmit={onSubmit} className="space-y-5" autoComplete="off">
                   {errorMessage ? (
                     <div
                       className={cn(
@@ -169,20 +176,6 @@ export default function InviteAcceptPage() {
                       </p>
                     </div>
                   ) : null}
-
-                  <div className="space-y-2">
-                    <Label htmlFor="invite-full-name" className={labelClass}>
-                      Full name
-                    </Label>
-                    <Input
-                      id="invite-full-name"
-                      className={authInputClass}
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      autoComplete="name"
-                      required
-                    />
-                  </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="invite-password" className={labelClass}>
@@ -215,6 +208,38 @@ export default function InviteAcceptPage() {
                     <p className="text-xs text-muted-foreground">At least 8 characters.</p>
                   </div>
 
+                  <div className="space-y-2">
+                    <Label htmlFor="invite-password-confirm" className={labelClass}>
+                      Confirm password
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        id="invite-password-confirm"
+                        type={showPasswordConfirm ? 'text' : 'password'}
+                        className={cn(authInputClass, 'pr-12')}
+                        value={passwordConfirm}
+                        onChange={(e) => setPasswordConfirm(e.target.value)}
+                        autoComplete="new-password"
+                        minLength={8}
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setShowPasswordConfirm((v) => !v)}
+                        aria-label={
+                          showPasswordConfirm ? 'Hide confirm password' : 'Show confirm password'
+                        }
+                      >
+                        {showPasswordConfirm ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
                   <Button
                     type="submit"
                     className="h-12 w-full rounded-xl text-base"
@@ -238,11 +263,21 @@ export default function InviteAcceptPage() {
                   You are all set
                 </h1>
                 <p className="text-sm text-muted-foreground">
-                  Your account is active. Sign in with the email from your invite and the password
-                  you chose.
+                  Your account is active
+                  {info?.display_name?.trim() ? (
+                    <>
+                      {' '}
+                      as{' '}
+                      <span className="font-medium text-foreground">
+                        {info.display_name.trim()}
+                      </span>
+                    </>
+                  ) : null}
+                  . Sign in with <span className="font-medium text-foreground">{info?.email}</span>{' '}
+                  and the password you chose. You can change your display name anytime in the app.
                 </p>
                 <Button asChild className="mt-2 w-full rounded-xl">
-                  <Link href="/login">Sign in</Link>
+                  <Link href="/login?from=invite">Sign in</Link>
                 </Button>
               </div>
             ) : null}

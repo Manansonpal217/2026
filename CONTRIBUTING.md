@@ -16,7 +16,7 @@
 
 | Command                | Purpose                                         |
 | ---------------------- | ----------------------------------------------- |
-| `pnpm setup`           | Docker infra + `db:push` + seed                 |
+| `pnpm setup`           | Docker infra + `db:push`                        |
 | `pnpm dev`             | Backend + landing + desktop                     |
 | `pnpm test`            | Backend + desktop unit tests                    |
 | `pnpm rebuild:desktop` | Rebuild `uiohook-napi` + SQLCipher for Electron |

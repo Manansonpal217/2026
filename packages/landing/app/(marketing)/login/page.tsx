@@ -2,8 +2,8 @@
 
 import { Suspense, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
-import { getSession, signIn, useSession } from 'next-auth/react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { getSession, signIn, signOut, useSession } from 'next-auth/react'
 import { Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -47,12 +47,46 @@ const authInputClass =
   'h-12 rounded-xl border-border bg-background shadow-sm placeholder:text-muted-foreground/70 transition-all focus:bg-background focus:ring-2 focus:ring-ring/35 focus:border-primary/45'
 const labelClass = 'text-xs font-medium uppercase tracking-wider text-muted-foreground/80'
 
+const EMAIL_SIGNIN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
 function AuthPanel() {
+  const router = useRouter()
   const searchParams = useSearchParams()
   const { status, data: session } = useSession()
   const callbackUrl = safeCallback(searchParams?.get('callbackUrl') ?? null)
 
+  const fromFlow = searchParams?.get('from')
+  const needsSessionHandshake =
+    fromFlow === 'invite' || fromFlow === 'reset' || fromFlow === 'password-reset'
+
+  /** False while clearing NextAuth so a different user can sign in (e.g. after invite / password setup). */
+  const [handshakeReady, setHandshakeReady] = useState(() => !needsSessionHandshake)
+
+  /** Brief read-only state so the browser does not autofill this form from the invite password step. */
+  const [fieldsUnlocked, setFieldsUnlocked] = useState(false)
+
   useEffect(() => {
+    if (!needsSessionHandshake) {
+      setHandshakeReady(true)
+      return
+    }
+    setHandshakeReady(false)
+    let cancelled = false
+    void signOut({ redirect: false }).finally(() => {
+      if (cancelled) return
+      setHandshakeReady(true)
+      const params = new URLSearchParams(window.location.search)
+      params.delete('from')
+      const q = params.toString()
+      router.replace(q ? `/login?${q}` : '/login', { scroll: false })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [needsSessionHandshake, router])
+
+  useEffect(() => {
+    if (!handshakeReady) return
     if (status !== 'authenticated') return
     const sessionErr = (session as { error?: string } | null)?.error
     if (sessionErr === 'RefreshAccessTokenError') return
@@ -61,7 +95,15 @@ function AuthPanel() {
       role: session?.user?.role as string | undefined,
     })
     window.location.href = dest
-  }, [status, callbackUrl, session])
+  }, [status, callbackUrl, session, handshakeReady])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const fromInvite = params.get('from') === 'invite'
+    const delay = fromInvite ? 280 : 60
+    const t = window.setTimeout(() => setFieldsUnlocked(true), delay)
+    return () => window.clearTimeout(t)
+  }, [])
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -72,10 +114,15 @@ function AuthPanel() {
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
     setSignInError('')
+    const trimmed = email.trim().toLowerCase()
+    if (!EMAIL_SIGNIN.test(trimmed)) {
+      setSignInError('Use your work email address to sign in (not a display name).')
+      return
+    }
     setSignInLoading(true)
     try {
       const result = await signIn('credentials', {
-        email,
+        email: trimmed,
         password,
         redirect: false,
       })
@@ -88,8 +135,10 @@ function AuthPanel() {
       } else {
         setSignInError('Invalid email or password. Please check your credentials.')
       }
-    } catch {
-      setSignInError('Something went wrong. Please try again.')
+    } catch (e) {
+      setSignInError(
+        e instanceof Error && e.message ? e.message : 'Something went wrong. Please try again.'
+      )
     } finally {
       setSignInLoading(false)
     }
@@ -106,19 +155,24 @@ function AuthPanel() {
         </p>
       </div>
 
-      <form onSubmit={handleSignIn} className="space-y-5">
+      <form onSubmit={handleSignIn} className="space-y-5" autoComplete="off">
         <div className="space-y-2">
           <Label htmlFor="email" className={labelClass}>
             Email
           </Label>
           <Input
             id="email"
+            name="tracksync-signin-email"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            onFocus={() => {
+              if (!fieldsUnlocked) setFieldsUnlocked(true)
+            }}
+            readOnly={!fieldsUnlocked}
             required
             placeholder="you@company.com"
-            autoComplete="email"
+            autoComplete="username"
             className={authInputClass}
           />
         </div>
@@ -130,9 +184,14 @@ function AuthPanel() {
           <div className="relative">
             <Input
               id="password"
+              name="tracksync-signin-password"
               type={showPassword ? 'text' : 'password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              onFocus={() => {
+                if (!fieldsUnlocked) setFieldsUnlocked(true)
+              }}
+              readOnly={!fieldsUnlocked}
               required
               placeholder="Enter your password"
               autoComplete="current-password"

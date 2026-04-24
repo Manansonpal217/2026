@@ -32,13 +32,13 @@ This phase delivers end-to-end login across backend, desktop app, and web admin 
    pnpm install
    ```
 
-3. **Setup database and seed demo data**
+3. **Setup database schema**
 
    ```bash
    pnpm setup
    ```
 
-   Or manually: `pnpm db:push && pnpm db:seed`
+   Or manually: `pnpm db:push`
 
 4. **Run all services**
 
@@ -53,14 +53,7 @@ This phase delivers end-to-end login across backend, desktop app, and web admin 
    - Desktop: `pnpm dev:desktop` (Electron app)
    - Landing: `pnpm dev:landing` (http://localhost:3002)
 
-### Test Credentials (after seed)
-
-| App               | Email          | Password | Org  |
-| ----------------- | -------------- | -------- | ---- |
-| Desktop           | admin@demo.com | demo1234 | demo |
-| Landing / My Home | admin@demo.com | demo1234 | demo |
-
-**If you see "No projects yet" in the desktop app:** Sign out, then sign back in with the credentials above. The Organization field must be `demo` to see the seeded projects.
+Create an organization and admin via **Sign up** on the landing app (`POST /v1/public/auth/signup`) or the platform admin UI, then sign in on desktop or web with that email, password, and org slug.
 
 ### API Endpoints
 

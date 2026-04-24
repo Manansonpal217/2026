@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import type { LucideIcon } from 'lucide-react'
 import {
@@ -9,7 +10,6 @@ import {
   Building2,
   CalendarDays,
   Clock,
-  Flame,
   LayoutDashboard,
   Sparkles,
   Target,
@@ -35,7 +35,12 @@ import * as TooltipPrimitive from '@radix-ui/react-tooltip'
 import * as Progress from '@radix-ui/react-progress'
 import { api } from '@/lib/api'
 import { formatDurationSeconds, formatUtcOffsetLabel } from '@/lib/format'
-import { getDashboardSettingsShortcut, isManagerOrAbove, isOrgAdminRole } from '@/lib/roles'
+import {
+  getDashboardSettingsShortcut,
+  isManagerOrAbove,
+  isOrgAdminRole,
+  normalizeOrgRole,
+} from '@/lib/roles'
 import { Skeleton } from '@/components/ui/skeleton'
 import { InitialsAvatar } from '@/components/ui/initials-avatar'
 import { orderTeamUsersWithSelfFirst } from '@/lib/teamUserOrder'
@@ -269,20 +274,19 @@ function ActivityHeatmap({ data, loading }: { data: HeatmapDatum[]; loading: boo
 
   if (isEmpty) {
     return (
-      <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 px-4 py-8 text-center">
-        <div className="flex items-center gap-2">
-          <CalendarDays className="h-4 w-4 text-primary" aria-hidden />
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            52-week activity
-          </p>
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="mb-2 flex shrink-0 flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+          <div className="flex items-center gap-1.5">
+            <CalendarDays className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              52-week activity
+            </p>
+          </div>
         </div>
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/50 ring-1 ring-border/60">
-          <Flame className="h-7 w-7 text-muted-foreground/50" aria-hidden />
-        </div>
-        <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
-          No tracked time in the last year yet. Once your team logs work, this heatmap fills in by
-          day.
-        </p>
+        <div
+          className="min-h-[132px] flex-1 rounded-lg border border-border/50 bg-muted/10 sm:min-h-[152px]"
+          aria-hidden
+        />
       </div>
     )
   }
@@ -367,20 +371,17 @@ function WeeklyAreaChart({ data, loading }: { data: WeeklyDatum[]; loading: bool
 
   if (data.length === 0) {
     return (
-      <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 px-2 py-6 text-center">
-        <div className="flex items-center gap-2">
-          <BarChart3 className="h-4 w-4 text-primary" aria-hidden />
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="mb-2 flex shrink-0 items-center gap-1.5">
+          <BarChart3 className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             This week
           </p>
         </div>
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/50 ring-1 ring-border/60">
-          <Clock className="h-7 w-7 text-muted-foreground/50" aria-hidden />
-        </div>
-        <p className="max-w-xs text-sm leading-relaxed text-muted-foreground">
-          No daily totals for the last 7 days. Open the desktop app and track time to see the chart
-          here.
-        </p>
+        <div
+          className="min-h-[132px] flex-1 rounded-lg border border-border/50 bg-muted/10 sm:min-h-[152px]"
+          aria-hidden
+        />
       </div>
     )
   }
@@ -533,7 +534,8 @@ function TeamStatusGrid({ rows, loading }: { rows: TeamUserRow[]; loading: boole
 const DAY_ABBR = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 export default function DashboardPage() {
-  const { data: session } = useSession()
+  const router = useRouter()
+  const { data: session, status: sessionStatus } = useSession()
   const selfId = (session?.user as { id?: string } | undefined)?.id
   const [rows, setRows] = useState<TeamUserRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -546,10 +548,18 @@ export default function DashboardPage() {
   const [weeklyLoading, setWeeklyLoading] = useState(true)
   const prevTodayRef = useRef(0)
 
-  const sessionRole = session?.user?.role as string | undefined
+  const sessionRole = normalizeOrgRole(session?.user?.role as string | undefined)
   const isOrgAdmin = isOrgAdminRole(sessionRole)
   const isManager = isManagerOrAbove(sessionRole)
-  const dashboardSettings = getDashboardSettingsShortcut(sessionRole)
+  const dashboardSettings = getDashboardSettingsShortcut(
+    sessionRole,
+    session?.user?.is_platform_admin === true
+  )
+
+  useEffect(() => {
+    if (sessionStatus !== 'authenticated') return
+    if (sessionRole === 'employee') router.replace('/myhome')
+  }, [sessionStatus, sessionRole, router])
 
   // ── Data fetching ─────────────────────────────────────────────────────────────
 
@@ -652,21 +662,25 @@ export default function DashboardPage() {
   }, [])
 
   useEffect(() => {
+    if (sessionStatus !== 'authenticated' || sessionRole === 'employee') return
     void fetchSummary(true)
     void fetchHeatmap()
     void fetchWeekly()
-  }, [fetchSummary, fetchHeatmap, fetchWeekly])
+  }, [sessionStatus, sessionRole, fetchSummary, fetchHeatmap, fetchWeekly])
 
   useEffect(() => {
+    if (sessionStatus !== 'authenticated' || sessionRole === 'employee') return
     void fetchOrgAnalytics()
-  }, [fetchOrgAnalytics])
+  }, [sessionStatus, sessionRole, fetchOrgAnalytics])
 
   useEffect(() => {
+    if (sessionStatus !== 'authenticated' || sessionRole === 'employee') return
     const id = window.setInterval(() => void fetchSummary(false), 15_000)
     return () => window.clearInterval(id)
-  }, [fetchSummary])
+  }, [sessionStatus, sessionRole, fetchSummary])
 
   useEffect(() => {
+    if (sessionStatus !== 'authenticated' || sessionRole === 'employee') return
     const onVis = () => {
       if (document.visibilityState === 'visible') {
         void fetchSummary(false)
@@ -675,7 +689,7 @@ export default function DashboardPage() {
     }
     document.addEventListener('visibilitychange', onVis)
     return () => document.removeEventListener('visibilitychange', onVis)
-  }, [fetchSummary, fetchOrgAnalytics])
+  }, [sessionStatus, sessionRole, fetchSummary, fetchOrgAnalytics])
 
   // ── Computed ──────────────────────────────────────────────────────────────────
 
@@ -716,6 +730,10 @@ export default function DashboardPage() {
   const tzLabel = formatUtcOffsetLabel()
 
   // ── Render ────────────────────────────────────────────────────────────────────
+
+  if (sessionStatus === 'authenticated' && sessionRole === 'employee') {
+    return null
+  }
 
   return (
     <main className="relative isolate mx-auto w-full max-w-[1600px] px-4 py-8 sm:px-6 lg:px-8">

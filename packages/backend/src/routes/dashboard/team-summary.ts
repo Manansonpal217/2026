@@ -83,7 +83,20 @@ export async function dashboardTeamSummaryRoutes(
                 : user.role === 'MANAGER'
                   ? {
                       org_id: user.org_id,
-                      AND: [{ OR: [{ id: user.id }, { manager_id: user.id }] }, peer],
+                      AND: [
+                        {
+                          OR: [
+                            { id: user.id },
+                            { manager_id: user.id },
+                            {
+                              team_memberships: {
+                                some: { team: { org_id: user.org_id, manager_id: user.id } },
+                              },
+                            },
+                          ],
+                        },
+                        peer,
+                      ],
                     }
                   : { org_id: user.org_id, id: user.id, AND: [peer] }
 

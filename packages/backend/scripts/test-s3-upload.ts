@@ -15,6 +15,7 @@ if (existsSync(envPath)) {
 }
 import { S3Client, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
 import { loadConfig } from '../src/config.js'
+import { normalizeS3Endpoint } from '../src/lib/normalize-s3-endpoint.js'
 
 // Minimal 1x1 red pixel WebP (22 bytes)
 const DUMMY_WEBP = Buffer.from(
@@ -36,9 +37,9 @@ async function main() {
     }),
   }
 
-  const endpoint = process.env.S3_ENDPOINT
-  if (endpoint) {
-    clientConfig.endpoint = endpoint
+  const rawEndpoint = process.env.S3_ENDPOINT
+  if (rawEndpoint) {
+    clientConfig.endpoint = normalizeS3Endpoint(rawEndpoint)
     clientConfig.forcePathStyle = true
   }
 

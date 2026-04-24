@@ -19,6 +19,7 @@ import { adminToast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { orgMemberRoleDisplayLabel } from '@/lib/roles'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,23 +46,9 @@ type UserRow = {
   created_at: string
 }
 
-function roleLabel(role: string): string {
-  switch (role) {
-    case 'super_admin':
-      return 'Super Admin'
-    case 'admin':
-      return 'Admin'
-    case 'manager':
-      return 'Manager'
-    case 'employee':
-      return 'Employee'
-    default:
-      return role
-  }
-}
-
 function roleBadgeClass(role: string): string {
   switch (role) {
+    case 'OWNER':
     case 'super_admin':
       return 'bg-violet-500/15 text-violet-700 dark:text-violet-400'
     case 'admin':
@@ -132,7 +119,9 @@ export default function AdminUsersPage() {
 
   const stats = useMemo(() => {
     const active = users.filter((u) => u.status === 'ACTIVE').length
-    const admins = users.filter((u) => u.role === 'admin' || u.role === 'super_admin').length
+    const admins = users.filter(
+      (u) => u.role === 'admin' || u.role === 'super_admin' || u.role === 'OWNER'
+    ).length
     return { total: users.length, active, admins }
   }, [users])
 
@@ -433,7 +422,7 @@ export default function AdminUsersPage() {
                           roleBadgeClass(u.role)
                         )}
                       >
-                        {roleLabel(u.role)}
+                        {orgMemberRoleDisplayLabel(u.role)}
                       </span>
                     </td>
                     <td className="px-4 py-3">

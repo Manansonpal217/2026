@@ -3,6 +3,7 @@
 import { Suspense, useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import { signOut } from 'next-auth/react'
 import { Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -63,6 +64,7 @@ function ResetPasswordForm() {
         )
         return
       }
+      await signOut({ redirect: false })
       setDone(true)
     } catch {
       setError('Something went wrong. Please try again.')
@@ -93,7 +95,7 @@ function ResetPasswordForm() {
           variant="gradient"
           className="btn-shimmer h-12 w-full rounded-xl text-[15px] font-semibold"
         >
-          <Link href="/login">
+          <Link href="/login?from=reset">
             <ArrowRight className="h-4 w-4" />
             Sign in
           </Link>

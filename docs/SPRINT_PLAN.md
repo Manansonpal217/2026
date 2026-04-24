@@ -1172,15 +1172,7 @@ Row expansion: click to see `old_value` / `new_value` diff (JSON diff view)
 
 **Routes:** `/admin/*` (existing, full redesign)
 
-**Seed script:** `packages/backend/scripts/seed-super-admin.ts`
-
-```typescript
-// Usage: pnpm --filter backend exec tsx scripts/seed-super-admin.ts
-// Creates User with is_platform_admin=true, org_id=null (after making nullable)
-// Generates TOTP secret (base32), prints QR code URL to terminal
-// Prints: email, temp password (hashed in DB), TOTP setup URL
-// MFA mandatory: middleware rejects if is_platform_admin && !mfa_enabled
-```
+**Dev provisioning:** Repo no longer ships wipe/seed scripts. Create the first platform admin via DB migration + manual SQL, or add a one-off internal tool if needed.
 
 **Layout: `/admin` → `/admin/dashboard` (new)**
 
@@ -1266,7 +1258,7 @@ if (user.is_platform_admin && !user.mfa_enabled) {
 
 **Deliverables Sprint 8:**
 
-- [ ] `seed-super-admin.ts` script with TOTP setup output
+- [ ] Documented process for first platform admin in each environment (no repo seed script)
 - [ ] MFA mandatory enforcement for `is_platform_admin` users
 - [ ] `/admin/dashboard` with platform stats + org plan donut
 - [ ] `/admin/orgs` card grid with create slide-over

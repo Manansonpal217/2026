@@ -54,8 +54,9 @@ backend/
 ├── prisma/
 │   └── schema.prisma
 ├── scripts/
-│   ├── seed.ts
-│   └── generate-keys.ts
+│   ├── generate-keys.ts
+│   ├── send-test-emails.ts
+│   └── test-s3-upload.ts
 ├── .env.example
 └── package.json
 ```
@@ -113,6 +114,5 @@ Primary file today: [docs/DEVELOPMENT_PLAN.md](./docs/DEVELOPMENT_PLAN.md). See 
 | `pnpm dev:landing` | Next.js landing (port 3002)  |
 | `pnpm build`       | Build all packages           |
 | `pnpm db:push`     | Prisma db push               |
-| `pnpm db:seed`     | Seed demo org + user         |
 | `pnpm lint`        | Lint all packages            |
 | `pnpm typecheck`   | TypeScript check             |

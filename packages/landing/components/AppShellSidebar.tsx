@@ -24,7 +24,6 @@ import {
   canShowConfigurationSidebar,
   hasTeamConfigurationLink,
   isManagerOrAbove,
-  isOrgAdminOnly,
   isOrgAdminRole,
   isOrgSuperAdmin,
   normalizeOrgRole,
@@ -171,22 +170,23 @@ export function AppShellSidebar() {
 
   const isAdmin = isOrgAdminRole(role)
   const isManager = isManagerOrAbove(role)
-  const isSuperAdmin = isOrgSuperAdmin(role)
   /** Org role `manager` only — not admin/super_admin. */
   const isOrgManagerOnly = role === 'manager'
   const showConfiguration = canShowConfigurationSidebar(role, isPlatformAdmin)
   const showOrgUsersLink = hasTeamConfigurationLink(role)
-  const showPlatformOrgs = isOrgSuperAdmin(role)
-  const showPlatformUsers = isOrgSuperAdmin(role) || (isPlatformAdmin && isOrgAdminOnly(role))
+  /** Mirrors `mayAccessPlatformUserAdmin` — `/admin/users` is platform staff only (see `app/admin/users/layout.tsx`). */
+  const showPlatformUsers = isPlatformAdmin
+  /** Org owners may use the org directory under `/admin` without being platform staff. */
+  const showPlatformOrgs = isPlatformAdmin || isOrgSuperAdmin(role)
 
   const hasPlatformSidebarLinks = showPlatformOrgs || showPlatformUsers || isPlatformAdmin
   /** Team module is intentionally hidden for admin/super admin in dashboard sidebar. */
   const showOrgUsersNav = showOrgUsersLink && !isOrgManagerOnly
   const showTeamNav = false
-  const showPersonalSettingsLink = !isOrgManagerOnly && !isOrgAdminRole(role)
+  const showPersonalSettingsLink = false
   const showOrganizationSection =
     showConfiguration &&
-    !isSuperAdmin &&
+    !isPlatformAdmin &&
     (isAdmin || showOrgUsersNav || (isOrgManagerOnly && hasPlatformSidebarLinks))
   const showPlatformSection =
     showConfiguration && (showPlatformOrgs || showPlatformUsers || isPlatformAdmin)
@@ -251,16 +251,16 @@ export function AppShellSidebar() {
           </button>
         </div>
 
-        {!isSuperAdmin && (
-          <>
-            <NavRow
-              href="/myhome"
-              icon={Home}
-              label="Home"
-              active={homeActive}
-              collapsed={effectiveCollapsed}
-            />
+        <>
+          <NavRow
+            href="/myhome"
+            icon={Home}
+            label="Home"
+            active={homeActive}
+            collapsed={effectiveCollapsed}
+          />
 
+          {role !== 'employee' && (
             <NavRow
               href="/myhome/dashboard"
               icon={LayoutDashboard}
@@ -268,7 +268,9 @@ export function AppShellSidebar() {
               active={isActive('/myhome/dashboard')}
               collapsed={effectiveCollapsed}
             />
+          )}
 
+          {role !== 'employee' && (
             <NavRow
               href="/myhome/offline-time"
               icon={Clock}
@@ -277,18 +279,18 @@ export function AppShellSidebar() {
               collapsed={effectiveCollapsed}
               badge={isManager ? <OfflinePendingBadge collapsed={effectiveCollapsed} /> : undefined}
             />
+          )}
 
-            <NavRow
-              href="/myhome/reports"
-              icon={FileText}
-              label="Reports"
-              active={isActive('/myhome/reports')}
-              collapsed={effectiveCollapsed}
-            />
+          <NavRow
+            href="/myhome/reports"
+            icon={FileText}
+            label="Reports"
+            active={isActive('/myhome/reports')}
+            collapsed={effectiveCollapsed}
+          />
 
-            <hr className="my-2 border-border/50" />
-          </>
-        )}
+          <hr className="my-2 border-border/50" />
+        </>
 
         {showTeamNav && (
           <>

@@ -149,7 +149,7 @@ export function mayActAsPeopleManager(role: string): boolean {
   return role === 'OWNER' || role === 'ADMIN' || role === 'MANAGER'
 }
 
-/** Self, full org (ADMIN/OWNER), or direct report (MANAGER). Hidden: other OWNER subjects for non-OWNER principals. */
+/** Self, full org (ADMIN/OWNER), or manager scope: direct reports + members of teams they lead. Non-OWNER principals cannot access OWNER subjects. */
 export async function canAccessOrgUser(
   principal: AuthPrincipal,
   subjectUserId: string
@@ -172,7 +172,15 @@ export async function canAccessOrgUser(
   }
 
   if (principal.role === 'MANAGER') {
-    return subject.manager_id === principal.id
+    if (subject.manager_id === principal.id) return true
+    const onManagedTeam = await prisma.teamMember.findFirst({
+      where: {
+        user_id: subject.id,
+        team: { org_id: principal.org_id, manager_id: principal.id },
+      },
+      select: { id: true },
+    })
+    return onManagedTeam != null
   }
 
   return false
@@ -204,7 +212,15 @@ export async function filterAccessibleUserIds(
       where: {
         id: { in: unique },
         org_id: principal.org_id,
-        OR: [{ id: principal.id }, { manager_id: principal.id }],
+        OR: [
+          { id: principal.id },
+          { manager_id: principal.id },
+          {
+            team_memberships: {
+              some: { team: { org_id: principal.org_id, manager_id: principal.id } },
+            },
+          },
+        ],
       },
       select: { id: true, role: true },
     })
@@ -220,18 +236,26 @@ export async function filterAccessibleUserIds(
   return unique.filter((id) => id === principal.id)
 }
 
-/** For filtering sessions/reports: self + direct reports (managers). */
+/** For filtering sessions/reports: self + direct reports + members of teams this manager leads. */
 export async function managerScopedUserIds(principal: AuthPrincipal): Promise<string[]> {
   if (principal.role !== 'MANAGER') return []
-  const reports = await prisma.user.findMany({
-    where: {
-      org_id: principal.org_id,
-      manager_id: principal.id,
-      role: { not: 'OWNER' },
-    },
-    select: { id: true },
-  })
-  return [principal.id, ...reports.map((r) => r.id)]
+  const [reports, teamMembers] = await Promise.all([
+    prisma.user.findMany({
+      where: {
+        org_id: principal.org_id,
+        manager_id: principal.id,
+        role: { not: 'OWNER' },
+      },
+      select: { id: true },
+    }),
+    prisma.teamMember.findMany({
+      where: { team: { org_id: principal.org_id, manager_id: principal.id } },
+      select: { user_id: true },
+    }),
+  ])
+  const ids = new Set<string>([principal.id, ...reports.map((r) => r.id)])
+  for (const m of teamMembers) ids.add(m.user_id)
+  return [...ids]
 }
 
 const MANAGER_ROLE_IDS = new Set(['MANAGER', 'ADMIN', 'OWNER'])

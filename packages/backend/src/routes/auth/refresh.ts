@@ -40,18 +40,25 @@ export async function refreshRoutes(fastify: FastifyInstance, _opts: { config: C
 
       const { user } = matchedToken
 
-      if (!user.organization) {
+      if ((user.status as string) !== 'ACTIVE') {
         await prisma.refreshToken.deleteMany({ where: { id: matchedToken.id } })
-        return reply.status(403).send({
-          code: 'NO_ORGANIZATION',
-          message: 'Account is not assigned to an organization',
+        return reply.status(401).send({
+          code: 'USER_INACTIVE',
+          message: 'Your account is not active',
         })
       }
 
-      if (
-        (user.status as string) !== 'ACTIVE' ||
-        (user.organization.status as string) === 'SUSPENDED'
-      ) {
+      // Align with POST /app/auth/login: tenant users must have an org; platform operators
+      // intentionally have org_id = null (see User_platform_admin_no_org_chk).
+      if (!user.organization) {
+        if (!user.is_platform_admin) {
+          await prisma.refreshToken.deleteMany({ where: { id: matchedToken.id } })
+          return reply.status(403).send({
+            code: 'NO_ORGANIZATION',
+            message: 'Account is not assigned to an organization',
+          })
+        }
+      } else if ((user.organization.status as string) === 'SUSPENDED') {
         await prisma.refreshToken.deleteMany({ where: { id: matchedToken.id } })
         return reply.status(402).send({
           code: 'ORG_SUSPENDED',

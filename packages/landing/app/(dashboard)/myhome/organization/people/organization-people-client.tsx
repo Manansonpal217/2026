@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { isAxiosError } from 'axios'
 import { useSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -23,11 +23,22 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
-import { isOrgAdminOnly, isOrgAdminRole, normalizeOrgRole, PermissionKey } from '@/lib/roles'
+import {
+  canManageExistingInviteForRole,
+  defaultInviteRoleForOrgRole,
+  getInviteRoleOptionsForOrgRole,
+  isOrgAdminOnly,
+  isOrgAdminRole,
+  normalizeOrgRole,
+  orgMemberRoleDisplayLabel,
+  PermissionKey,
+  type InviteRoleOption,
+} from '@/lib/roles'
 import {
   DirectReportsMultiSelect,
   type DirectReportOption,
 } from '@/components/DirectReportsMultiSelect'
+import { LineManagerCombobox } from '@/components/LineManagerCombobox'
 
 type UserRow = {
   id: string
@@ -63,11 +74,22 @@ type InviteRow = {
   id: string
   email: string
   role: string
+  first_name?: string
+  last_name?: string
+  manager_id?: string | null
+  line_manager?: { id: string; name: string; email: string } | null
   accepted_at: string | null
   expires_at: string
   created_at: string
   status: 'pending' | 'accepted' | 'expired'
   invited_by: { id: string; name: string; email: string } | null
+}
+
+function inviteRowDisplayName(inv: InviteRow): string {
+  const f = (inv.first_name ?? '').trim()
+  const l = (inv.last_name ?? '').trim()
+  const joined = [f, l].filter(Boolean).join(' ')
+  return joined || '—'
 }
 
 const MANAGER_ROLES = new Set(['manager', 'admin', 'super_admin'])
@@ -123,25 +145,11 @@ function editStatusToApi(s: 'active' | 'suspended'): 'ACTIVE' | 'SUSPENDED' {
   return s === 'suspended' ? 'SUSPENDED' : 'ACTIVE'
 }
 
-function inviteRoleToApi(r: 'employee' | 'manager' | 'admin'): 'EMPLOYEE' | 'MANAGER' | 'ADMIN' {
+function inviteRoleToApi(r: InviteRoleOption): 'EMPLOYEE' | 'MANAGER' | 'ADMIN' | 'VIEWER' {
   if (r === 'admin') return 'ADMIN'
   if (r === 'manager') return 'MANAGER'
+  if (r === 'viewer') return 'VIEWER'
   return 'EMPLOYEE'
-}
-
-function roleLabel(role: string): string {
-  switch (role) {
-    case 'super_admin':
-      return 'Super admin'
-    case 'admin':
-      return 'Admin'
-    case 'manager':
-      return 'Manager'
-    case 'employee':
-      return 'Employee'
-    default:
-      return role
-  }
 }
 
 function roleBadgeVariant(role: string): 'indigo' | 'violet' | 'secondary' | 'warning' {
@@ -151,6 +159,8 @@ function roleBadgeVariant(role: string): 'indigo' | 'violet' | 'secondary' | 'wa
       return 'indigo'
     case 'manager':
       return 'violet'
+    case 'viewer':
+      return 'secondary'
     default:
       return 'secondary'
   }
@@ -263,12 +273,18 @@ export function OrganizationPeopleClient() {
   const [roleFilter, setRoleFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [managerOptions, setManagerOptions] = useState<ManagerOption[]>([])
+  const [managersLoading, setManagersLoading] = useState(false)
   const [overrideUserIds, setOverrideUserIds] = useState<Set<string>>(new Set())
 
   const [inviteOpen, setInviteOpen] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState<'employee' | 'manager' | 'admin'>('employee')
+  const [inviteFirstName, setInviteFirstName] = useState('')
+  const [inviteLastName, setInviteLastName] = useState('')
+  const [inviteRole, setInviteRole] = useState<InviteRoleOption>('employee')
+  const [inviteManagerId, setInviteManagerId] = useState('')
   const [inviteSubmitting, setInviteSubmitting] = useState(false)
+  const [inviteSuccessEmail, setInviteSuccessEmail] = useState<string | null>(null)
+  const inviteEmailInputRef = useRef<HTMLInputElement>(null)
 
   const [editOpen, setEditOpen] = useState(false)
   const [editRow, setEditRow] = useState<UserRow | null>(null)
@@ -346,7 +362,26 @@ export function OrganizationPeopleClient() {
     }
   }, [])
 
+  useEffect(() => {
+    const opts = getInviteRoleOptionsForOrgRole(role)
+    if (opts.length === 0) return
+    setInviteRole((prev) => (opts.includes(prev) ? prev : (opts[0] ?? 'employee')))
+  }, [role])
+
+  useEffect(() => {
+    if (inviteRole !== 'employee') {
+      setInviteManagerId('')
+      return
+    }
+    setInviteManagerId((prev) => {
+      if (prev && managerOptions.some((m) => m.id === prev)) return prev
+      if (selfId && managerOptions.some((m) => m.id === selfId)) return selfId
+      return managerOptions[0]?.id ?? ''
+    })
+  }, [inviteRole, selfId, managerOptions])
+
   const loadManagers = useCallback(async () => {
+    setManagersLoading(true)
     try {
       const roles = ['MANAGER', 'ADMIN', 'OWNER'] as const
       const responses = await Promise.all(
@@ -369,6 +404,8 @@ export function OrganizationPeopleClient() {
       setManagerOptions([...map.values()].sort((a, b) => a.email.localeCompare(b.email)))
     } catch {
       /* non-fatal */
+    } finally {
+      setManagersLoading(false)
     }
   }, [])
 
@@ -411,12 +448,12 @@ export function OrganizationPeopleClient() {
 
   useEffect(() => {
     if (!authzReady) return
-    if (!canAssignManager && !showTeamsTab) {
+    if (!canAssignManager && !showTeamsTab && !canInvite) {
       setManagerOptions([])
       return
     }
     void loadManagers()
-  }, [authzReady, canAssignManager, showTeamsTab, loadManagers])
+  }, [authzReady, canAssignManager, showTeamsTab, canInvite, loadManagers])
 
   useEffect(() => {
     void loadUsers()
@@ -822,7 +859,11 @@ export function OrganizationPeopleClient() {
 
   function resetInviteForm() {
     setInviteEmail('')
-    setInviteRole('employee')
+    setInviteFirstName('')
+    setInviteLastName('')
+    setInviteRole(defaultInviteRoleForOrgRole(role))
+    setInviteManagerId('')
+    setInviteSuccessEmail(null)
   }
 
   async function submitInvite() {
@@ -831,13 +872,35 @@ export function OrganizationPeopleClient() {
       adminToast.error('Enter an email address.')
       return
     }
+    const firstName = inviteFirstName.trim()
+    const lastName = inviteLastName.trim()
+    if (!firstName || !lastName) {
+      adminToast.error('Enter first name and last name for the person you are inviting.')
+      return
+    }
+    if (inviteRole === 'employee') {
+      if (!inviteManagerId) {
+        adminToast.error('Choose who this employee reports to.')
+        return
+      }
+    }
     setInviteSubmitting(true)
     try {
-      await api.post('/v1/public/auth/invite', { email, role: inviteRoleToApi(inviteRole) })
+      await api.post('/v1/public/auth/invite', {
+        email,
+        role: inviteRoleToApi(inviteRole),
+        first_name: firstName,
+        last_name: lastName,
+        ...(inviteRole === 'employee' && inviteManagerId ? { manager_id: inviteManagerId } : {}),
+      })
       adminToast.success('Invitation sent', `They will receive an email at ${email}.`)
+      setInviteSuccessEmail(email)
       setInviteEmail('')
-      setInviteRole('employee')
+      setInviteFirstName('')
+      setInviteLastName('')
       await loadUsers()
+      if (tab === 'invitations') await loadInvites()
+      requestAnimationFrame(() => inviteEmailInputRef.current?.focus())
     } catch (e: unknown) {
       let msg = 'Could not send invite.'
       if (isAxiosError(e)) {
@@ -1138,7 +1201,7 @@ export function OrganizationPeopleClient() {
                           </CardDescription>
                           <div className="mt-2 flex flex-wrap gap-2">
                             <Badge variant={roleBadgeVariant(row.role)} className="font-normal">
-                              {roleLabel(row.role)}
+                              {orgMemberRoleDisplayLabel(row.role)}
                             </Badge>
                             <Badge
                               variant={statusBadgeVariant(row.status)}
@@ -1340,7 +1403,7 @@ export function OrganizationPeopleClient() {
                     <option value="">— None —</option>
                     {managerOptions.map((m) => (
                       <option key={m.id} value={m.id}>
-                        {m.email} · {m.name} ({roleLabel(m.role)})
+                        {m.email} · {m.name} ({orgMemberRoleDisplayLabel(m.role)})
                       </option>
                     ))}
                   </select>
@@ -1435,7 +1498,7 @@ export function OrganizationPeopleClient() {
                             <option value="">— None —</option>
                             {managerOptions.map((m) => (
                               <option key={m.id} value={m.id}>
-                                {m.email} · {m.name} ({roleLabel(m.role)})
+                                {m.email} · {m.name} ({orgMemberRoleDisplayLabel(m.role)})
                               </option>
                             ))}
                           </select>
@@ -1563,26 +1626,75 @@ export function OrganizationPeopleClient() {
             if (!open) resetInviteForm()
           }}
         >
-          <DialogContent className="sm:max-w-md">
+          <DialogContent className="overflow-visible sm:max-w-md">
             <DialogHeader>
               <DialogTitle>Invite user</DialogTitle>
               <DialogDescription>
-                Send an email invitation. They will set a display name and password when they
-                accept.
+                Send an email invitation. Add their first and last name so it becomes their display
+                name when they join. They will choose a password when they accept. You can send more
+                invites from this window without closing it.
               </DialogDescription>
             </DialogHeader>
+            {inviteSuccessEmail ? (
+              <div
+                role="status"
+                className="rounded-lg border border-emerald-500/35 bg-emerald-500/[0.08] px-3 py-2.5 text-sm dark:border-emerald-400/30 dark:bg-emerald-500/[0.12]"
+              >
+                <p className="font-medium text-emerald-950 dark:text-emerald-50">
+                  Invitation sent to {inviteSuccessEmail}
+                </p>
+                <p className="mt-1 text-emerald-900/80 dark:text-emerald-100/85">
+                  Add another person below to keep inviting. Name fields and role stay as you last
+                  chose.
+                </p>
+              </div>
+            ) : null}
             <div className="grid gap-4 py-2">
               <div>
                 <Label htmlFor="invite_email">Email</Label>
                 <Input
+                  ref={inviteEmailInputRef}
                   id="invite_email"
                   type="email"
                   className="mt-1"
                   value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
+                  onChange={(e) => {
+                    setInviteSuccessEmail(null)
+                    setInviteEmail(e.target.value)
+                  }}
                   placeholder="colleague@company.com"
                   autoComplete="email"
                 />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="invite_first_name">First name</Label>
+                  <Input
+                    id="invite_first_name"
+                    className="mt-1"
+                    value={inviteFirstName}
+                    onChange={(e) => {
+                      setInviteSuccessEmail(null)
+                      setInviteFirstName(e.target.value)
+                    }}
+                    placeholder="Jane"
+                    autoComplete="given-name"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="invite_last_name">Last name</Label>
+                  <Input
+                    id="invite_last_name"
+                    className="mt-1"
+                    value={inviteLastName}
+                    onChange={(e) => {
+                      setInviteSuccessEmail(null)
+                      setInviteLastName(e.target.value)
+                    }}
+                    placeholder="Doe"
+                    autoComplete="family-name"
+                  />
+                </div>
               </div>
               <div>
                 <Label htmlFor="invite_role">Role when they join</Label>
@@ -1590,15 +1702,34 @@ export function OrganizationPeopleClient() {
                   id="invite_role"
                   className={cn(selectCls, 'mt-1 block max-w-none')}
                   value={inviteRole}
-                  onChange={(e) =>
-                    setInviteRole(e.target.value as 'employee' | 'manager' | 'admin')
-                  }
+                  onChange={(e) => {
+                    setInviteSuccessEmail(null)
+                    setInviteRole(e.target.value as InviteRoleOption)
+                  }}
                 >
-                  <option value="employee">Employee</option>
-                  <option value="manager">Manager</option>
-                  <option value="admin">Admin</option>
+                  {getInviteRoleOptionsForOrgRole(role).map((opt) => (
+                    <option key={opt} value={opt}>
+                      {orgMemberRoleDisplayLabel(opt)}
+                    </option>
+                  ))}
                 </select>
               </div>
+              {inviteRole === 'employee' ? (
+                <LineManagerCombobox
+                  id="invite_line_manager"
+                  label="Reports to"
+                  value={inviteManagerId}
+                  onValueChange={(id) => {
+                    setInviteSuccessEmail(null)
+                    setInviteManagerId(id)
+                  }}
+                  options={managerOptions}
+                  loading={managersLoading}
+                  placeholder="Choose who they report to…"
+                  noOptionsText="No active owners, admins, or managers found in this organization."
+                  helperText="Search by name or email. Owners, admins, and managers can be a line manager."
+                />
+              ) : null}
             </div>
             <DialogFooter className="mt-6 gap-3 border-t border-border/70 pt-5 sm:flex-row sm:justify-end">
               <Button
@@ -1700,7 +1831,9 @@ export function OrganizationPeopleClient() {
                 <thead>
                   <tr className="border-b border-border bg-muted/30 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     <th className="px-4 py-3">Email</th>
+                    <th className="px-4 py-3">Name</th>
                     <th className="px-4 py-3">Role</th>
+                    <th className="px-4 py-3">Reports to</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Invited by</th>
                     <th className="px-4 py-3">Expires</th>
@@ -1708,66 +1841,87 @@ export function OrganizationPeopleClient() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {invites.map((inv) => (
-                    <tr key={inv.id} className="bg-card transition-colors hover:bg-muted/20">
-                      <td className="max-w-[14rem] truncate px-4 py-3 font-medium text-foreground">
-                        {inv.email}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge
-                          variant={roleBadgeVariant(normalizeApiUserRole(inv.role))}
-                          className="font-normal"
-                        >
-                          {roleLabel(normalizeApiUserRole(inv.role))}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge
-                          variant={inviteStatusBadgeVariant(inv.status)}
-                          className="font-normal capitalize"
-                        >
-                          {inv.status}
-                        </Badge>
-                      </td>
-                      <td className="max-w-[12rem] truncate px-4 py-3 text-muted-foreground">
-                        {inv.invited_by?.email ?? inv.invited_by?.name ?? '—'}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
-                        {inv.status === 'accepted'
-                          ? `Accepted ${formatInviteDate(inv.accepted_at)}`
-                          : formatInviteDate(inv.expires_at)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex justify-end gap-2">
-                          {inv.status !== 'accepted' ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              loading={resendingId === inv.id}
-                              disabled={!!resendingId || !!revokingId}
-                              onClick={() => void resendInvite(inv)}
-                            >
-                              Resend
-                            </Button>
-                          ) : null}
-                          {inv.status !== 'accepted' ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="border-destructive/50 text-destructive hover:bg-destructive/10"
-                              loading={revokingId === inv.id}
-                              disabled={!!resendingId || !!revokingId}
-                              onClick={() => setRevokeConfirmInvite(inv)}
-                            >
-                              Revoke
-                            </Button>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {invites.map((inv) => {
+                    const canActOnInvite = canManageExistingInviteForRole(role, inv.role)
+                    return (
+                      <tr key={inv.id} className="bg-card transition-colors hover:bg-muted/20">
+                        <td className="max-w-[14rem] truncate px-4 py-3 font-medium text-foreground">
+                          {inv.email}
+                        </td>
+                        <td className="max-w-[12rem] truncate px-4 py-3 text-muted-foreground">
+                          {inviteRowDisplayName(inv)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge
+                            variant={roleBadgeVariant(normalizeApiUserRole(inv.role))}
+                            className="font-normal"
+                          >
+                            {orgMemberRoleDisplayLabel(normalizeApiUserRole(inv.role))}
+                          </Badge>
+                        </td>
+                        <td className="max-w-[12rem] truncate px-4 py-3 text-muted-foreground">
+                          {normalizeApiUserRole(inv.role) === 'employee'
+                            ? inv.line_manager?.name?.trim() || inv.line_manager?.email || '—'
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge
+                            variant={inviteStatusBadgeVariant(inv.status)}
+                            className="font-normal capitalize"
+                          >
+                            {inv.status}
+                          </Badge>
+                        </td>
+                        <td className="max-w-[12rem] truncate px-4 py-3 text-muted-foreground">
+                          {inv.invited_by?.email ?? inv.invited_by?.name ?? '—'}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">
+                          {inv.status === 'accepted'
+                            ? `Accepted ${formatInviteDate(inv.accepted_at)}`
+                            : formatInviteDate(inv.expires_at)}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex justify-end gap-2">
+                            {inv.status !== 'accepted' ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                loading={resendingId === inv.id}
+                                disabled={!canActOnInvite || !!resendingId || !!revokingId}
+                                title={
+                                  canActOnInvite
+                                    ? undefined
+                                    : 'Your role cannot resend invitations for this account type.'
+                                }
+                                onClick={() => void resendInvite(inv)}
+                              >
+                                Resend
+                              </Button>
+                            ) : null}
+                            {inv.status !== 'accepted' ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="border-destructive/50 text-destructive hover:bg-destructive/10"
+                                loading={revokingId === inv.id}
+                                disabled={!canActOnInvite || !!resendingId || !!revokingId}
+                                title={
+                                  canActOnInvite
+                                    ? undefined
+                                    : 'Your role cannot revoke invitations for this account type.'
+                                }
+                                onClick={() => setRevokeConfirmInvite(inv)}
+                              >
+                                Revoke
+                              </Button>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1941,20 +2095,18 @@ export function OrganizationPeopleClient() {
                     Line manager
                   </legend>
                   <div>
-                    <Label htmlFor="edit_manager">Reports to</Label>
-                    <select
+                    <LineManagerCombobox
                       id="edit_manager"
-                      className={cn(selectCls, 'mt-1 block max-w-none')}
+                      label="Reports to"
                       value={lineManagerSelectValue}
-                      onChange={(e) => setEditManagerId(e.target.value)}
-                    >
-                      {editRole === 'admin' ? <option value="">— None —</option> : null}
-                      {editMgrChoices.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.email} · {m.name} ({roleLabel(m.role)})
-                        </option>
-                      ))}
-                    </select>
+                      onValueChange={setEditManagerId}
+                      options={editMgrChoices}
+                      loading={managersLoading}
+                      allowNone={editRole === 'admin'}
+                      noneLabel="— No line manager —"
+                      placeholder="Choose who they report to…"
+                      noOptionsText="No active owners, admins, or managers found in this organization."
+                    />
                   </div>
                 </fieldset>
               ) : null}
@@ -1965,16 +2117,16 @@ export function OrganizationPeopleClient() {
                     Offline time
                   </legend>
                   <div>
-                    <Label htmlFor="edit_offline">Can add offline time</Label>
+                    <Label htmlFor="edit_offline">Offline time (override)</Label>
                     <select
                       id="edit_offline"
                       className={cn(selectCls, 'mt-1 block max-w-none')}
                       value={editOffline}
                       onChange={(e) => setEditOffline(e.target.value as '' | 'yes' | 'no')}
                     >
-                      <option value="">Inherit org default</option>
-                      <option value="yes">Yes</option>
-                      <option value="no">No</option>
+                      <option value="">Inherit org (self-service vs request)</option>
+                      <option value="yes">Always self-service (no approval queue)</option>
+                      <option value="no">Cannot use offline time</option>
                     </select>
                   </div>
                 </fieldset>

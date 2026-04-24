@@ -8,6 +8,7 @@ import { motion } from 'framer-motion'
 import {
   Building2,
   Calendar,
+  ChevronDown,
   KeyRound,
   MoreHorizontal,
   Pencil,
@@ -69,6 +70,9 @@ const PLAN_ACCENT: Record<string, string> = {
   STANDARD: 'border-l-blue-500',
   PROFESSIONAL: 'border-l-violet-500',
 }
+
+const filterSelectClass =
+  'h-10 w-full min-w-0 cursor-pointer appearance-none rounded-lg border border-border bg-input py-0 pl-3 pr-9 text-sm text-foreground shadow-[inset_0_1px_0_0_hsl(var(--foreground)/0.04)] transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-primary/45 disabled:cursor-not-allowed disabled:opacity-50 sm:w-44'
 
 function relativeTime(iso: string | undefined): string {
   if (!iso) return 'Never'
@@ -307,25 +311,39 @@ export default function AdminOrgsPage() {
             className="pl-8 text-sm"
           />
         </div>
-        <select
-          value={planFilter}
-          onChange={(e) => setPlanFilter(e.target.value)}
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm"
-        >
-          <option value="">All plans</option>
-          <option value="TRIAL">Trial</option>
-          <option value="STANDARD">Standard</option>
-          <option value="PROFESSIONAL">Professional</option>
-        </select>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded-md border border-border bg-background px-3 py-2 text-sm"
-        >
-          <option value="">All statuses</option>
-          <option value="ACTIVE">Active</option>
-          <option value="SUSPENDED">Suspended</option>
-        </select>
+        <div className="relative shrink-0 sm:w-44">
+          <select
+            value={planFilter}
+            onChange={(e) => setPlanFilter(e.target.value)}
+            aria-label="Filter by plan"
+            className={filterSelectClass}
+          >
+            <option value="">All plans</option>
+            <option value="TRIAL">Trial</option>
+            <option value="STANDARD">Standard</option>
+            <option value="PROFESSIONAL">Professional</option>
+          </select>
+          <ChevronDown
+            className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+        </div>
+        <div className="relative shrink-0 sm:w-44">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            aria-label="Filter by status"
+            className={filterSelectClass}
+          >
+            <option value="">All statuses</option>
+            <option value="ACTIVE">Active</option>
+            <option value="SUSPENDED">Suspended</option>
+          </select>
+          <ChevronDown
+            className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+        </div>
         {(search || planFilter || statusFilter) && (
           <button
             type="button"

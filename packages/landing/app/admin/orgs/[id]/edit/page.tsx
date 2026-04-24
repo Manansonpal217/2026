@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { OrgAgentTokenPanel } from '@/app/admin/org-agent-token-panel'
 import { cn } from '@/lib/utils'
+import { orgMemberRoleDisplayLabel } from '@/lib/roles'
 
 type UserRow = {
   id: string
@@ -43,14 +44,11 @@ const STATUS_OPTIONS = [
 ]
 
 const ROLE_STYLES: Record<string, string> = {
+  OWNER: 'bg-violet-500/15 text-violet-700 dark:text-violet-400',
   super_admin: 'bg-violet-500/15 text-violet-700 dark:text-violet-400',
   admin: 'bg-blue-500/15 text-blue-700 dark:text-blue-400',
   manager: 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
   employee: 'bg-muted text-muted-foreground',
-}
-
-function roleLabel(r: string): string {
-  return r === 'super_admin' ? 'Super Admin' : r.charAt(0).toUpperCase() + r.slice(1)
 }
 
 export default function EditOrgPage() {
@@ -271,7 +269,7 @@ export default function EditOrgPage() {
                         ROLE_STYLES[u.role] ?? 'bg-muted text-muted-foreground'
                       )}
                     >
-                      {roleLabel(u.role)}
+                      {orgMemberRoleDisplayLabel(u.role)}
                     </span>
                   </div>
                 ))

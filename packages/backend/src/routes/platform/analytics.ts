@@ -14,6 +14,8 @@ export async function platformAnalyticsRoutes(fastify: FastifyInstance, opts: { 
     preHandler: [authenticate, requirePlatformAdmin()],
     handler: async () => {
       const since = subDays(new Date(), 7)
+      /** Tenant users only — platform operators are not billed or counted as product seats. */
+      const tenantUserWhere = { is_platform_admin: false }
 
       const [
         totalOrganizations,
@@ -27,15 +29,15 @@ export async function platformAnalyticsRoutes(fastify: FastifyInstance, opts: { 
         recentOrgs,
       ] = await Promise.all([
         prisma.organization.count(),
-        prisma.user.count(),
+        prisma.user.count({ where: tenantUserWhere }),
         prisma.user.count({
-          where: { status: 'ACTIVE', updated_at: { gte: since } },
+          where: { ...tenantUserWhere, status: 'ACTIVE', updated_at: { gte: since } },
         }),
         prisma.organization.groupBy({ by: ['status'], _count: true }),
         prisma.organization.groupBy({ by: ['plan'], _count: true }),
-        prisma.user.groupBy({ by: ['status'], _count: true }),
+        prisma.user.groupBy({ by: ['status'], where: tenantUserWhere, _count: true }),
         prisma.organization.count({ where: { created_at: { gte: since } } }),
-        prisma.user.count({ where: { created_at: { gte: since } } }),
+        prisma.user.count({ where: { ...tenantUserWhere, created_at: { gte: since } } }),
         prisma.organization.findMany({
           take: 20,
           orderBy: { updated_at: 'desc' },

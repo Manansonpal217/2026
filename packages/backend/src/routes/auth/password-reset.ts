@@ -9,7 +9,8 @@ import type { Config } from '../../config.js'
 const GENERIC_OK_MESSAGE =
   'If an account exists for this email, we sent password reset instructions.'
 
-const RESET_TTL_SEC = 3600
+/** Redis TTL for `password:reset:*` tokens (forgot-password + platform admin onboarding). */
+export const PASSWORD_RESET_TOKEN_TTL_SEC = 3600
 
 const forgotSchema = {
   body: {
@@ -66,25 +67,30 @@ export async function passwordResetRoutes(fastify: FastifyInstance, opts: { conf
             ...(orgSlug ? { slug: orgSlug } : {}),
           },
         },
-        select: { id: true, email: true },
+        select: { id: true, email: true, name: true },
       })
 
-      let targetId: string | null = null
-      if (candidates.length === 1) {
-        targetId = candidates[0].id
-      }
-
-      if (targetId) {
-        const token = randomBytes(32).toString('hex')
+      // Send a separate reset token for every matching account so users with the
+      // same email in multiple orgs are never silently locked out.
+      if (candidates.length > 0) {
         const redis = getRedis(config)
-        await redis.set(`password:reset:${token}`, targetId, 'EX', RESET_TTL_SEC)
-        const userRow = candidates[0]
-        void enqueueTransactionalEmail({
-          kind: 'reset',
-          to: userRow.email,
-          appUrl: config.APP_URL,
-          token,
-        }).catch((err) => fastify.log.error({ err }, 'Failed to enqueue password reset email'))
+        await Promise.all(
+          candidates.map(async (candidate) => {
+            const token = randomBytes(32).toString('hex')
+            await redis.set(
+              `password:reset:${token}`,
+              candidate.id,
+              'EX',
+              PASSWORD_RESET_TOKEN_TTL_SEC
+            )
+            void enqueueTransactionalEmail({
+              kind: 'reset',
+              to: candidate.email,
+              appUrl: config.APP_URL,
+              token,
+            }).catch((err) => fastify.log.error({ err }, 'Failed to enqueue password reset email'))
+          })
+        )
       }
 
       return reply.send({ message: GENERIC_OK_MESSAGE })
@@ -127,7 +133,7 @@ export async function passwordResetRoutes(fastify: FastifyInstance, opts: { conf
       await prisma.$transaction([
         prisma.user.update({
           where: { id: user.id },
-          data: { password_hash },
+          data: { password_hash, email_verified: true },
         }),
         prisma.refreshToken.deleteMany({ where: { user_id: user.id } }),
       ])

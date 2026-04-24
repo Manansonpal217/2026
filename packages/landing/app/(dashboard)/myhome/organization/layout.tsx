@@ -2,18 +2,21 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { getServerSession } from 'next-auth'
 import { Building2 } from 'lucide-react'
+import { mayAccessPlatformUserAdmin } from '@/lib/admin-gate'
 import { authOptions } from '@/lib/auth'
-import { isManagerOrAbove, isOrgAdminRole, isOrgSuperAdmin } from '@/lib/roles'
+import { isManagerOrAbove, isOrgAdminRole } from '@/lib/roles'
 
 export default async function OrganizationLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions)
   const role = session?.user?.role as string | undefined
+  if (mayAccessPlatformUserAdmin(session?.user)) {
+    redirect('/admin/dashboard')
+  }
   if (!isManagerOrAbove(role)) {
     redirect('/myhome')
   }
 
   const isOrgAdmin = isOrgAdminRole(role)
-  const isSuperAdmin = isOrgSuperAdmin(role)
 
   return (
     <div className="relative isolate mx-auto max-w-[1600px] px-4 py-8 sm:px-6">
@@ -52,18 +55,6 @@ export default async function OrganizationLayout({ children }: { children: React
                 ? 'Workspace settings, people, and teams for your organization.'
                 : 'View and manage people and roles in your organization.'}
             </p>
-            {isSuperAdmin ? (
-              <p className="mt-3 max-w-2xl rounded-lg border border-border bg-muted/25 px-3 py-2 text-sm text-muted-foreground">
-                This page only lists people in your organization. For every tenant, open{' '}
-                <Link
-                  href="/admin/users"
-                  className="font-medium text-primary underline-offset-4 hover:underline"
-                >
-                  All users
-                </Link>{' '}
-                under Configuration and select an organization.
-              </p>
-            ) : null}
           </div>
         </div>
       </header>

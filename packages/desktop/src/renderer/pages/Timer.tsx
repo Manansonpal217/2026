@@ -55,6 +55,14 @@ export function Timer({
   const [selectedJiraIssue, setSelectedJiraIssue] = useState<JiraIssue | null>(null)
   const [showLogWorkCard, setShowLogWorkCard] = useState(false)
   const [stoppedSessionMeta, setStoppedSessionMeta] = useState<StoppedSessionMeta | null>(null)
+  const [asanaConnected, setAsanaConnected] = useState(false)
+
+  useEffect(() => {
+    void window.trackysnc?.isAsanaConnected?.().then((v) => setAsanaConnected(!!v))
+    const onLost = () => setAsanaConnected(false)
+    window.electron?.ipcRenderer?.on('asana:auth-lost', onLost)
+    return () => window.electron?.ipcRenderer?.off('asana:auth-lost', onLost)
+  }, [])
 
   const fetchRecentSessions = useCallback(async () => {
     const sessions = (await window.electron?.ipcRenderer.invoke(
@@ -117,12 +125,12 @@ export function Timer({
         | undefined
       if (res && 'score' in res) setActivityScore(res.score ?? null)
 
-      // Show log work card
-      if (sessionAtStop) {
+      // Log work card: only when org has a cloud platform configured (not "none")
+      if (sessionAtStop && workPlatform !== 'none') {
         const notes = sessionAtStop.notes
         let platform: 'jira' | 'asana' | null = null
         let issueKey: string | null = null
-        let taskName = 'Session'
+        let taskName = notes?.trim() || 'Session'
         if (notes?.startsWith('jira:')) {
           platform = 'jira'
           issueKey = notes.slice(5).trim()
@@ -131,6 +139,9 @@ export function Timer({
           platform = 'asana'
           issueKey = notes.slice(6).trim()
           taskName = issueKey
+        } else {
+          if (workPlatform === 'jira_cloud' && jiraConnected) platform = 'jira'
+          else if (workPlatform === 'asana' && asanaConnected) platform = 'asana'
         }
         const h = Math.floor(elapsedAtStop / 3600)
         const m = Math.floor((elapsedAtStop % 3600) / 60)
@@ -140,6 +151,7 @@ export function Timer({
           taskName,
           issueKey,
           platform,
+          workPlatform,
           durationSec: elapsedAtStop,
           durationFormatted,
         })
@@ -164,7 +176,15 @@ export function Timer({
       window.electron?.ipcRenderer.off('timer:stopped', handleStopped)
       window.electron?.ipcRenderer.off('timer:started', handleStarted)
     }
-  }, [setElapsed, initialize, refreshTodaySessions, fetchRecentSessions])
+  }, [
+    setElapsed,
+    initialize,
+    refreshTodaySessions,
+    fetchRecentSessions,
+    workPlatform,
+    jiraConnected,
+    asanaConnected,
+  ])
 
   // Poll activity score when timer is running; also poll when stopped so we show today's activity after restart
   useEffect(() => {

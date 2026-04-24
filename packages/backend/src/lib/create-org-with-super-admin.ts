@@ -37,6 +37,14 @@ export async function createOrgWithSuperAdmin(
     throw Object.assign(new Error('DISPOSABLE_EMAIL'), { code: 'DISPOSABLE_EMAIL' as const })
   }
 
+  const emailTaken = await tx.user.findFirst({
+    where: { email: emailLower },
+    select: { id: true },
+  })
+  if (emailTaken) {
+    throw Object.assign(new Error('EMAIL_IN_USE'), { code: 'EMAIL_IN_USE' as const })
+  }
+
   const org = await tx.organization.create({
     data: {
       name: input.org_name,

@@ -52,10 +52,16 @@ export async function adminInviteRoutes(fastify: FastifyInstance, opts: { config
           id: true,
           email: true,
           role: true,
+          first_name: true,
+          last_name: true,
+          manager_id: true,
           accepted_at: true,
           expires_at: true,
           created_at: true,
           invited_by: {
+            select: { id: true, name: true, email: true },
+          },
+          line_manager: {
             select: { id: true, name: true, email: true },
           },
         },
@@ -96,6 +102,14 @@ export async function adminInviteRoutes(fastify: FastifyInstance, opts: { config
         return reply
           .status(400)
           .send({ code: 'INVITE_USED', message: 'Cannot revoke an accepted invite' })
+      }
+
+      const allowedRoles = getAllowedInviteRoles(u.role)
+      if (!allowedRoles.includes(invite.role)) {
+        return reply.status(403).send({
+          code: 'FORBIDDEN',
+          message: 'You do not have permission to revoke this invite',
+        })
       }
 
       await prisma.invite.delete({ where: { id } })
@@ -140,6 +154,9 @@ export async function adminInviteRoutes(fastify: FastifyInstance, opts: { config
           org_id: u.org_id,
           email: invite.email,
           role: invite.role,
+          first_name: invite.first_name,
+          last_name: invite.last_name,
+          manager_id: invite.manager_id,
           invited_by_id: u.id,
           expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         },

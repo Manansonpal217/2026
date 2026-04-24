@@ -7,32 +7,134 @@ import { createAuthenticateMiddleware, requireRole } from '../../middleware/auth
 import type { AuthenticatedRequest } from '../../middleware/authenticate.js'
 import type { Config } from '../../config.js'
 import { getAllowedInviteRoles } from '../../lib/permissions.js'
+import {
+  findRegisteredUserByEmail,
+  isEmailAvailableForNewUser,
+  isPrismaUniqueOnUserEmail,
+  normalizeUserEmail,
+} from '../../lib/user-email-availability.js'
+
+const MAX_INVITE_NAME_PART = 80
+
+function trimInviteNamePart(raw: unknown): string {
+  if (typeof raw !== 'string') return ''
+  const t = raw.trim().replace(/\s+/g, ' ')
+  return t.length > MAX_INVITE_NAME_PART ? t.slice(0, MAX_INVITE_NAME_PART) : t
+}
+
+/** Combined display name stored on `User.name` when the invite is accepted. */
+function inviteProfileNameFromRow(inv: { first_name: string; last_name: string }): string {
+  const f = trimInviteNamePart(inv.first_name)
+  const l = trimInviteNamePart(inv.last_name)
+  return [f, l].filter(Boolean).join(' ')
+}
+
+const LINE_MANAGER_ROLES = ['OWNER', 'ADMIN', 'MANAGER'] as const
+
+async function validateInviteLineManagerForCreate(
+  orgId: string | null | undefined,
+  managerId: string | undefined,
+  role: string
+): Promise<{ ok: true; managerId: string | null } | { ok: false; message: string }> {
+  if (role !== 'EMPLOYEE') {
+    return { ok: true, managerId: null }
+  }
+  if (!orgId) {
+    return { ok: false, message: 'Organization context is required to invite an employee.' }
+  }
+  if (!managerId || typeof managerId !== 'string' || !managerId.trim()) {
+    return { ok: false, message: 'Choose a line manager for employees.' }
+  }
+  const mgr = await prisma.user.findFirst({
+    where: {
+      id: managerId.trim(),
+      org_id: orgId,
+      status: 'ACTIVE',
+      role: { in: [...LINE_MANAGER_ROLES] },
+    },
+    select: { id: true },
+  })
+  if (!mgr) {
+    return {
+      ok: false,
+      message:
+        'Invalid line manager. Pick an active owner, admin, or manager in your organization.',
+    }
+  }
+  return { ok: true, managerId: mgr.id }
+}
+
+async function lineManagerStillValidForAccept(
+  orgId: string,
+  managerId: string | null,
+  role: string
+): Promise<boolean> {
+  if (role !== 'EMPLOYEE' || !managerId) return true
+  const mgr = await prisma.user.findFirst({
+    where: {
+      id: managerId,
+      org_id: orgId,
+      status: 'ACTIVE',
+      role: { in: [...LINE_MANAGER_ROLES] },
+    },
+    select: { id: true },
+  })
+  return Boolean(mgr)
+}
 
 export async function inviteRoutes(fastify: FastifyInstance, opts: { config: Config }) {
   const { config } = opts
   const authenticate = createAuthenticateMiddleware(config)
 
-  fastify.post<{ Body: { email: string; role?: string } }>(
+  fastify.post<{
+    Body: {
+      email: string
+      role?: string
+      first_name: string
+      last_name: string
+      manager_id?: string
+    }
+  }>(
     '/invite',
     {
       preHandler: [authenticate, requireRole('OWNER', 'ADMIN', 'MANAGER')],
       schema: {
         body: {
           type: 'object',
-          required: ['email'],
+          required: ['email', 'first_name', 'last_name'],
           properties: {
             email: { type: 'string', format: 'email' },
             role: { type: 'string' },
+            first_name: { type: 'string', minLength: 1, maxLength: MAX_INVITE_NAME_PART },
+            last_name: { type: 'string', minLength: 1, maxLength: MAX_INVITE_NAME_PART },
+            manager_id: { type: 'string' },
           },
         },
       },
     },
     async (
-      request: FastifyRequest<{ Body: { email: string; role?: string } }>,
+      request: FastifyRequest<{
+        Body: {
+          email: string
+          role?: string
+          first_name: string
+          last_name: string
+          manager_id?: string
+        }
+      }>,
       reply: FastifyReply
     ) => {
-      const { email, role = 'EMPLOYEE' } = request.body
+      const { email, role = 'EMPLOYEE', first_name, last_name, manager_id } = request.body
       const requester = (request as AuthenticatedRequest).user!
+      const emailNorm = normalizeUserEmail(email)
+      const fn = trimInviteNamePart(first_name)
+      const ln = trimInviteNamePart(last_name)
+      if (!fn || !ln) {
+        return reply.status(400).send({
+          code: 'INVALID_NAME',
+          message: 'First name and last name are required.',
+        })
+      }
 
       // Privilege escalation prevention — callers can only invite roles below their own
       const allowedRoles = getAllowedInviteRoles(requester.role)
@@ -43,19 +145,45 @@ export async function inviteRoutes(fastify: FastifyInstance, opts: { config: Con
         })
       }
 
-      const existingUser = await prisma.user.findFirst({
-        where: { email: email.toLowerCase(), org_id: requester.org_id },
-      })
-      if (existingUser) {
+      const lineManager = await validateInviteLineManagerForCreate(
+        requester.org_id,
+        manager_id,
+        role
+      )
+      if (!lineManager.ok) {
+        return reply.status(400).send({
+          code: 'INVALID_MANAGER',
+          message: lineManager.message,
+        })
+      }
+
+      const registered = await findRegisteredUserByEmail(prisma, emailNorm)
+      if (registered) {
         return reply.status(409).send({
-          code: 'USER_EXISTS',
-          message: 'A user with this email already exists in your organization',
+          code: 'EMAIL_IN_USE',
+          message: 'This email is already registered on TrackSync.',
+        })
+      }
+
+      const inviteSlot = await isEmailAvailableForNewUser(prisma, emailNorm, {
+        excludeOrgIdForInvite: requester.org_id ?? undefined,
+      })
+      if (!inviteSlot.ok && inviteSlot.reason === 'USER') {
+        return reply.status(409).send({
+          code: 'EMAIL_IN_USE',
+          message: 'This email is already registered on TrackSync.',
+        })
+      }
+      if (!inviteSlot.ok && inviteSlot.reason === 'INVITE_OTHER_ORG') {
+        return reply.status(409).send({
+          code: 'INVITE_EMAIL_TAKEN',
+          message: 'This address already has a pending invitation from another organization.',
         })
       }
 
       const existingInvite = await prisma.invite.findFirst({
         where: {
-          email: email.toLowerCase(),
+          email: emailNorm,
           org_id: requester.org_id,
           accepted_at: null,
           expires_at: { gt: new Date() },
@@ -71,8 +199,11 @@ export async function inviteRoutes(fastify: FastifyInstance, opts: { config: Con
       const invite = await prisma.invite.create({
         data: {
           org_id: requester.org_id,
-          email: email.toLowerCase(),
+          email: emailNorm,
           role: role as 'ADMIN' | 'MANAGER' | 'EMPLOYEE' | 'VIEWER',
+          first_name: fn,
+          last_name: ln,
+          manager_id: lineManager.managerId,
           invited_by_id: requester.id,
           expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         },
@@ -93,27 +224,29 @@ export async function inviteRoutes(fastify: FastifyInstance, opts: { config: Con
   )
 
   fastify.post<{
-    Body: { token: string; full_name: string; password: string }
+    Body: { token: string; password: string; full_name?: string }
   }>(
     '/invite/accept',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['token', 'full_name', 'password'],
+          required: ['token', 'password'],
           properties: {
             token: { type: 'string' },
-            full_name: { type: 'string', minLength: 1 },
+            /** @deprecated Optional; invitees set display name in the app after sign-in. */
+            full_name: { type: 'string' },
             password: { type: 'string', minLength: 8 },
           },
         },
       },
     },
     async (
-      request: FastifyRequest<{ Body: { token: string; full_name: string; password: string } }>,
+      request: FastifyRequest<{ Body: { token: string; password: string; full_name?: string } }>,
       reply: FastifyReply
     ) => {
-      const { token, full_name, password } = request.body
+      const { token, password, full_name } = request.body
+      const displayName = (full_name ?? '').trim()
 
       const invite = await prisma.invite.findUnique({
         where: { token },
@@ -142,13 +275,25 @@ export async function inviteRoutes(fastify: FastifyInstance, opts: { config: Con
           .send({ code: 'ORG_SUSPENDED', message: 'Organization access has been suspended' })
       }
 
-      const existingUser = await prisma.user.findFirst({
-        where: { email: invite.email, org_id: invite.org_id },
-      })
-      if (existingUser) {
-        return reply
-          .status(409)
-          .send({ code: 'USER_EXISTS', message: 'A user with this email already exists' })
+      const existingGlobal = await findRegisteredUserByEmail(prisma, invite.email)
+      if (existingGlobal) {
+        return reply.status(409).send({
+          code: 'EMAIL_IN_USE',
+          message: 'This email is already registered on TrackSync.',
+        })
+      }
+
+      const managerOk = await lineManagerStillValidForAccept(
+        invite.org_id,
+        invite.manager_id,
+        invite.role as string
+      )
+      if (!managerOk) {
+        return reply.status(400).send({
+          code: 'INVALID_INVITE',
+          message:
+            'This invite’s line manager is no longer available. Ask your admin to resend the invitation.',
+        })
       }
 
       const password_hash = await hashPassword(password)
@@ -156,30 +301,53 @@ export async function inviteRoutes(fastify: FastifyInstance, opts: { config: Con
       const refreshToken = createRefreshToken()
       const tokenHash = hashRefreshToken(refreshToken)
 
-      const user = await prisma.$transaction(async (tx) => {
-        const newUser = await tx.user.create({
-          data: {
-            org_id: invite.org_id,
-            email: invite.email,
-            password_hash,
-            name: full_name,
-            role: invite.role as 'ADMIN' | 'MANAGER' | 'EMPLOYEE' | 'VIEWER',
-            status: 'ACTIVE',
-          },
+      let user
+      try {
+        user = await prisma.$transaction(async (tx) => {
+          const race = await findRegisteredUserByEmail(tx, invite.email)
+          if (race) {
+            throw Object.assign(new Error('EMAIL_IN_USE'), { code: 'EMAIL_IN_USE' as const })
+          }
+          const nameFromInvite = inviteProfileNameFromRow(invite)
+          const resolvedName = nameFromInvite || displayName
+
+          const newUser = await tx.user.create({
+            data: {
+              org_id: invite.org_id,
+              email: invite.email,
+              password_hash,
+              name: resolvedName,
+              role: invite.role as 'ADMIN' | 'MANAGER' | 'EMPLOYEE' | 'VIEWER',
+              status: 'ACTIVE',
+              manager_id:
+                invite.role === 'EMPLOYEE' && invite.manager_id ? invite.manager_id : null,
+              // The invite was delivered to this email address, so it's verified by acceptance.
+              email_verified: true,
+            },
+          })
+          await tx.invite.update({
+            where: { id: invite.id },
+            data: { accepted_at: new Date() },
+          })
+          await tx.refreshToken.create({
+            data: {
+              user_id: newUser.id,
+              token_hash: tokenHash,
+              expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            },
+          })
+          return newUser
         })
-        await tx.invite.update({
-          where: { id: invite.id },
-          data: { accepted_at: new Date() },
-        })
-        await tx.refreshToken.create({
-          data: {
-            user_id: newUser.id,
-            token_hash: tokenHash,
-            expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-          },
-        })
-        return newUser
-      })
+      } catch (err: unknown) {
+        const o = err as { code?: string }
+        if (o.code === 'EMAIL_IN_USE' || (o.code === 'P2002' && isPrismaUniqueOnUserEmail(err))) {
+          return reply.status(409).send({
+            code: 'EMAIL_IN_USE',
+            message: 'This email is already registered on TrackSync.',
+          })
+        }
+        throw err
+      }
 
       const accessToken = await issueAccessToken(
         user.id,
@@ -222,7 +390,10 @@ export async function inviteRoutes(fastify: FastifyInstance, opts: { config: Con
 
       const invite = await prisma.invite.findUnique({
         where: { token },
-        include: { organization: true },
+        include: {
+          organization: true,
+          line_manager: { select: { id: true, name: true, email: true } },
+        },
       })
 
       if (!invite || invite.accepted_at || invite.expires_at < new Date()) {
@@ -231,11 +402,24 @@ export async function inviteRoutes(fastify: FastifyInstance, opts: { config: Con
           .send({ code: 'INVALID_INVITE', message: 'Invite is invalid or expired' })
       }
 
+      const display_name = inviteProfileNameFromRow(invite)
+      const lm = invite.line_manager
+
       return reply.send({
         email: invite.email,
         org_name: invite.organization.name,
         role: invite.role,
         expires_at: invite.expires_at,
+        first_name: invite.first_name,
+        last_name: invite.last_name,
+        display_name,
+        line_manager: lm
+          ? {
+              id: lm.id,
+              name: lm.name,
+              email: lm.email,
+            }
+          : null,
       })
     }
   )

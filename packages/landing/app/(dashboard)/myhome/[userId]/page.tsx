@@ -33,6 +33,7 @@ type UserResp = {
     can_add_offline_time?: boolean | null
   }
   expected_daily_work_minutes?: number
+  /** Org: when true, employees record own offline without manager approval; when false, requests go to manager. */
   allow_employee_offline_time?: boolean
 }
 
@@ -51,13 +52,20 @@ type OfflineTimeRow = {
   created_at: string
 }
 
+function offlineStatusKey(s: unknown): string {
+  return String(s ?? '')
+    .trim()
+    .toUpperCase()
+}
+
 /** Matches backend aggregates (e.g. team-summary): only approved offline time counts as worked time. */
 function offlineCountsTowardWorkedTime(o: OfflineTimeRow): boolean {
-  return o.status === 'APPROVED'
+  return offlineStatusKey(o.status) === 'APPROVED'
 }
 
 function offlineVisibleOnTimeline(o: OfflineTimeRow): boolean {
-  return o.status !== 'REJECTED' && o.status !== 'EXPIRED'
+  const s = offlineStatusKey(o.status)
+  return s !== 'REJECTED' && s !== 'EXPIRED'
 }
 
 type SessionRow = {
@@ -344,6 +352,7 @@ function offlineClippedRangeOnDay(
   const dayEnd = endOfLocalDay(day).getTime()
   const start = new Date(o.start_time).getTime()
   const end = new Date(o.end_time).getTime()
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null
   const clipStart = Math.max(start, dayStart)
   const clipEnd = Math.min(end, dayEnd)
   if (clipEnd <= clipStart) return null
@@ -368,26 +377,6 @@ function computeDayOfflineSecondsRecord(
   return record
 }
 
-function offlineBlocksForDay(
-  entries: OfflineTimeRow[],
-  day: Date
-): { left: number; width: number; key: string }[] {
-  const dayStart = startOfLocalDay(day).getTime()
-  const dayEnd = endOfLocalDay(day).getTime()
-  const dayMs = dayEnd - dayStart + 1
-  const out: { left: number; width: number; key: string }[] = []
-  for (const o of entries) {
-    const r = offlineClippedRangeOnDay(o, day)
-    if (!r || r.clipEnd - r.clipStart < MIN_CLIPPED_SEGMENT_MS) continue
-    out.push({
-      key: o.id,
-      left: ((r.clipStart - dayStart) / dayMs) * 100,
-      width: ((r.clipEnd - r.clipStart) / dayMs) * 100,
-    })
-  }
-  return out
-}
-
 function localDayAndTimeToISO(day: Date, hhmm: string): string {
   const [h, m] = hhmm.split(':').map((x) => parseInt(x, 10))
   const d = startOfLocalDay(day)
@@ -410,6 +399,29 @@ type TimelineRow =
       clipStart: number
       clipEnd: number
     }
+
+/** Hour-lane blocks for offline rows already clipped to `day` (same geometry as the detail list). */
+function offlineHourBarBlocksFromTimelineRows(
+  rows: TimelineRow[],
+  day: Date,
+  includeEntry: (entry: OfflineTimeRow) => boolean
+): { left: number; width: number; key: string }[] {
+  const dayStart = startOfLocalDay(day).getTime()
+  const dayEnd = endOfLocalDay(day).getTime()
+  const dayMs = dayEnd - dayStart + 1
+  const out: { left: number; width: number; key: string }[] = []
+  for (const row of rows) {
+    if (row.kind !== 'offline') continue
+    if (!includeEntry(row.entry)) continue
+    const { clipStart, clipEnd } = row
+    if (clipEnd - clipStart < MIN_CLIPPED_SEGMENT_MS) continue
+    const left = ((clipStart - dayStart) / dayMs) * 100
+    const width = ((clipEnd - clipStart) / dayMs) * 100
+    if (!Number.isFinite(left) || !Number.isFinite(width)) continue
+    out.push({ key: row.entry.id, left, width })
+  }
+  return out
+}
 
 /** One UI block per continuous work period; gaps (no tracking) produce no row. */
 function buildDisplaySessionGroups(
@@ -501,7 +513,7 @@ export default function UserHomePage() {
   const [screenshots, setScreenshots] = useState<ScreenshotItem[]>([])
   const [offlineTimes, setOfflineTimes] = useState<OfflineTimeRow[]>([])
   const [offlineEntriesMonth, setOfflineEntriesMonth] = useState<OfflineTimeRow[]>([])
-  const [allowEmployeeOfflineTime, setAllowEmployeeOfflineTime] = useState(false)
+  const [employeeOfflineSelfService, setEmployeeOfflineSelfService] = useState(false)
   const [activityLogs, setActivityLogs] = useState<ActivityLogRow[]>([])
   const [loadErr, setLoadErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -717,7 +729,7 @@ export default function UserHomePage() {
         const { data } = await api.get<UserResp>(`/v1/users/${userId}`)
         setUser(data.user)
         setExpectedDailyWorkMinutes(data.expected_daily_work_minutes ?? 480)
-        setAllowEmployeeOfflineTime(data.allow_employee_offline_time ?? false)
+        setEmployeeOfflineSelfService(data.allow_employee_offline_time ?? false)
       } catch (e) {
         if (isAxiosError(e)) {
           const status = e.response?.status
@@ -748,7 +760,7 @@ export default function UserHomePage() {
         .then(({ data }) => {
           setUser(data.user)
           setExpectedDailyWorkMinutes(data.expected_daily_work_minutes ?? 480)
-          setAllowEmployeeOfflineTime(data.allow_employee_offline_time ?? false)
+          setEmployeeOfflineSelfService(data.allow_employee_offline_time ?? false)
         })
         .catch(() => {})
     }
@@ -828,18 +840,53 @@ export default function UserHomePage() {
     [displayGroups, selectedDay]
   )
 
-  const offlineBarBlocks = useMemo(
-    () => offlineBlocksForDay(offlineTimes.filter(offlineCountsTowardWorkedTime), selectedDay),
-    [offlineTimes, selectedDay]
-  )
+  const timelineRows = useMemo((): TimelineRow[] => {
+    const rows: TimelineRow[] = []
+    for (const g of displayGroups) rows.push({ kind: 'session', group: g })
+    for (const o of offlineTimes) {
+      if (!offlineVisibleOnTimeline(o)) continue
+      const r = offlineClippedRangeOnDay(o, selectedDay)
+      if (!r || r.clipEnd - r.clipStart < MIN_CLIPPED_SEGMENT_MS) continue
+      rows.push({ kind: 'offline', entry: o, clipStart: r.clipStart, clipEnd: r.clipEnd })
+    }
+    rows.sort((a, b) => {
+      const sa = a.kind === 'session' ? a.group.clipStart : a.clipStart
+      const sb = b.kind === 'session' ? b.group.clipStart : b.clipStart
+      return sa - sb
+    })
+    return rows
+  }, [displayGroups, offlineTimes, selectedDay])
+
+  /** Gradient paints below session bars; avoids abs children sitting under the track fill in some stacks. */
+  const approvedOfflineDayLaneGradient = useMemo(() => {
+    const dayStart = startOfLocalDay(selectedDay).getTime()
+    const dayEnd = endOfLocalDay(selectedDay).getTime()
+    const dayMs = dayEnd - dayStart + 1
+    const layers: string[] = []
+    for (const o of offlineTimes) {
+      if (!offlineCountsTowardWorkedTime(o)) continue
+      const r = offlineClippedRangeOnDay(o, selectedDay)
+      if (!r || r.clipEnd - r.clipStart < MIN_CLIPPED_SEGMENT_MS) continue
+      const left = ((r.clipStart - dayStart) / dayMs) * 100
+      const width = ((r.clipEnd - r.clipStart) / dayMs) * 100
+      if (!Number.isFinite(left) || !Number.isFinite(width)) continue
+      const l = Math.max(0, Math.min(100, left))
+      const rPct = Math.max(l, Math.min(100, l + Math.max(width, 0.12)))
+      layers.push(
+        `linear-gradient(to right, transparent ${l}%, rgb(249 115 22 / 0.92) ${l}%, rgb(249 115 22 / 0.92) ${rPct}%, transparent ${rPct}%)`
+      )
+    }
+    return layers.length > 0 ? layers.join(', ') : undefined
+  }, [offlineTimes, selectedDay])
 
   const pendingOfflineBarBlocks = useMemo(
     () =>
-      offlineBlocksForDay(
-        offlineTimes.filter((o) => o.status === 'PENDING'),
-        selectedDay
+      offlineHourBarBlocksFromTimelineRows(
+        timelineRows,
+        selectedDay,
+        (e) => offlineStatusKey(e.status) === 'PENDING'
       ),
-    [offlineTimes, selectedDay]
+    [timelineRows, selectedDay]
   )
 
   const offlineDaySeconds = useMemo(() => {
@@ -856,7 +903,7 @@ export default function UserHomePage() {
   const pendingOfflineDaySeconds = useMemo(() => {
     let t = 0
     for (const o of offlineTimes) {
-      if (o.status !== 'PENDING') continue
+      if (offlineStatusKey(o.status) !== 'PENDING') continue
       const r = offlineClippedRangeOnDay(o, selectedDay)
       if (r) t += (r.clipEnd - r.clipStart) / 1000
     }
@@ -894,66 +941,38 @@ export default function UserHomePage() {
     viewMonth,
   ])
 
-  const timelineRows = useMemo((): TimelineRow[] => {
-    const rows: TimelineRow[] = []
-    for (const g of displayGroups) rows.push({ kind: 'session', group: g })
-    for (const o of offlineTimes) {
-      if (!offlineVisibleOnTimeline(o)) continue
-      const r = offlineClippedRangeOnDay(o, selectedDay)
-      if (!r || r.clipEnd - r.clipStart < MIN_CLIPPED_SEGMENT_MS) continue
-      rows.push({ kind: 'offline', entry: o, clipStart: r.clipStart, clipEnd: r.clipEnd })
-    }
-    rows.sort((a, b) => {
-      const sa = a.kind === 'session' ? a.group.clipStart : a.clipStart
-      const sb = b.kind === 'session' ? b.group.clipStart : b.clipStart
-      return sa - sb
-    })
-    return rows
-  }, [displayGroups, offlineTimes, selectedDay])
-
   const canAddOfflineTime = useMemo(() => {
     if (isMgmtRole(sessionRole) && user) return true
     if (sessionUserId !== userId) return false
-    const o = user?.can_add_offline_time
-    if (o === true) return true
-    if (o === false) return false
-    return allowEmployeeOfflineTime === true
-  }, [
-    sessionRole,
-    sessionUserId,
-    userId,
-    user,
-    user?.can_add_offline_time,
-    allowEmployeeOfflineTime,
-  ])
+    if (user?.can_add_offline_time === false) return false
+    return true
+  }, [sessionRole, sessionUserId, userId, user])
 
-  /** Mirrors backend `employeeMayAddOwnOffline` — when managers may add their own without a request queue. */
+  /** Mirrors backend self-service: immediate own entry when org allows or user override is on. */
   const employeeStyleMayAddOwnOffline = useMemo(() => {
     if (sessionUserId !== userId || !user) return false
     const o = user.can_add_offline_time
     if (o === true) return true
     if (o === false) return false
-    return allowEmployeeOfflineTime === true
-  }, [sessionUserId, userId, user, allowEmployeeOfflineTime])
+    return employeeOfflineSelfService === true
+  }, [sessionUserId, userId, user, employeeOfflineSelfService])
 
-  /** Hide entirely when org disables employee offline time unless user/manager may still add (canAddOfflineTime). */
+  /** Own day view or managers/admins adding for someone they can access. */
   const showOfflineTimeFooterLink = useMemo(() => {
     if (!user) return false
-    if (canAddOfflineTime) return true
-    if (!allowEmployeeOfflineTime) return false
-    return Boolean(sessionUserId && sessionUserId === userId)
-  }, [user, canAddOfflineTime, allowEmployeeOfflineTime, sessionUserId, userId])
+    return Boolean(sessionUserId === userId || canAddOfflineTime)
+  }, [user, sessionUserId, userId, canAddOfflineTime])
 
-  const offlineSubmitBlocked =
-    !canAddOfflineTime && Boolean(sessionUserId && sessionUserId === userId)
+  const offlineSubmitBlocked = sessionUserId === userId && user?.can_add_offline_time === false
 
-  /** Manager adding for someone else uses direct-add; self uses /request (pending unless admin/owner or manager with own-add allowed). */
+  /** Manager adding for someone else uses direct-add; self uses /request (pending unless admin/owner or self-service). */
   const viewingOtherUserForOffline = Boolean(sessionUserId && userId && sessionUserId !== userId)
   const offlineSelfImmediateApproval =
     !viewingOtherUserForOffline &&
     (sessionRole === 'admin' ||
       sessionRole === 'super_admin' ||
-      (sessionRole === 'manager' && employeeStyleMayAddOwnOffline))
+      ((sessionRole === 'manager' || sessionRole === 'employee' || sessionRole === 'viewer') &&
+        employeeStyleMayAddOwnOffline))
   const offlineModalUsesRequestFlow = !viewingOtherUserForOffline && !offlineSelfImmediateApproval
 
   const offlineModalTitle = viewingOtherUserForOffline
@@ -972,12 +991,9 @@ export default function UserHomePage() {
     (_entry: OfflineTimeRow) => {
       if (isMgmtRole(sessionRole) && user) return true
       if (sessionUserId !== userId) return false
-      const o = user?.can_add_offline_time
-      if (o === true) return true
-      if (o === false) return false
-      return allowEmployeeOfflineTime === true
+      return user?.can_add_offline_time !== false
     },
-    [sessionRole, sessionUserId, userId, user, user?.can_add_offline_time, allowEmployeeOfflineTime]
+    [sessionRole, sessionUserId, userId, user]
   )
 
   const taskRollup = useMemo(() => {
@@ -1479,7 +1495,14 @@ export default function UserHomePage() {
                   ))}
                 </div>
                 <div className="absolute inset-x-1 bottom-1 top-1 z-[1]">
-                  <div className="relative h-full overflow-hidden rounded-sm bg-muted-foreground/15">
+                  <div className="relative h-full min-h-8 w-full overflow-hidden rounded-sm bg-muted-foreground/15">
+                    {approvedOfflineDayLaneGradient ? (
+                      <div
+                        aria-hidden
+                        className="pointer-events-none absolute inset-0 z-0 rounded-[inherit]"
+                        style={{ backgroundImage: approvedOfflineDayLaneGradient }}
+                      />
+                    ) : null}
                     {blocks.map((b, i) => {
                       const g = displayGroups[i]
                       const barTitle = g
@@ -1488,26 +1511,18 @@ export default function UserHomePage() {
                       return (
                         <div
                           key={b.key}
-                          className="absolute bottom-0 top-0 z-[1] bg-emerald-500/90"
+                          className="absolute bottom-0 top-0 z-[2] bg-emerald-500/90"
                           style={{ left: `${b.left}%`, width: `${Math.max(b.width, 0.25)}%` }}
                           title={barTitle}
                         />
                       )
                     })}
-                    {offlineBarBlocks.map((b) => (
-                      <div
-                        key={`off-${b.key}`}
-                        className="absolute bottom-0 top-0 z-[2] bg-amber-500/90"
-                        style={{ left: `${b.left}%`, width: `${Math.max(b.width, 0.25)}%` }}
-                        title="Offline / manual time"
-                      />
-                    ))}
                     {pendingOfflineBarBlocks.map((b) => (
                       <div
                         key={`off-pend-${b.key}`}
-                        className="absolute bottom-0 top-0 z-[3] border border-dashed border-amber-700/55 bg-amber-400/40 dark:border-amber-400/50 dark:bg-amber-500/30"
+                        className="absolute bottom-0 top-0 z-[3] border border-dashed border-amber-600/70 bg-amber-400/45 dark:border-amber-400/60 dark:bg-amber-500/35"
                         style={{ left: `${b.left}%`, width: `${Math.max(b.width, 0.25)}%` }}
-                        title="Offline time pending approval (not in total)"
+                        title="Offline time — pending approval (not counted in total)"
                       />
                     ))}
                   </div>
@@ -1527,17 +1542,38 @@ export default function UserHomePage() {
                   const rangeLabel = `${start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })} – ${end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })}`
                   const sec = Math.max(0, Math.round((clipEnd - clipStart) / 1000))
                   const showDel = canDeleteOfflineEntry(entry)
+                  const st = offlineStatusKey(entry.status)
+                  const isPending = st === 'PENDING'
+                  const isApproved = st === 'APPROVED'
+                  const borderClass = isPending
+                    ? 'border-l-amber-500 border-dashed'
+                    : 'border-l-orange-500 border-solid'
+                  const labelClass = isPending
+                    ? 'text-amber-700 dark:text-amber-400'
+                    : 'text-orange-700 dark:text-orange-400'
                   return (
                     <div
                       key={`off-${entry.id}`}
-                      className="mb-8 border-l-4 border-l-amber-500/90 border-t border-border pt-6 pl-4 first:border-t-0 first:pt-0"
+                      className={cn(
+                        'mb-8 border-l-4 border-t border-border pt-6 pl-4 first:border-t-0 first:pt-0',
+                        borderClass
+                      )}
                     >
                       <div className="mb-3 space-y-1">
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                              Offline / manual time
-                              {entry.status === 'PENDING' ? (
+                            <p
+                              className={cn(
+                                'text-[11px] font-semibold uppercase tracking-wide',
+                                labelClass
+                              )}
+                            >
+                              {isPending
+                                ? 'Offline / manual time'
+                                : isApproved
+                                  ? 'Offline / manual time (approved)'
+                                  : `Offline / manual time (${st})`}
+                              {isPending ? (
                                 <span className="ml-2 font-normal normal-case text-muted-foreground">
                                   · Pending approval
                                 </span>
@@ -1616,25 +1652,29 @@ export default function UserHomePage() {
               <p className="text-muted-foreground">No tracked or offline time for this day.</p>
             ) : null}
 
-            <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-border pt-6 text-sm">
+            <div className="mt-8 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 border-t border-border pt-6">
               <button
                 type="button"
                 onClick={() => setHistoryInfoOpen(true)}
-                className="border-b border-dotted border-muted-foreground/50 text-muted-foreground hover:text-foreground"
+                className="border-b border-dotted border-muted-foreground/50 text-sm text-muted-foreground hover:text-foreground"
               >
                 History of changes
               </button>
               {showOfflineTimeFooterLink ? (
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
                   onClick={() => {
                     setOfflineSubmitErr(null)
                     setOfflineModalOpen(true)
                   }}
-                  className="border-b border-dotted border-muted-foreground/50 text-muted-foreground hover:text-foreground"
                 >
-                  Offline time
-                </button>
+                  {offlineModalUsesRequestFlow && !viewingOtherUserForOffline
+                    ? 'Request offline time'
+                    : 'Add offline time'}
+                </Button>
               ) : null}
             </div>
           </div>
@@ -1670,8 +1710,8 @@ export default function UserHomePage() {
                 </p>
                 {offlineSubmitBlocked ? (
                   <p className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">
-                    Offline time isn&apos;t enabled for your account or organization. Ask an admin
-                    to allow offline time, or to record this time for you.
+                    Your account can&apos;t add offline time here. Ask an organization admin to lift
+                    this restriction or to record the time for you.
                   </p>
                 ) : null}
                 <div className="mt-4 grid gap-3">

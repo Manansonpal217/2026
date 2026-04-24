@@ -8,6 +8,23 @@ export const api = axios.create({
 
 type RetryConfig = InternalAxiosRequestConfig & { _authRetry?: boolean }
 
+type SessionData = Awaited<ReturnType<typeof getSession>>
+
+/** One in-flight `getSession()` for all parallel axios calls — avoids a /api/auth/session storm. */
+let sessionRequest: Promise<SessionData> | null = null
+
+function getSessionCoalesced(): Promise<SessionData> {
+  if (!sessionRequest) {
+    sessionRequest = getSession().finally(() => {
+      sessionRequest = null
+    })
+  }
+  return sessionRequest
+}
+
+/** Parallel 401s should not each run signOut + redirect. */
+let authFailureRedirectScheduled = false
+
 function getAuthorizationFromConfig(
   config: InternalAxiosRequestConfig | undefined
 ): string | undefined {
@@ -37,7 +54,7 @@ function setAuthorizationOnConfig(config: InternalAxiosRequestConfig, accessToke
 
 api.interceptors.request.use(async (config) => {
   if (typeof window !== 'undefined') {
-    const session = await getSession()
+    const session = await getSessionCoalesced()
     const token = (session as { access_token?: string } | null)?.access_token
     if (token) {
       setAuthorizationOnConfig(config, token)
@@ -61,7 +78,7 @@ api.interceptors.response.use(
     ) {
       // Access token may be stale (dev HMR, clock skew vs backend). Refresh session once before signing out.
       config._authRetry = true
-      let session = await getSession()
+      let session = await getSessionCoalesced()
       let s = session as { access_token?: string; error?: string } | null
       if ((!s?.access_token || s.error) && typeof window !== 'undefined') {
         // Force a server round-trip so the JWT callback can run (and coalesced refresh in lib/auth.ts).
@@ -69,7 +86,7 @@ api.interceptors.response.use(
           credentials: 'same-origin',
           cache: 'no-store',
         })
-        session = await getSession()
+        session = await getSessionCoalesced()
         s = session as { access_token?: string; error?: string } | null
       }
       if (s?.access_token && !s.error) {
@@ -79,13 +96,17 @@ api.interceptors.response.use(
     }
 
     if (err.response?.status === 401 && typeof window !== 'undefined' && sentAuth) {
+      if (authFailureRedirectScheduled) {
+        return Promise.reject(err)
+      }
+      authFailureRedirectScheduled = true
       // Only sign out when a token was sent but rejected — not when getSession() lagged on
       // hard refresh and the request went out without Authorization (would wrongly clear cookie).
       // Clear NextAuth cookies so a user with backend 401 does not bounce:
       // login page auto-redirects when "authenticated", which caused /myhome ↔ /login loops.
       if (process.env.NODE_ENV === 'development') {
         const retryConfig = err.config as RetryConfig | undefined
-        const session = await getSession().catch(() => null)
+        const session = await getSessionCoalesced().catch(() => null)
         const sess = session as { error?: string } | null
         console.warn('[landing/api] 401 → signOut', {
           url: retryConfig?.url,

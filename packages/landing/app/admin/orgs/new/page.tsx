@@ -68,10 +68,9 @@ export default function AdminCreateOrgPage() {
   const [orgName, setOrgName] = useState('')
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
   const [workPlatform, setWorkPlatform] = useState<string>('jira_cloud')
 
-  const [screenshotIntervalSeconds, setScreenshotIntervalSeconds] = useState<number | ''>(60)
+  const [screenshotIntervalMinutes, setScreenshotIntervalMinutes] = useState<number>(1)
   const [blurScreenshots, setBlurScreenshots] = useState(false)
   const [timeApprovalRequired, setTimeApprovalRequired] = useState(false)
   const [idleDetectionEnabled, setIdleDetectionEnabled] = useState(true)
@@ -86,9 +85,8 @@ export default function AdminCreateOrgPage() {
     setOrgName('')
     setFullName('')
     setEmail('')
-    setPassword('')
     setWorkPlatform('jira_cloud')
-    setScreenshotIntervalSeconds(60)
+    setScreenshotIntervalMinutes(1)
     setBlurScreenshots(false)
     setTimeApprovalRequired(false)
     setIdleDetectionEnabled(true)
@@ -112,11 +110,9 @@ export default function AdminCreateOrgPage() {
         org_name: orgName,
         full_name: fullName,
         email: email.trim().toLowerCase(),
-        password,
         work_platform: workPlatform,
         settings: {
-          screenshot_interval_seconds:
-            screenshotIntervalSeconds === '' ? 60 : screenshotIntervalSeconds,
+          screenshot_interval_seconds: screenshotIntervalMinutes * 60,
           blur_screenshots: blurScreenshots,
           time_approval_required: timeApprovalRequired,
           idle_detection_enabled: idleDetectionEnabled,
@@ -138,7 +134,7 @@ export default function AdminCreateOrgPage() {
         })
         adminToast.success(
           'Organization created successfully',
-          'A verification email was sent to the admin. For self-hosted Jira, generate an agent token below.'
+          'We emailed the admin a link to set their password (1 hour). For self-hosted Jira, generate an agent token below.'
         )
         router.refresh()
       }
@@ -173,7 +169,8 @@ export default function AdminCreateOrgPage() {
                 {createdOrg.name} is ready
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                A verification email was sent to the admin. Organization URL slug:{' '}
+                We sent the admin an email with a link to set their password; they sign in manually
+                after that. Organization URL slug:{' '}
                 <span className="font-mono text-foreground">{createdOrg.slug}</span>. For
                 self-hosted Jira, generate an agent token below.
               </p>
@@ -306,7 +303,8 @@ export default function AdminCreateOrgPage() {
               Organization admin
             </CardTitle>
             <CardDescription>
-              First user for this tenant. They receive a verification email to activate the account.
+              First user for this tenant. They receive an email with a secure link to set a
+              password, then sign in on the login page (no automatic sign-in).
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -327,18 +325,6 @@ export default function AdminCreateOrgPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-              />
-            </div>
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={8}
-                autoComplete="new-password"
               />
             </div>
           </CardContent>
@@ -362,25 +348,44 @@ export default function AdminCreateOrgPage() {
                 <AccordionTrigger className="px-4 py-3 text-sm">Screenshots</AccordionTrigger>
                 <AccordionContent className="space-y-3 px-4 pb-4">
                   <div className="space-y-2">
-                    <Label htmlFor="ss-int">Capture interval (seconds)</Label>
-                    <Input
-                      id="ss-int"
-                      type="number"
-                      min={60}
-                      max={3600}
-                      value={screenshotIntervalSeconds}
-                      onChange={(e) => {
-                        const v = e.target.value
-                        setScreenshotIntervalSeconds(v === '' ? '' : Number(v))
-                      }}
-                      onBlur={() => {
-                        if (screenshotIntervalSeconds === '') setScreenshotIntervalSeconds(60)
-                        else
-                          setScreenshotIntervalSeconds(
-                            Math.min(3600, Math.max(60, screenshotIntervalSeconds))
+                    <Label htmlFor="ss-int">Capture interval</Label>
+                    <div className="flex items-center gap-4">
+                      <input
+                        id="ss-int"
+                        type="range"
+                        min={1}
+                        max={60}
+                        step={1}
+                        value={screenshotIntervalMinutes}
+                        onChange={(e) => {
+                          const v = Number(e.target.value)
+                          const snapped = [1, 5, 10, 15, 30, 60].reduce((prev, curr) =>
+                            Math.abs(curr - v) < Math.abs(prev - v) ? curr : prev
                           )
-                      }}
-                    />
+                          setScreenshotIntervalMinutes(snapped)
+                        }}
+                        className="h-2 flex-1 cursor-pointer appearance-none rounded-full bg-muted accent-primary"
+                      />
+                      <span className="w-24 text-right font-mono text-sm tabular-nums text-foreground">
+                        {screenshotIntervalMinutes} minute
+                        {screenshotIntervalMinutes !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                    <div className="relative mt-1 h-6">
+                      {[1, 5, 10, 15, 30, 60].map((s) => {
+                        const leftPct = ((s - 1) / (60 - 1)) * 100
+                        return (
+                          <div
+                            key={s}
+                            className="absolute -translate-x-1/2 text-[10px] text-muted-foreground"
+                            style={{ left: `${leftPct}%` }}
+                          >
+                            <div className="mx-auto h-1.5 w-px bg-border" />
+                            <span className="block mt-0.5 whitespace-nowrap">{s}m</span>
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
                   <div className="space-y-1">
                     {rowSwitch(
@@ -452,7 +457,7 @@ export default function AdminCreateOrgPage() {
                   )}
                   {rowSwitch(
                     'off-time',
-                    'Allow employee offline time',
+                    'Employees record offline time themselves (no manager approval)',
                     allowEmployeeOfflineTime,
                     setAllowEmployeeOfflineTime
                   )}

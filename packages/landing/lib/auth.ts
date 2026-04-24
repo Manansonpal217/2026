@@ -76,17 +76,25 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
 
+        const email = credentials.email.trim()
+        const password = credentials.password
+
         const res = await fetch(`${API_URL}/v1/app/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            email: credentials.email,
-            password: credentials.password,
+            email,
+            password,
           }),
         })
 
         if (!res.ok) {
           if (res.status >= 500) throw new Error('Something went wrong. Please try again.')
+          if (res.status === 403 || res.status === 400) {
+            const errBody = (await res.json()) as { message?: string }
+            const msg = errBody.message?.trim()
+            if (msg) throw new Error(msg)
+          }
           return null
         }
 

@@ -5,7 +5,7 @@
   "scripts": {
     "test": "pnpm --filter backend test && pnpm --filter desktop test",
     "dev": "node scripts/dev-all.mjs",
-    "setup": "docker compose up -d && pnpm db:push && pnpm db:seed",
+    "setup": "docker compose up -d && pnpm db:push",
     "dev:all": "node scripts/dev-all.mjs",
     "dev:backend": "pnpm --filter backend dev",
     "dev:desktop": "pnpm --filter desktop dev",
@@ -15,10 +15,10 @@
     "typecheck": "pnpm -r run typecheck",
     "db:generate": "pnpm --filter backend exec prisma generate",
     "db:push": "pnpm --filter backend exec prisma db push",
-    "db:seed": "pnpm --filter backend exec npx tsx scripts/seed.ts",
     "rebuild:desktop": "pnpm --filter desktop exec electron-rebuild -f -w better-sqlite3-multiple-ciphers,uiohook-napi,keytar",
     "desktop:pack:win": "pnpm rebuild:desktop && pnpm --filter desktop run pack:win",
     "desktop:pack:win:x64": "pnpm rebuild:desktop && pnpm --filter desktop run pack:win:x64",
+    "upload:desktop-releases": "pnpm --filter backend run upload:desktop-releases",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
     "prepare": "husky"
   },

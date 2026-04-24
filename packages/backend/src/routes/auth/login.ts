@@ -4,13 +4,15 @@ import { comparePassword, hashRefreshToken } from '../../lib/password.js'
 import { issueAccessToken, createRefreshToken } from '../../lib/jwt.js'
 import type { Config } from '../../config.js'
 import { toPublicOrgSettings } from '../../lib/org-settings-fields.js'
+import { normalizeUserEmail } from '../../lib/user-email-availability.js'
 
 const loginSchema = {
   body: {
     type: 'object',
     required: ['email', 'password'],
     properties: {
-      email: { type: 'string', format: 'email' },
+      // Avoid AJV `format: email` rejecting dev domains like `user@dev.local`.
+      email: { type: 'string', minLength: 3, maxLength: 320 },
       password: { type: 'string', minLength: 1 },
       org_slug: { type: 'string' },
     },
@@ -31,18 +33,29 @@ export async function loginRoutes(fastify: FastifyInstance, _opts: { config: Con
       reply: FastifyReply
     ) => {
       const { email, password, org_slug } = request.body
+      const emailLower = normalizeUserEmail(email)
+      const orgSlug = org_slug?.trim()
+
+      // Sign-in identifier must be an email (not display name / username).
+      const emailLooksValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLower)
+      if (!emailLooksValid) {
+        return reply.status(400).send({
+          code: 'EMAIL_REQUIRED',
+          message: 'Sign in with your work email address.',
+        })
+      }
 
       const user = await prisma.user.findFirst({
-        where: {
-          email: email.toLowerCase(),
-          ...(org_slug && { organization: { slug: org_slug } }),
-        },
+        where: orgSlug
+          ? { email: emailLower, organization: { slug: orgSlug } }
+          : { email: emailLower },
         include: { organization: true },
       })
 
       const org = user?.organization
+      const isPlatformAdmin = user?.is_platform_admin === true
 
-      if (!user || (!org && !user.is_platform_admin)) {
+      if (!user || (!org && !isPlatformAdmin)) {
         return reply.status(401).send({
           code: 'INVALID_CREDENTIALS',
           message: 'Invalid email or password',
@@ -63,11 +76,21 @@ export async function loginRoutes(fastify: FastifyInstance, _opts: { config: Con
         })
       }
 
-      const valid = await comparePassword(password, user.password_hash)
-      if (!valid) {
+      // Verify password before revealing whether the email is verified,
+      // so we don't leak account existence on unverified accounts.
+      const validBeforeVerify = await comparePassword(password, user.password_hash)
+      if (!validBeforeVerify) {
         return reply.status(401).send({
           code: 'INVALID_CREDENTIALS',
           message: 'Invalid email or password',
+        })
+      }
+
+      if (!user.email_verified && !isPlatformAdmin) {
+        return reply.status(403).send({
+          code: 'EMAIL_NOT_VERIFIED',
+          message:
+            'This account is not ready to sign in yet. Check your inbox for the verification or set-password link from TrackSync, then try again.',
         })
       }
 

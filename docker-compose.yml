@@ -7,8 +7,9 @@ services:
     build:
       context: .
       dockerfile: packages/backend/Dockerfile
+    # Host 13001 so local `npm run dev` in packages/backend can bind :3001 without EADDRINUSE.
     ports:
-      - "3001:3001"
+      - "127.0.0.1:13001:3001"
     environment:
       NODE_ENV: development
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/tracksync_dev?connection_limit=10

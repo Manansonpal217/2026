@@ -55,7 +55,22 @@ const rejectBodySchema = z.object({
   approver_note: z.string().min(1).max(2000),
 })
 
-async function employeeMayAddOwnOffline(orgId: string, userId: string): Promise<boolean> {
+/** Submit offline for self (request or self-service) — blocked only by explicit per-user deny. */
+async function employeeMaySubmitOfflineRequest(orgId: string, userId: string): Promise<boolean> {
+  const row = await prisma.user.findFirst({
+    where: { id: userId, org_id: orgId },
+    select: { can_add_offline_time: true },
+  })
+  if (!row) return false
+  if (row.can_add_offline_time === false) return false
+  return true
+}
+
+/**
+ * Self-service: own offline is recorded as approved without a manager queue.
+ * Org `allow_employee_offline_time` enables this by default; per-user `can_add_offline_time` overrides.
+ */
+async function employeeOfflineSelfServiceEnabled(orgId: string, userId: string): Promise<boolean> {
   const [row, settings] = await Promise.all([
     prisma.user.findFirst({
       where: { id: userId, org_id: orgId },
@@ -67,21 +82,45 @@ async function employeeMayAddOwnOffline(orgId: string, userId: string): Promise<
     }),
   ])
   if (!row) return false
-  if (row.can_add_offline_time === true) return true
   if (row.can_add_offline_time === false) return false
+  if (row.can_add_offline_time === true) return true
   return settings?.allow_employee_offline_time === true
 }
 
+/** Managers who should receive an employee offline request: team leads + line manager (`User.manager_id`). */
 async function findManagersForUser(orgId: string, userId: string): Promise<string[]> {
+  const ids = new Set<string>()
   const memberships = await prisma.teamMember.findMany({
     where: { user_id: userId, team: { org_id: orgId } },
     select: { team: { select: { manager_id: true } } },
   })
-  const ids = new Set<string>()
   for (const m of memberships) {
     if (m.team.manager_id) ids.add(m.team.manager_id)
   }
+  const user = await prisma.user.findFirst({
+    where: { id: userId, org_id: orgId },
+    select: { manager_id: true },
+  })
+  if (user?.manager_id) ids.add(user.manager_id)
   ids.delete(userId)
+  return [...ids]
+}
+
+/** User IDs whose pending offline time a MANAGER may see (teams they lead + direct reports + self). */
+async function managerOfflinePendingUserIds(managerId: string, orgId: string): Promise<string[]> {
+  const ids = new Set<string>([managerId])
+  const teams = await prisma.team.findMany({
+    where: { org_id: orgId, manager_id: managerId },
+    select: { members: { select: { user_id: true } } },
+  })
+  for (const t of teams) {
+    for (const m of t.members) ids.add(m.user_id)
+  }
+  const reports = await prisma.user.findMany({
+    where: { org_id: orgId, manager_id: managerId, status: 'ACTIVE' },
+    select: { id: true },
+  })
+  for (const r of reports) ids.add(r.id)
   return [...ids]
 }
 
@@ -157,7 +196,7 @@ export async function offlineTimeRoutes(fastify: FastifyInstance, opts: { config
       }
 
       if (!mayActAsPeopleManager(caller.role)) {
-        const ok = await employeeMayAddOwnOffline(caller.org_id, caller.id)
+        const ok = await employeeMaySubmitOfflineRequest(caller.org_id, caller.id)
         if (!ok) {
           return reply
             .status(403)
@@ -172,11 +211,18 @@ export async function offlineTimeRoutes(fastify: FastifyInstance, opts: { config
       }
 
       const isAdminOrOwner = caller.role === 'ADMIN' || caller.role === 'OWNER'
-      /** Managers use the same per-user / org rules as employees for self-service; then no approval queue. */
-      const managerMaySelfApproveOffline =
-        caller.role === 'MANAGER' && (await employeeMayAddOwnOffline(caller.org_id, caller.id))
+      const selfService = await employeeOfflineSelfServiceEnabled(caller.org_id, caller.id)
+      /** Managers / employees with self-service skip the approval queue for own entries. */
+      const managerMaySelfApproveOffline = caller.role === 'MANAGER' && selfService
+      const employeeMaySelfApproveOffline =
+        (caller.role === 'EMPLOYEE' || caller.role === 'VIEWER') && selfService
 
-      if (isAdminOrOwner || managerMaySelfApproveOffline) {
+      if (isAdminOrOwner || managerMaySelfApproveOffline || employeeMaySelfApproveOffline) {
+        const approverNote = isAdminOrOwner
+          ? 'Self-approved by Admin'
+          : caller.role === 'MANAGER'
+            ? 'Self-approved (manager, self-service offline time)'
+            : 'Self-recorded offline time (org self-service)'
         const row = await prisma.offlineTime.create({
           data: {
             org_id: caller.org_id,
@@ -188,9 +234,7 @@ export async function offlineTimeRoutes(fastify: FastifyInstance, opts: { config
             start_time: start,
             end_time: end,
             description: body.data.description,
-            approver_note: isAdminOrOwner
-              ? 'Self-approved by Admin'
-              : 'Self-approved (manager, allowed offline time)',
+            approver_note: approverNote,
             expires_at: null,
           },
           select: offlineTimeSelect,
@@ -421,16 +465,8 @@ export async function offlineTimeRoutes(fastify: FastifyInstance, opts: { config
 
       let userFilter: object | undefined
       if (caller.role === 'MANAGER') {
-        const teams = await prisma.team.findMany({
-          where: { org_id: caller.org_id, manager_id: caller.id },
-          select: { members: { select: { user_id: true } } },
-        })
-        const memberIds = new Set<string>()
-        for (const t of teams) {
-          for (const m of t.members) memberIds.add(m.user_id)
-        }
-        memberIds.add(caller.id)
-        userFilter = { user_id: { in: [...memberIds] } }
+        const scoped = await managerOfflinePendingUserIds(caller.id, caller.org_id)
+        userFilter = { user_id: { in: scoped } }
       }
 
       const entries = await prisma.offlineTime.findMany({

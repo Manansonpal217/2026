@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Check, ChevronsUpDown, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { orgMemberRoleDisplayLabel } from '@/lib/roles'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -16,21 +17,6 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
 export type DirectReportOption = { id: string; name: string; email: string; role: string }
-
-function roleLabel(role: string): string {
-  switch (role) {
-    case 'super_admin':
-      return 'Super admin'
-    case 'admin':
-      return 'Admin'
-    case 'manager':
-      return 'Manager'
-    case 'employee':
-      return 'Employee'
-    default:
-      return role
-  }
-}
 
 export function DirectReportsMultiSelect({
   options,
@@ -86,7 +72,7 @@ export function DirectReportsMultiSelect({
                   return (
                     <CommandItem
                       key={o.id}
-                      value={`${o.email} ${o.name} ${roleLabel(o.role)}`}
+                      value={`${o.email} ${o.name} ${orgMemberRoleDisplayLabel(o.role)}`}
                       onSelect={() => {
                         toggle(o.id)
                       }}
@@ -103,7 +89,9 @@ export function DirectReportsMultiSelect({
                       <span className="min-w-0 flex-1">
                         <span className="block truncate font-medium">{o.email}</span>
                         <span className="block truncate text-xs text-muted-foreground">
-                          {o.name} · {roleLabel(o.role)}
+                          {[o.name?.trim(), orgMemberRoleDisplayLabel(o.role)]
+                            .filter(Boolean)
+                            .join(' · ')}
                         </span>
                       </span>
                     </CommandItem>

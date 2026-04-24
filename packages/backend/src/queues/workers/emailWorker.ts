@@ -9,6 +9,7 @@ import {
   sendResetPasswordEmail,
   sendVerifyEmail,
   sendWelcomeEmail,
+  sendWelcomeSetPasswordEmail,
 } from '../../services/email/emailService.js'
 
 function normalizeAppUrl(appUrl: string): string {
@@ -58,6 +59,19 @@ export function emailWorker(config: Config): Worker {
           assertSent(
             await sendResetPasswordEmail(d.to, { resetLink, expiresIn: '1 hour' }),
             'sendResetPasswordEmail'
+          )
+          break
+        }
+        case 'welcomeSetPassword': {
+          const setPasswordLink = `${normalizeAppUrl(d.appUrl)}/reset-password?token=${encodeURIComponent(d.token)}`
+          assertSent(
+            await sendWelcomeSetPasswordEmail(d.to, {
+              recipientName: d.recipientName,
+              orgName: d.orgName,
+              setPasswordLink,
+              expiresIn: '1 hour',
+            }),
+            'sendWelcomeSetPasswordEmail'
           )
           break
         }

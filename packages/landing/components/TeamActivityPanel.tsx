@@ -39,15 +39,6 @@ type TeamUserRow = {
 const POLL_MS = 15_000
 const RELATIVE_TIME_TICK_MS = 10_000
 
-function rowHasNoTrackedTime(u: TeamUserRow): boolean {
-  return (
-    (u.today_seconds ?? 0) <= 0 &&
-    (u.yesterday_seconds ?? 0) <= 0 &&
-    (u.this_week_seconds ?? 0) <= 0 &&
-    (u.this_month_seconds ?? 0) <= 0
-  )
-}
-
 function TimeCell({ seconds }: { seconds: number }) {
   const hasTime = seconds > 0
   return (
@@ -170,9 +161,6 @@ export function TeamActivityPanel() {
     return self ? [self, ...others] : others
   }, [rows, sortDir, selfId])
 
-  const showNoTrackedTimeHint =
-    !loading && !err && sorted.length > 0 && sorted.every(rowHasNoTrackedTime)
-
   const showOrgColumn = isPlatformAdmin
 
   return (
@@ -232,24 +220,12 @@ export function TeamActivityPanel() {
               <p className="text-base font-semibold text-foreground">No team members yet</p>
               <p className="mt-2 text-sm text-muted-foreground">
                 When users are added to your organization, they&apos;ll appear here with time totals
-                and last activity. If you expect a list, confirm your manager scope and org
-                membership in the admin team page.
+                and last activity.
               </p>
             </div>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            {showNoTrackedTimeHint ? (
-              <div
-                className="border-b border-border/80 bg-gradient-to-r from-amber-500/[0.08] via-muted/50 to-transparent px-5 py-4 text-base text-muted-foreground sm:px-6"
-                role="status"
-              >
-                No tracked time in the database for these calendar windows yet (per employee
-                timezone). Week and month totals use the same windows. After the desktop app syncs,
-                numbers populate here. If you already track time, confirm the API URL and Postgres{' '}
-                <code className="text-sm">TimeSession</code> rows for your org.
-              </div>
-            ) : null}
             <table
               className={cn(
                 'w-full border-collapse text-left text-base',
@@ -408,11 +384,7 @@ export function TeamActivityPanel() {
                         ) : (
                           <span
                             className="flex h-full items-center justify-center px-1.5 text-center text-xs text-muted-foreground/75"
-                            title={
-                              u.last_active
-                                ? 'No screenshot yet. Confirm storage credentials so the desktop app can upload captures.'
-                                : undefined
-                            }
+                            title={u.last_active ? 'No screenshot yet' : undefined}
                           >
                             {u.last_active ? 'No shot' : '—'}
                           </span>

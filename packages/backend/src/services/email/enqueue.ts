@@ -22,6 +22,14 @@ export type TransactionalEmailJob =
       token: string
     }
   | {
+      kind: 'welcomeSetPassword'
+      to: string
+      appUrl: string
+      token: string
+      orgName: string
+      recipientName: string
+    }
+  | {
       kind: 'invite'
       to: string
       appUrl: string

@@ -5,6 +5,7 @@ import { verifyEmailHtml } from './templates/verifyEmail.js'
 import { welcomeEmailHtml } from './templates/welcomeEmail.js'
 import { passwordChangedHtml } from './templates/passwordChanged.js'
 import { planUpgradeHtml } from './templates/planUpgrade.js'
+import { welcomeSetPasswordHtml } from './templates/welcomeSetPassword.js'
 
 /** Default outbound sender: display name + support@tracksync.dev. Override with RESEND_FROM. */
 function resolveFromAddress(): string {
@@ -108,6 +109,28 @@ export async function sendResetPasswordEmail(
     return await sendEmail({ to, subject, html })
   } catch (err) {
     console.error('[email] sendResetPasswordEmail failed', err)
+    return { success: false, error: toErrorMessage(err) }
+  }
+}
+
+/**
+ * First-time password setup (e.g. new organization owner) — welcome tone, same secure link pattern as reset.
+ */
+export async function sendWelcomeSetPasswordEmail(
+  to: string,
+  params: {
+    recipientName: string
+    orgName: string
+    setPasswordLink: string
+    expiresIn: string
+  }
+): Promise<SendEmailResult> {
+  try {
+    const subject = `Welcome to TrackSync — set your password for ${params.orgName}`
+    const html = welcomeSetPasswordHtml(params)
+    return await sendEmail({ to, subject, html })
+  } catch (err) {
+    console.error('[email] sendWelcomeSetPasswordEmail failed', err)
     return { success: false, error: toErrorMessage(err) }
   }
 }

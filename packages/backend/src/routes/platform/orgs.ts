@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
-import { randomUUID } from 'crypto'
+import { randomBytes, randomUUID } from 'crypto'
 import { z } from 'zod'
 import { prisma } from '../../db/prisma.js'
 import { getRedis } from '../../db/redis.js'
@@ -24,6 +24,8 @@ import {
 } from '../../lib/org-settings-fields.js'
 import { registerOrgReportJobs } from '../../lib/report-jobs.js'
 import { allocateUniqueOrgSlug, isPrismaUniqueOnOrganizationSlug } from '../../lib/org-slug.js'
+import { isPrismaUniqueOnUserEmail } from '../../lib/user-email-availability.js'
+import { PASSWORD_RESET_TOKEN_TTL_SEC } from '../auth/password-reset.js'
 
 const orgSettingsForCreateSchema = orgSettingsScalarPatchSchema.omit({ work_platform: true })
 
@@ -36,7 +38,7 @@ const createOrgBody = z.object({
   org_name: z.string().min(1),
   full_name: z.string().min(1),
   email: z.string().email(),
-  password: z.string().min(8),
+  password: z.string().min(8).optional(),
   data_region: z.string().optional(),
   work_platform: workPlatformSchema.optional(),
   settings: orgSettingsForCreateSchema.optional(),
@@ -96,8 +98,25 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
       preHandler: [authenticate, requirePlatformAdminOrOrgSuperAdmin()],
     },
     async (request: FastifyRequest) => {
+      const req = request as AuthenticatedRequest
+      const user = req.user!
       const parsed = listOrgsQuery.safeParse(request.query)
       const q = parsed.success ? parsed.data : { page: 1, limit: 50 }
+
+      // Org owners (OWNER role, non-platform-admin) may only see their own org.
+      if (!user.is_platform_admin) {
+        const org = await prisma.organization.findUnique({
+          where: { id: user.org_id },
+          select: { id: true, name: true, slug: true, status: true, plan: true, created_at: true },
+        })
+        return {
+          organizations: org ? [org] : [],
+          total: org ? 1 : 0,
+          page: 1,
+          limit: q.limit,
+        }
+      }
+
       const [organizations, total] = await Promise.all([
         prisma.organization.findMany({
           select: {
@@ -135,8 +154,7 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
       if (!body.success) {
         return reply.status(400).send({ code: 'VALIDATION_ERROR', errors: body.error.flatten() })
       }
-      const { org_name, full_name, email, password, data_region, work_platform, settings } =
-        body.data
+      const { org_name, full_name, email, data_region, work_platform, settings } = body.data
 
       try {
         if (settings) assertActivityWeightsSum(settings, null)
@@ -151,7 +169,8 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
         throw e
       }
 
-      const password_hash = await hashPassword(password)
+      // Random hash until the admin sets their own password via the reset link (no known password).
+      const password_hash = await hashPassword(randomBytes(32).toString('hex'))
       let userId = ''
       let slug = ''
 
@@ -181,6 +200,12 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
               message: 'Please use a work email address',
             })
           }
+          if (errObj?.code === 'EMAIL_IN_USE') {
+            return reply.status(409).send({
+              code: 'EMAIL_IN_USE',
+              message: 'This email is already registered on TrackSync.',
+            })
+          }
           if (errObj?.code === 'P2002' && isPrismaUniqueOnOrganizationSlug(err)) {
             if (attempt === maxSlugAttempts - 1) {
               return reply.status(409).send({
@@ -189,6 +214,12 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
               })
             }
             continue
+          }
+          if (errObj?.code === 'P2002' && isPrismaUniqueOnUserEmail(err)) {
+            return reply.status(409).send({
+              code: 'EMAIL_IN_USE',
+              message: 'This email is already registered on TrackSync.',
+            })
           }
           if (errObj?.code === 'P2002') {
             return reply.status(400).send({
@@ -221,20 +252,24 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
         )
       }
 
-      const verifyToken = randomUUID()
       const redis = getRedis(config)
-      await redis.set(`email:verify:${verifyToken}`, userId, 'EX', 86400)
+      const resetToken = randomBytes(32).toString('hex')
+      await redis.set(`password:reset:${resetToken}`, userId, 'EX', PASSWORD_RESET_TOKEN_TTL_SEC)
 
       void enqueueTransactionalEmail({
-        kind: 'verify',
+        kind: 'welcomeSetPassword',
         to: email.toLowerCase(),
         appUrl: config.APP_URL,
-        userName: full_name,
-        token: verifyToken,
-      }).catch((err) => fastify.log.error({ err }, 'Failed to enqueue verification email'))
+        token: resetToken,
+        orgName: org_name,
+        recipientName: full_name,
+      }).catch((err) =>
+        fastify.log.error({ err }, 'Failed to enqueue admin welcome set-password email')
+      )
 
       return reply.status(201).send({
-        message: 'Organization created. Verification email sent to the admin user.',
+        message:
+          'Organization created. A secure link was emailed so the admin can set their password and sign in.',
         organization: org,
         user_id: userId,
       })
@@ -340,7 +375,18 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
       preHandler: [authenticate, requirePlatformAdminOrOrgSuperAdmin()],
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
+      const req = request as AuthenticatedRequest
+      const user = req.user!
       const { orgId } = request.params as { orgId: string }
+
+      // Org owners (non-platform-admin) may only query users in their own org.
+      if (!user.is_platform_admin && orgId !== user.org_id) {
+        return reply.status(403).send({
+          code: 'FORBIDDEN',
+          message: 'You may only view users in your own organization',
+        })
+      }
+
       const org = await prisma.organization.findUnique({
         where: { id: orgId },
         select: { id: true },
@@ -427,12 +473,13 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
       }
 
       const existingUser = await prisma.user.findFirst({
-        where: { email: emailLower, org_id: orgId },
+        where: { email: emailLower },
+        select: { id: true },
       })
       if (existingUser) {
         return reply.status(409).send({
-          code: 'USER_EXISTS',
-          message: 'A user with this email already exists in this organization',
+          code: 'EMAIL_IN_USE',
+          message: 'This email is already registered on TrackSync.',
         })
       }
 
@@ -460,10 +507,16 @@ export async function platformOrgRoutes(fastify: FastifyInstance, opts: { config
         })
       } catch (err: unknown) {
         const errObj = err as { code?: string }
+        if (errObj?.code === 'P2002' && isPrismaUniqueOnUserEmail(err)) {
+          return reply.status(409).send({
+            code: 'EMAIL_IN_USE',
+            message: 'This email is already registered on TrackSync.',
+          })
+        }
         if (errObj?.code === 'P2002') {
           return reply.status(409).send({
             code: 'USER_EXISTS',
-            message: 'A user with this email already exists in this organization',
+            message: 'Could not create user due to a unique constraint conflict.',
           })
         }
         throw err

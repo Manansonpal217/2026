@@ -442,10 +442,14 @@ function SecurityTab({
           />
           <SwitchRow
             id="allow_offline"
-            label="Allow employees to add offline time"
+            label="Employees record offline time themselves (no manager approval)"
             checked={form.allow_employee_offline_time}
             onCheckedChange={(v) => setForm((f) => ({ ...f, allow_employee_offline_time: v }))}
           />
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            When off, employees still submit offline time; entries stay pending until a manager
+            approves. There is no way to turn off offline time for the organization.
+          </p>
         </div>
       </section>
     </div>

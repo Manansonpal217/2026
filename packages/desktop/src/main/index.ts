@@ -2,6 +2,7 @@ import 'dotenv/config'
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Notification,
   powerMonitor,
@@ -10,6 +11,34 @@ import {
 } from 'electron'
 import type { AppUpdater } from 'electron-updater'
 import electronLog from 'electron-log'
+
+// Enforce single instance before app is ready — on Windows a second launch must
+// focus the existing window immediately, not after the ready event fires.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+  process.exit(0)
+}
+
+// Catch any unhandled errors in the main process so the app shows a dialog
+// instead of silently crashing (especially useful on Windows where log files
+// are less discoverable).
+process.on('uncaughtException', (err) => {
+  electronLog.error('[main] Uncaught exception:', err)
+  try {
+    dialog.showErrorBox(
+      'TrackSync — Unexpected Error',
+      `The app encountered an error and needs to close.\n\n${err?.message ?? String(err)}`
+    )
+  } catch {
+    // dialog may be unavailable very early in startup
+  }
+  process.exit(1)
+})
+
+process.on('unhandledRejection', (reason) => {
+  electronLog.error('[main] Unhandled rejection:', reason)
+})
+
 import { existsSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { decodeJwt } from 'jose'
@@ -471,15 +500,13 @@ app.whenReady().then(async () => {
     setTimeout(() => handleProtocolUrl(protocolUrl), 1000)
   }
 
-  const gotTheLock = app.requestSingleInstanceLock()
-  if (!gotTheLock) {
-    app.quit()
-    return
-  }
   app.on('second-instance', (_event, commandLine) => {
     const url = commandLine.find((arg) => arg.startsWith('tracksync://'))
     if (url) handleProtocolUrl(url)
-    mainWindow?.focus()
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
   })
 
   app.on('open-url', (event, url) => {
@@ -488,7 +515,17 @@ app.whenReady().then(async () => {
   })
 
   // Open SQLite database (async — must await before registering handlers that use DB)
-  await openDb()
+  try {
+    await openDb()
+  } catch (dbErr) {
+    electronLog.error('[main] Failed to open local database:', dbErr)
+    dialog.showErrorBox(
+      'TrackSync — Database Error',
+      `Could not open the local database. This may happen if the app data folder is read-only or encrypted storage is unavailable.\n\nPath: ${app.getPath('userData')}\n\nError: ${(dbErr as Error)?.message ?? String(dbErr)}\n\nTry restarting the app or reinstalling TrackSync.`
+    )
+    app.quit()
+    return
+  }
 
   // Prune old activity intervals (keep only today)
   pruneOldIntervals()

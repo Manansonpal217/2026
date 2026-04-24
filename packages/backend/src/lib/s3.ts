@@ -7,6 +7,7 @@ import {
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { Config } from '../config.js'
+import { normalizeS3Endpoint } from './normalize-s3-endpoint.js'
 
 let s3Client: S3Client | null = null
 
@@ -29,7 +30,7 @@ export function getS3Client(config: Config): S3Client {
       }),
     }
     if (endpoint) {
-      s3Config.endpoint = endpoint
+      s3Config.endpoint = normalizeS3Endpoint(endpoint)
       s3Config.forcePathStyle = cfg.S3_FORCE_PATH_STYLE ?? true
     }
     s3Client = new S3Client(s3Config)

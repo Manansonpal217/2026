@@ -36,6 +36,7 @@ async function main(): Promise<void> {
     sendResetPasswordEmail,
     sendVerifyEmail,
     sendWelcomeEmail,
+    sendWelcomeSetPasswordEmail,
     sendPasswordChangedEmail,
     sendPlanUpgradeEmail,
   } = await import('../src/services/email/emailService.js')
@@ -59,6 +60,16 @@ async function main(): Promise<void> {
         run: () =>
           sendResetPasswordEmail(to, {
             resetLink: `${base}/reset-password?token=test-reset-token`,
+            expiresIn: '1 hour',
+          }),
+      },
+      {
+        label: 'welcome set password (new org owner)',
+        run: () =>
+          sendWelcomeSetPasswordEmail(to, {
+            recipientName: 'Test Owner',
+            orgName: 'Acme Corp',
+            setPasswordLink: `${base}/reset-password?token=test-onboarding-token`,
             expiresIn: '1 hour',
           }),
       },

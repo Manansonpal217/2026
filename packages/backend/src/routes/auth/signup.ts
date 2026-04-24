@@ -10,6 +10,11 @@ import {
 } from '../../lib/create-org-with-super-admin.js'
 import { allocateUniqueOrgSlug, isPrismaUniqueOnOrganizationSlug } from '../../lib/org-slug.js'
 import type { Config } from '../../config.js'
+import { storeEmailVerificationToken } from '../../lib/email-verification-token.js'
+import {
+  findRegisteredUserByEmail,
+  isPrismaUniqueOnUserEmail,
+} from '../../lib/user-email-availability.js'
 
 const signupSchema = {
   body: {
@@ -65,6 +70,14 @@ export async function signupRoutes(fastify: FastifyInstance, opts: { config: Con
 
       const password_hash = await hashPassword(password)
 
+      const existingAccount = await findRegisteredUserByEmail(prisma, email)
+      if (existingAccount) {
+        return reply.status(409).send({
+          code: 'EMAIL_IN_USE',
+          message: 'This email is already registered on TrackSync.',
+        })
+      }
+
       let userId: string = ''
 
       const maxSlugAttempts = 8
@@ -100,7 +113,19 @@ export async function signupRoutes(fastify: FastifyInstance, opts: { config: Con
             }
             continue
           }
+          if (errObj?.code === 'EMAIL_IN_USE') {
+            return reply.status(409).send({
+              code: 'EMAIL_IN_USE',
+              message: 'This email is already registered on TrackSync.',
+            })
+          }
           if (errObj?.code === 'P2002') {
+            if (isPrismaUniqueOnUserEmail(err)) {
+              return reply.status(409).send({
+                code: 'EMAIL_IN_USE',
+                message: 'This email is already registered on TrackSync.',
+              })
+            }
             return reply.status(400).send({
               code: 'SLUG_TAKEN',
               message: 'Organization slug is already taken',
@@ -111,8 +136,7 @@ export async function signupRoutes(fastify: FastifyInstance, opts: { config: Con
       }
 
       const verifyToken = randomUUID()
-      const redis = getRedis(config)
-      await redis.set(`email:verify:${verifyToken}`, userId, 'EX', 86400)
+      await storeEmailVerificationToken(prisma, getRedis(config), userId, verifyToken)
 
       void enqueueTransactionalEmail({
         kind: 'verify',

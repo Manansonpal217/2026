@@ -12,9 +12,10 @@
     "typecheck": "tsc --noEmit",
     "generate-keys": "tsx scripts/generate-keys.ts",
     "test:s3": "tsx scripts/test-s3-upload.ts",
-    "wipe:all": "tsx scripts/wipe-all-data.ts",
+    "test:releases-bucket": "tsx scripts/test-releases-r2-bucket.ts",
+    "upload:desktop-releases": "tsx scripts/upload-desktop-releases-r2.ts",
     "email:test-all": "tsx scripts/send-test-emails.ts",
-    "create-admin": "tsx prisma/create-admin.ts"
+    "bootstrap:platform-admin": "tsx scripts/bootstrap-platform-admin.ts"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "^3.1004.0",

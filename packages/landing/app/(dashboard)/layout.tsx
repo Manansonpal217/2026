@@ -4,12 +4,11 @@ import { useSession } from 'next-auth/react'
 import { AppShellSidebar } from '@/components/AppShellSidebar'
 import { Navbar } from '@/components/Navbar'
 import { SidebarProvider } from '@/components/sidebar-context'
-import { isManagerOrAbove } from '@/lib/roles'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { data: session } = useSession()
-  const role = session?.user?.role as string | undefined
-  const showSidebar = isManagerOrAbove(role)
+  const { status } = useSession()
+  /** Match AppShellSidebar: show shell whenever not logged out (it handles loading + empty role). */
+  const showSidebar = status !== 'unauthenticated'
 
   return (
     <>

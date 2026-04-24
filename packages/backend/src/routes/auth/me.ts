@@ -33,10 +33,33 @@ export async function meRoutes(fastify: FastifyInstance, opts: { config: Config 
       }
 
       if (!fullUser.org_id || !fullUser.organization) {
-        return reply.status(403).send({
-          code: 'NO_ORGANIZATION',
-          message: 'Account is not assigned to an organization',
-        })
+        if (!fullUser.is_platform_admin) {
+          return reply.status(403).send({
+            code: 'NO_ORGANIZATION',
+            message: 'Account is not assigned to an organization',
+          })
+        }
+
+        const streak = await computeUserStreak(fullUser.id, fullUser.timezone)
+
+        return {
+          user: {
+            id: fullUser.id,
+            name: fullUser.name,
+            email: fullUser.email,
+            role: fullUser.role,
+            org_id: '',
+            org_name: '',
+            is_platform_admin: true,
+            streak,
+          },
+          org: null,
+          org_settings: null,
+          authz: {
+            access_scope: 'platform' as const,
+            permissions: [] as PermissionKey[],
+          },
+        }
       }
 
       const org = fullUser.organization

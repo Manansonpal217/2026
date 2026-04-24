@@ -15,7 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Root (run from repo root)
 
 ```bash
-pnpm setup              # Docker infra + db:push + seed (first-time setup)
+pnpm setup              # Docker infra + db:push (first-time setup)
 pnpm dev                # Start backend + landing + desktop concurrently
 pnpm dev:backend        # Backend only
 pnpm dev:landing        # Landing only
@@ -27,7 +27,6 @@ pnpm build              # Build all packages
 pnpm format             # Prettier format all TS/TSX/JSON/MD
 pnpm db:generate        # Regenerate Prisma client after schema changes
 pnpm db:push            # Push schema to DB (dev, no migration file)
-pnpm db:seed            # Seed dev data (scripts/seed.ts)
 pnpm rebuild:desktop    # Rebuild uiohook-napi + SQLCipher for Electron
 ```
 

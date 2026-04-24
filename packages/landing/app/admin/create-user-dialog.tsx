@@ -96,8 +96,8 @@ export function CreateUserDialog({
               </>
             ) : (
               <>
-                Creates an active account. Choose org super admin, admin, manager, or employee. This
-                does not make someone a platform admin.
+                Creates an active account. Choose org owner, admin, manager, or employee. This does
+                not make someone a platform admin.
               </>
             )}
             {orgSlug ? (
@@ -158,7 +158,7 @@ export function CreateUserDialog({
               <option value="employee">Employee — own activity only</option>
               <option value="manager">Manager — their team</option>
               <option value="admin">Admin — whole organization</option>
-              <option value="super_admin">Super admin — full control in this org</option>
+              <option value="super_admin">Owner — full control in this org</option>
             </select>
           </div>
         </form>

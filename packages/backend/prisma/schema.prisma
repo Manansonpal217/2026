@@ -128,7 +128,7 @@ model OrgSettings {
   idle_timeout_intervals       Int     @default(30)
   // Expected tracked time per calendar day for progress fill (minutes); default 8h.
   expected_daily_work_minutes  Int     @default(480)
-  // When true, employees may add their own offline time unless overridden per-user.
+  // When true, employees may record own offline time without manager approval; when false, they submit requests (PENDING) instead.
   allow_employee_offline_time  Boolean @default(false)
   // Agent / Jira sync preferences (JSON arrays of strings or objects as needed)
   jira_projects               Json     @default("[]")
@@ -154,7 +154,11 @@ model User {
   timezone         String     @default("UTC")
   status           UserStatus @default(ACTIVE)
   is_platform_admin Boolean   @default(false)
-  // null = follow OrgSettings.allow_employee_offline_time; true/false = override
+  // Tracks whether the user clicked the verification link from their signup email.
+  // Invited users are verified at accept-time (the invite was sent to their inbox).
+  // Existing rows are back-filled to true via migration so existing logins are unaffected.
+  email_verified    Boolean   @default(false)
+  // null = follow OrgSettings (self-service vs request-only); true = always self-service; false = cannot use offline (override)
   can_add_offline_time Boolean?
   created_at       DateTime   @default(now())
   updated_at       DateTime   @updatedAt
@@ -176,12 +180,14 @@ model User {
   notifications         Notification[]
   agent_commands      AgentCommand[]
   invites_sent        Invite[]       @relation("InvitedBy")
+  invites_as_line_manager Invite[]   @relation("InviteLineManager")
   managed_teams       Team[]         @relation("TeamManager")
   team_memberships    TeamMember[]
   work_schedules      WorkSchedule[]
   user_rates          UserRate[]
+  email_verification_tokens EmailVerificationToken[]
 
-  @@unique([email, org_id])
+  @@unique([email])
   @@index([org_id])
   @@index([org_id, status])
   @@index([email])
@@ -202,11 +208,31 @@ model RefreshToken {
   @@index([user_id, expires_at])
 }
 
+/// Pending signup email verification (mirrors Redis `email:verify:<token>` for durability).
+model EmailVerificationToken {
+  id         String   @id @default(uuid())
+  user_id    String
+  token      String   @unique
+  expires_at DateTime
+  created_at DateTime @default(now())
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([expires_at])
+}
+
 model Invite {
   id             String     @id @default(uuid())
   org_id         String
   email          String
   role           InviteRole @default(EMPLOYEE)
+  /// Trimmed given name from the inviter; combined with last_name for `User.name` at accept.
+  first_name     String     @default("")
+  /// Trimmed family name from the inviter; combined with first_name for `User.name` at accept.
+  last_name      String     @default("")
+  /// Required when `role` is EMPLOYEE: active org user (Owner/Admin/Manager) who becomes `User.manager_id` at accept.
+  manager_id     String?
   invited_by_id  String
   token          String     @unique @default(uuid())
   accepted_at    DateTime?
@@ -215,10 +241,12 @@ model Invite {
 
   organization Organization @relation(fields: [org_id], references: [id])
   invited_by   User         @relation("InvitedBy", fields: [invited_by_id], references: [id])
+  line_manager User?        @relation("InviteLineManager", fields: [manager_id], references: [id], onDelete: SetNull)
 
   @@index([org_id])
   @@index([email, org_id])
   @@index([org_id, accepted_at, expires_at])
+  @@index([manager_id])
 }
 
 model Project {
